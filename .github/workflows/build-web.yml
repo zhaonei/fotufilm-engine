@@ -15,30 +15,26 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Prepare and Build Web
+      - name: Build Web
         run: |
           cd flutter
           flutter clean
           flutter pub get
-          
-          # 1. 尝试运行项目自带的准备脚本（如果存在），生成配置文件
-          if [ -f tool/prepare.sh ]; then bash tool/prepare.sh; fi
-          if [ -f ../tool/prepare.sh ]; then bash ../tool/prepare.sh; fi
-          if [ -f prepare.sh ]; then bash prepare.sh; fi
-          
-          # 2. 编译 Web 版本
           flutter build web --wasm --release --no-web-resources-cdn
           
-          # 3. 暴力缝合：把项目里所有相关的静态资源和生成文件全部塞进输出目录
-          # 解决 bridge.js 缺失
-          cp -rn web/* build/web/ || true
-          cp -rn ../web/* build/web/ || true
-          if [ -d ../engine ]; then cp -rn ../engine/* build/web/engine/ || true; fi
+          # === 终极暴力缝合逻辑 ===
+          # 1. 全盘搜索 engine 文件夹并复制到输出目录的根目录
+          find .. -type d -name "engine" -exec cp -rn {} build/web/ \; || true
           
-          # 解决 assets/generated 配置缺失
-          mkdir -p build/web/assets/assets/generated
-          cp -rn assets/generated/* build/web/assets/assets/generated/ || true
-          cp -rn ../assets/generated/* build/web/assets/assets/generated/ || true
+          # 2. 全盘搜索 bridge.js 确保它在 engine 文件夹里
+          find .. -type f -name "bridge.js" -exec mkdir -p build/web/engine/ \; -exec cp -rn {} build/web/engine/ \; || true
+          
+          # 3. 复制所有 web 静态资源
+          if [ -d web ]; then cp -rn web/* build/web/ || true; fi
+          if [ -d ../web ]; then cp -rn ../web/* build/web/ || true; fi
+          
+          # 4. 修复缺失的 generated 配置
+          find .. -type d -name "generated" -exec mkdir -p build/web/assets/assets/generated \; -exec cp -rn {}/* build/web/assets/assets/generated/ \; || true
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
