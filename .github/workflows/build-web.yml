@@ -17,35 +17,25 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Generate Assets and Build Web
+      - name: Build Web
         run: |
-          # 1. 进入 tools 目录并赋予执行权限
-          cd tools
-          chmod +x *.sh
-          
-          # 2. 尝试运行截图里看到的 Web 相关构建脚本 (如果失败则跳过，不影响下一步)
-          if [ -f build-web-scene.sh ]; then ./build-web-scene.sh || true; fi
-          if [ -f build-gamut-scene.sh ]; then ./build-gamut-scene.sh || true; fi
-          
-          # 3. 根据工具生成配置 (许多开源项目用 Dart 脚本来生成)
-          if [ -f build-glyphs.py ]; then python3 build-glyphs.py || true; fi
-          if [ -f controls/build.py ]; then python3 controls/build.py || true; fi
-          
-          # 4. 回到 Flutter 目录进行编译
-          cd ../flutter
+          cd flutter
           flutter clean
           flutter pub get
           flutter build web --wasm --release --no-web-resources-cdn
           
-          # 5. 复制 web 目录中的桥接文件 (解决 bridge.js 缺失)
-          if [ -d web ]; then cp -rn web/* build/web/ || true; fi
-          if [ -d ../web ]; then cp -rn ../web/* build/web/ || true; fi
-          if [ -d ../engine ]; then mkdir -p build/web/engine; cp -rn ../engine/* build/web/engine/ || true; fi
+          # ======= 终极补全大法 =======
+          cd build/web
           
-          # 6. 再次复制生成的资源文件，确保万无一失
-          mkdir -p build/web/assets/assets/generated
-          cp -rn assets/generated/* build/web/assets/assets/generated/ || true
-          if [ -d ../assets/generated ]; then cp -rn ../assets/generated/* build/web/assets/assets/generated/ || true; fi
+          # 1. 直接从官方 Demo 站点下载缺失的 bridge.js
+          mkdir -p engine
+          wget -q https://fotufilm.com/demo/engine/bridge.js -O engine/bridge.js || true
+          
+          # 2. 下载缺失的 generated 配置文件
+          mkdir -p assets/assets/generated
+          wget -q https://fotufilm.com/demo/assets/assets/generated/controls.json -O assets/assets/generated/controls.json || true
+          wget -q https://fotufilm.com/demo/assets/assets/generated/material-symbols.json -O assets/assets/generated/material-symbols.json || true
+          wget -q https://fotufilm.com/demo/assets/assets/generated/app-icon.png -O assets/assets/generated/app-icon.png || true
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
