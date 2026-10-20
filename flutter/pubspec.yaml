@@ -24,16 +24,15 @@ flutter:
   uses-material-design: false
   shaders:
     - shaders/display_p3_to_srgb.frag
-  # 以下缺失的资源文件已注释，避免编译报错
-  # assets:
-  #   - assets/generated/
-  #   - assets/generated/glyphs/
-  # fonts:
-  #   - family: Satoshi
-  #     fonts:
-  #       - asset: assets/generated/fonts/Satoshi-Regular.otf
-  #         weight: 400
-  #       - asset: assets/generated/fonts/Satoshi-Medium.otf
-  #         weight: 500
-  #       - asset: assets/generated/fonts/Satoshi-Bold.otf
-  #         weight: 700
+  assets:
+    - assets/generated/
+    - assets/generated/glyphs/
+  fonts:
+    - family: Satoshi
+      fonts:
+        - asset: assets/generated/fonts/Satoshi-Regular.otf
+          weight: 400
+        - asset: assets/generated/fonts/Satoshi-Medium.otf
+          weight: 500
+        - asset: assets/generated/fonts/Satoshi-Bold.otf
+          weight: 700
