@@ -21,6 +21,9 @@ jobs:
           flutter clean
           flutter pub get
           flutter build web --wasm --release --no-web-resources-cdn
+          
+          # 把缺失的 web 静态文件和引擎桥接文件拷进去
+          cp -r web/* build/web/ || true
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
