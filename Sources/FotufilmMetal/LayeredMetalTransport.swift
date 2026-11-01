@@ -1,7 +1,6 @@
-import Foundation
 #if canImport(Metal)
+import Foundation
 import Metal
-#endif
 import FotufilmHalide
 #if canImport(FotufilmCore)
 import FotufilmCore
@@ -19,8 +18,6 @@ public enum LayeredMetalTransport {
                            outputTransform: &linear)
     }
 
-    /// The same, delivering `outputTransform`'s encoding from the development itself when the
-    /// build carries it; otherwise `outputTransform` comes back nil and the result is linear.
     public static func process(_ pixels: [Float], width: Int, height: Int, stock: FilmStock,
                                options: FotufilmEngine.Options, frameIndex: UInt64 = 0,
                                invocation: FilmEngineInvocation? = nil, pixelPitchMM: Double? = nil,
@@ -29,8 +26,6 @@ public enum LayeredMetalTransport {
               TransportBackend.metal.isAvailable else { throw TransportError.backend("Metal transport unavailable") }
         let n = width * height
         let scene = TransportScene(rgba: pixels, width: width, height: height)
-        // Heads rendered one at a time — a lens with flare or diffusion — expose the scene packed
-        // opaque, as `render` packs it, through a light grid; both are made on the first such head.
         var opaque: [Float]?, grid = [Float]()
         let light = { (head: FilmEngineInvocation, destination: UnsafeMutablePointer<Float>) throws in
             if opaque == nil {
@@ -70,9 +65,6 @@ public enum LayeredMetalTransport {
             }
             return output
         }
-        // The records develop as the develop reads them, interleaved, a donor stock's fourth in
-        // the alpha (opaque otherwise); the scene's alpha is laid back over the developed frame.
-        // The sum is let go before the development takes room of its own.
         var records = pixels
         var continuation: FilmEngineInvocation
         do {
@@ -91,9 +83,6 @@ public enum LayeredMetalTransport {
             }
             continuation = exposed.continuation
         }
-        // The kernel would premultiply by the records' alpha — opaque, or a donor's fourth
-        // record — so it encodes straight and the scene's alpha premultiplies below, on the
-        // kernel's rule.
         var premultiplies = false
         if var transform = outputTransform, encodes(continuation.featureMask) {
             premultiplies = transform.premultiplied
@@ -120,9 +109,6 @@ public enum LayeredMetalTransport {
         return output
     }
 
-    /// The scene's light under a head invocation, as the three-channel grid LIGHT_OUT produces.
-    /// Transport clears the legacy halation radii, so the grid has unit stride and retains every
-    /// source pixel. The ordinary float entry point promises RGBA and cannot receive this variant.
     private static func lightGrid(_ scene: [Float], width: Int, height: Int,
                                   _ supplied: FilmEngineInvocation, into output: inout [Float]) throws {
         var invocation = supplied
@@ -152,7 +138,6 @@ public enum LayeredMetalTransport {
                                _ lightOnly: Bool) throws -> ImageBuffer {
         let width = image.width, height = image.height, n = image.pixelCount
         var input = Array(repeating: Float(1), count: n * 4)
-        // A fourth plane is a donor stock's fourth record, read from the record input's alpha.
         let carried = image.planes.count
         input.withUnsafeMutableBufferPointer { input in
             reading(image.planes[...]) { planes in
@@ -174,13 +159,11 @@ public enum LayeredMetalTransport {
         return result
     }
 
-    /// Whether the build develops a Layered frame's records under `mask` with its encoding.
     public static func encodes(_ mask: Int32) -> Bool {
         fotufilm_halide_metal_variant_exists(
             mask | FilmEngineFeature.floatIO | FilmEngineFeature.encodeOut) == 1
     }
 
-    /// The float develop of interleaved RGBA under an invocation.
     private static func develop(_ input: [Float], width: Int, height: Int,
                                 _ supplied: FilmEngineInvocation) throws -> [Float] {
         var invocation = supplied
@@ -221,10 +204,8 @@ public enum LayeredMetalTransport {
         }
     }
 
-    /// The first three planes' storage, writable from several threads at once.
     private static func withPlanes(_ planes: inout [[Float]],
                                    _ body: ([UnsafeMutablePointer<Float>]) -> Void) {
-        // Swapped out so each plane is borrowed alone, without a copy.
         var r = [Float](), g = [Float](), b = [Float]()
         swap(&r, &planes[0]); swap(&g, &planes[1]); swap(&b, &planes[2])
         defer { swap(&r, &planes[0]); swap(&g, &planes[1]); swap(&b, &planes[2]) }
@@ -237,14 +218,12 @@ public enum LayeredMetalTransport {
         }
     }
 
-    /// Every plane's storage, read from several threads at once.
     private static func reading(_ planes: ArraySlice<[Float]>, _ gathered: [UnsafePointer<Float>] = [],
                                 _ body: ([UnsafePointer<Float>]) -> Void) {
         guard let first = planes.first else { return body(gathered) }
         first.withUnsafeBufferPointer { reading(planes.dropFirst(), gathered + [$0.baseAddress!], body) }
     }
 
-    /// Runs `body` over bands of rows in parallel.
     private static func rows(_ height: Int, _ body: (Range<Int>) -> Void) {
         let bands = min(height, 64)
         DispatchQueue.concurrentPerform(iterations: bands) { band in
@@ -252,3 +231,4 @@ public enum LayeredMetalTransport {
         }
     }
 }
+#endif
