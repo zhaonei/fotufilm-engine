@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Metal)
 import Metal
+#endif
 import FotufilmHalide
 #if canImport(FotufilmCore)
 import FotufilmCore
