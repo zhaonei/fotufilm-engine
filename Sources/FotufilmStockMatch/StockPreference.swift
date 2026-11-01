@@ -170,7 +170,7 @@ public enum StockPreference {
                 }
                 var sum = 0 as Float
                 for slot in span {
-                    probability[slot] = exp(probability[slot] + best)
+                    probability[slot] = Float(exp(Double(probability[slot] + best)))
                     sum += probability[slot]
                 }
                 guard sum > 0, sum.isFinite else { continue }
