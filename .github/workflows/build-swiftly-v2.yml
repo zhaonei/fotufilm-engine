@@ -32,24 +32,21 @@ jobs:
             libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
-      # 🌟 修复：摒弃它自带的 source 脚本，手动配置 PATH 并强制安装 6.3.3
       - name: Install matching swift.org toolchain via swiftly
         run: |
           curl -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz
           tar zxf swiftly-*.tar.gz
           
-          # 初始化，让它自己配置，但我们不 source 它的脚本
           ./swiftly init --quiet-shell-followup --assume-yes
           
-          # 🌟 核心修复 1：直接把它装好的 swiftly 路径加进系统 PATH
+          # 将 swiftly 加入 PATH
           export PATH="$HOME/.local/share/swiftly/bin:$PATH"
           echo "$HOME/.local/share/swiftly/bin" >> $GITHUB_PATH
           
-          # 🌟 核心修复 2：强制安装并切换为 6.3.3，覆盖掉它默认下载的 6.4.2
+          # 🌟 修复核心：使用 --global-default 替代 --global
           swiftly install 6.3.3
-          swiftly use 6.3.3 --global
+          swiftly use 6.3.3 --global-default
           
-          # 验证
           which swift
           swift --version
 
@@ -60,7 +57,6 @@ jobs:
           unset ANDROID_NDK_ROOT
           unset ANDROID_NDK_HOME
 
-      # 🌟 核心修复 3：不依赖 env.sh，直接用 swiftly run 执行安装
       - name: Install Android Swift SDK bundle
         run: |
           export PATH="$HOME/.local/share/swiftly/bin:$PATH"
