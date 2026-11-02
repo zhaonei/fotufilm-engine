@@ -22,15 +22,6 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Setup Swift Toolchain via Skiptools
-        uses: skiptools/swift-android-action@v2
-        with:
-          android-api-level: 28
-          swift-version: '6.3'
-          run-tests: false
-          build-tests: false
-        continue-on-error: true
-
       - name: Download Android NDK
         if: always()
         run: |
@@ -45,30 +36,42 @@ jobs:
           sudo apt-get install -y libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
+      # 🌟 使用 15:02 验证过能成功下载的官方链接
+      - name: Download Official Swift SDK
+        if: always()
+        run: |
+          echo "📦 下载官方 Swift 6.3.3 Android SDK..."
+          wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          echo "✅ 解压完成！"
+
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行最终成功版 V23 (内部写死) 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行绝对成功版 V24 🚨🚨🚨"
           
-          # 1. 设定正确的绝对路径
-          TOOLCHAIN_DIR="/home/runner/.config/swiftpm/toolchains/swift-6.4.2-RELEASE-android/usr"
+          # 🌟 核心：直接指定解压后真实存在的绝对路径
+          TOOLCHAIN_DIR="$GITHUB_WORKSPACE/swift-6.3.3-RELEASE_android.artifactbundle/swift-android/usr"
           
-          # 2. 把环境变量强行插入到 build-android.sh 的第二行（第一行是 #!/bin/bash）
+          # 强行将环境变量注入到 build-android.sh 第二行（防丢失）
           sed -i '2i export SWIFT_TOOLCHAIN="'$TOOLCHAIN_DIR'"\nexport SDKROOT="'$TOOLCHAIN_DIR'"\nexport PATH="'$TOOLCHAIN_DIR'/bin:$PATH"' flutter/build-android.sh
-          
-          # 3. 打印出来看看有没有插进去，顺便验证
-          echo "====== 检查脚本头部 ======"
-          head -n 6 flutter/build-android.sh
-          echo "========================="
           
           echo "====== 验证全局工具链 ======"
           export SWIFT_TOOLCHAIN="$TOOLCHAIN_DIR"
           export SDKROOT="$TOOLCHAIN_DIR"
           export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+          
           which swift
           swift --version
           
-          # 4. 加上可执行权限并运行
+          # 网络重试补丁（防止 ffmpeg 下载断线）
+          sudo mv /usr/bin/curl /usr/bin/curl-original
+          sudo tee /usr/bin/curl > /dev/null << 'EOF'
+          #!/bin/bash
+          /usr/bin/curl-original --retry 5 --retry-delay 3 --retry-all-errors "$@"
+          EOF
+          sudo chmod +x /usr/bin/curl
+          
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
