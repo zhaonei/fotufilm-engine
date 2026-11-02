@@ -1,15 +1,11 @@
 #!/bin/bash
-
-# 🌟 核心修复：在脚本最开头动态寻找真实的 Swift 路径并强推给环境变量
-REAL_SWIFT_BIN=$(find /home/runner -path "*/usr/bin/swift" -type f 2>/dev/null | head -n 1)
-if [ -n "$REAL_SWIFT_BIN" ]; then
-    TOOLCHAIN_DIR=$(dirname $(dirname $REAL_SWIFT_BIN))
-    export SWIFT_TOOLCHAIN="$TOOLCHAIN_DIR"
-    export SDKROOT="$TOOLCHAIN_DIR"
-    export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+# 接收外部传入的环境变量
+if [ -n "${SWIFT_TOOLCHAIN:-}" ]; then
+    export SDKROOT="$SWIFT_TOOLCHAIN"
+    export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
     echo "✅ 已成功注入 SWIFT_TOOLCHAIN: $SWIFT_TOOLCHAIN"
 else
-    echo "⚠️ 警告: 未能找到 Android Swift 工具链"
+    echo "⚠️ 警告: 外部未提供 SWIFT_TOOLCHAIN 环境变量"
 fi
 
 # Builds Fotufilm for Android: the engine library (tools/build-android-engine.sh) and the Flutter
@@ -58,9 +54,6 @@ mkdir -p build/flutter-host
 if [[ "$artifact" == apk ]]; then
   output=build/flutter-host/Fotufilm.apk
   cp "$stage/flutter/build/app/outputs/flutter-apk/app-release.apk" "$output"
-  # No local path in anything the package carries.
-  # Each entry under its own number: resource names can differ only in case, which a Mac's
-  # filesystem folds together.
   python3 -c '
 import sys, zipfile
 from pathlib import Path
