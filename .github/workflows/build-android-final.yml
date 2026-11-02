@@ -21,7 +21,6 @@ jobs:
         with:
           channel: 'stable'
 
-      # 让插件把工具链装好
       - name: Setup Swift Toolchain via Skiptools
         uses: skiptools/swift-android-action@v2
         with:
@@ -48,9 +47,9 @@ jobs:
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行最终成功版 V21 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行最终成功版 V22 (防断网重试) 🚨🚨🚨"
           
-          # 🌟 核心：直接使用插件下载的 6.4.2 路径
+          # 锁定正确的 6.4.2 路径
           export SWIFT_TOOLCHAIN="/home/runner/.config/swiftpm/toolchains/swift-6.4.2-RELEASE-android/usr"
           export SDKROOT="$SWIFT_TOOLCHAIN"
           export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
@@ -58,7 +57,15 @@ jobs:
           echo "====== 验证工具链 ======"
           which swift
           swift --version
-          echo "========================="
+          
+          # 🌟 核心网络补丁：包装 curl 命令，强制断线重试 5 次
+          echo "====== 注入 curl 重试补丁 ======"
+          sudo mv /usr/bin/curl /usr/bin/curl-original
+          sudo tee /usr/bin/curl > /dev/null << 'EOF'
+          #!/bin/bash
+          /usr/bin/curl-original --retry 5 --retry-delay 3 --retry-all-errors "$@"
+          EOF
+          sudo chmod +x /usr/bin/curl
           
           chmod +x flutter/build-android.sh
           bash flutter/build-android.sh
@@ -69,3 +76,4 @@ jobs:
         with:
           name: Fotufilm-Android-APK
           path: build/flutter-host/Fotufilm.apk
+        
