@@ -1,0 +1,64 @@
+name: Build Master APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Setup Swift Toolchain via Skiptools
+        uses: skiptools/swift-android-action@v2
+        with:
+          android-api-level: 28
+          swift-version: '6.3'
+          run-tests: false
+          build-tests: false
+        continue-on-error: true
+
+      - name: Download Android NDK
+        run: |
+          wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
+          unzip android-ndk-r26d-linux.zip
+          echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
+
+      - name: Install Halide via APT
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libhalide17-1-dev
+          echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
+
+      - name: Build Android APK
+        run: |
+          # 🌟 打网络补丁，防止下载 ffmpeg 时断线
+          sudo mv /usr/bin/curl /usr/bin/curl-original
+          sudo tee /usr/bin/curl > /dev/null << 'EOF'
+          #!/bin/bash
+          /usr/bin/curl-original --retry 5 --retry-delay 3 --retry-all-errors "$@"
+          EOF
+          sudo chmod +x /usr/bin/curl
+          
+          # 执行修改过后的脚本
+          chmod +x flutter/build-android.sh
+          ./flutter/build-android.sh
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fotufilm-Android-APK
+          path: build/flutter-host/Fotufilm.apk
