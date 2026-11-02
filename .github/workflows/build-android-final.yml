@@ -1,3 +1,4 @@
+
 name: Build Android Final
 
 on:
@@ -47,9 +48,11 @@ jobs:
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行最新代码 V2 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行最新代码 V3 🚨🚨🚨"
           echo "====== 开始搜索 Swift 工具链 ======"
-          SWIFT_BIN=$(find /home/runner -name "swift" -type f -path "*swift-android*" | head -n 1)
+          
+          # 🌟 精准搜索路径：在 .config/swiftpm/toolchains 里面找 swift 可执行文件
+          SWIFT_BIN=$(find /home/runner/.config/swiftpm/toolchains -name "swift" -type f | head -n 1)
           
           if [ -n "$SWIFT_BIN" ]; then
             TOOLCHAIN_DIR=$(dirname $(dirname $SWIFT_BIN))
@@ -58,8 +61,9 @@ jobs:
             export SDKROOT="$TOOLCHAIN_DIR"
             export PATH="$TOOLCHAIN_DIR/bin:$PATH"
           else
-            echo "⚠️ 未找到特定的 Swift 路径，尝试回退到默认配置..."
-            export SWIFT_TOOLCHAIN="/home/runner/.config/swiftpm/toolchains/swift-android/usr"
+            echo "⚠️ 未找到路径，强行指定默认版本..."
+            export SWIFT_TOOLCHAIN="/home/runner/.config/swiftpm/toolchains/swift-6.4.2-RELEASE-android/usr"
+            export SDKROOT="$SWIFT_TOOLCHAIN"
             export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
           fi
           
