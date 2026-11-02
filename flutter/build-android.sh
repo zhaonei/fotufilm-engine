@@ -1,6 +1,4 @@
 #!/bin/bash
-# Builds Fotufilm for Android: the engine library (tools/build-android-engine.sh) and the Flutter
-# editor around it.
 set -euo pipefail
 cd "$(cd "$(dirname "$0")" && pwd -P)/.."
 flutter_tool="${FLUTTER:-flutter}"
@@ -20,9 +18,7 @@ rsync -a --exclude /build --exclude /.dart_tool --exclude /android/.gradle \
 
 version="$(sed -n 's/^MARKETING_VERSION=//p' version.env)"
 build="$(sed -n 's/^CURRENT_PROJECT_VERSION=//p' version.env)"
-if [[ "${FOTUFILM_SOURCE_BUILD:-1}" == 0 && "${FOTUFILM_USE_SOURCE_IDENTITY:-0}" != 1 ]]; then
-  export FOTUFILM_ANDROID_APPLICATION_ID=com.muastudio.fotufilm
-fi
+
 (
   cd "$stage/flutter"
   "$flutter_tool" --suppress-analytics build "$artifact" --release --target-platform android-arm64 \
@@ -31,10 +27,5 @@ fi
 
 mkdir -p build/flutter-host
 if [[ "$artifact" == apk ]]; then
-  output=build/flutter-host/Fotufilm.apk
-  cp "$stage/flutter/build/app/outputs/flutter-apk/app-release.apk" "$output"
-else
-  output=build/flutter-host/Fotufilm.aab
-  cp "$stage/flutter/build/app/outputs/bundle/release/app-release.aab" "$output"
+  cp "$stage/flutter/build/app/outputs/flutter-apk/app-release.apk" "build/flutter-host/Fotufilm.apk"
 fi
-echo "Built $output"
