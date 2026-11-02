@@ -1,0 +1,74 @@
+name: Build Android OK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Download Android NDK
+        run: |
+          wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
+          unzip android-ndk-r26d-linux.zip
+          echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
+
+      - name: Install Halide via APT
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libhalide17-1-dev
+          echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
+
+      # 🌟 直接下载官方完整包（15:02 验证过绝对能下）
+      - name: Download Official Swift SDK
+        run: |
+          echo "📦 下载官方 Swift 6.3.3 Android SDK..."
+          wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          
+          # 自动在全盘搜索真正的 usr 目录
+          REAL_USR=$(find $GITHUB_WORKSPACE/swift-6.3.3-RELEASE_android.artifactbundle -type d -name "usr" | head -n 1)
+          echo "✅ 找到真实路径: $REAL_USR"
+          echo "REAL_USR=$REAL_USR" >> $GITHUB_ENV
+
+      - name: Build Android APK
+        run: |
+          echo "🚨🚨🚨 正在运行最终纯净版 V26 🚨🚨🚨"
+          
+          # 1. 设置变量
+          export SWIFT_TOOLCHAIN="$REAL_USR"
+          export SDKROOT="$REAL_USR"
+          export PATH="$REAL_USR/bin:$PATH"
+          
+          # 2. 暴力注入到脚本内部，彻底防丢
+          sed -i '2i export SWIFT_TOOLCHAIN="'$REAL_USR'"\nexport SDKROOT="'$REAL_USR'"\nexport PATH="'$REAL_USR'/bin:$PATH"' flutter/build-android.sh
+          
+          echo "====== 验证工具链 ======"
+          which swift
+          swift --version
+          echo "========================="
+          
+          # 3. 执行编译
+          chmod +x flutter/build-android.sh
+          ./flutter/build-android.sh
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fotufilm-Android-APK
+          path: build/flutter-host/Fotufilm.apk
