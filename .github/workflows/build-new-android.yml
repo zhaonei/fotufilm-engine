@@ -21,7 +21,6 @@ jobs:
         with:
           channel: 'stable'
 
-      # 🌟 核弹级依赖：把能想到的 C++ 开发库全装上，宁可错杀一千，绝不放过一个
       - name: Install ALL System Dependencies
         run: |
           sudo apt-get update
@@ -69,7 +68,7 @@ jobs:
           CLANG_DIR="/usr/lib/llvm-17/lib/cmake/clang"
           LLD_DIR="/usr/lib/llvm-17/lib/cmake/lld"
           
-          # 极其暴力的关停选项：把不需要的依赖（如Python绑定、CUDA、OpenGL）全部关掉，减少报错
+          # 🌟 核心修复：加入 Halide_SHARED_LLVM=YES 和 TARGET_WEBASSEMBLY=OFF
           cmake .. \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/android-ndk-r26d/build/cmake/android.toolchain.cmake" \
@@ -79,6 +78,8 @@ jobs:
             -DLLVM_DIR="$LLVM_DIR" \
             -DClang_DIR="$CLANG_DIR" \
             -DLLD_DIR="$LLD_DIR" \
+            -DHalide_SHARED_LLVM=YES \
+            -DTARGET_WEBASSEMBLY=OFF \
             -DWITH_PYTHON_BINDINGS=OFF \
             -DWITH_TUTORIALS=OFF \
             -DTARGET_CUDA=OFF \
