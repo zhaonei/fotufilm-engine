@@ -1,4 +1,3 @@
-
 name: Build Android New
 
 on:
@@ -34,14 +33,14 @@ jobs:
             libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev \
             libpython3-dev python3-dev swig automake autoconf libtool
 
-      # 🌟 核心 1：手动下载 Ubuntu 宿主机 Swift，解压并获取真实路径
       - name: Download Swift Host Toolchain
         run: |
           wget https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
           tar -xzf swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
           mv swift-6.3.3-RELEASE-ubuntu22.04 swift-host
-          # 写入环境变量，指向解压出来的真实路径
-          echo "SWIFT_TOOLCHAIN=$GITHUB_WORKSPACE/swift-host/usr" >> $GITHUB_ENV
+          
+          # 🌟 修复核心：去掉末尾的 /usr，让源码里的拼接逻辑正确生效
+          echo "SWIFT_TOOLCHAIN=$GITHUB_WORKSPACE/swift-host" >> $GITHUB_ENV
           echo "$GITHUB_WORKSPACE/swift-host/usr/bin" >> $GITHUB_PATH
 
       - name: Setup NDK
@@ -50,7 +49,6 @@ jobs:
           unzip android-ndk-r26d-linux.zip
           echo "ANDROID_NDK_HOME=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
 
-      # 🌟 核心 2：手动下载 Android SDK，并放到脚本期望的隐藏目录下
       - name: Download Swift Android SDK
         run: |
           wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
@@ -93,8 +91,9 @@ jobs:
 
       - name: Build APK
         run: |
-          # 再次检查一下文件是否存在
-          ls -la $SWIFT_TOOLCHAIN/bin/swiftc
+          echo "====== 验证文件是否真实存在 ======"
+          # 这行是用来打脸的，这次它绝对打得出来，因为路径对了
+          ls -la $SWIFT_TOOLCHAIN/usr/bin/swiftc
           
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
