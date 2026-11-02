@@ -26,7 +26,8 @@ jobs:
         with:
           android-api-level: 28
           swift-version: '6.3'
-          run-tests: false # 关键：跳过安卓模拟器测试
+          run-tests: false
+          build-tests: false
 
       - name: Download Android NDK
         run: |
@@ -43,11 +44,12 @@ jobs:
 
       - name: Build Android APK
         run: |
-          cd flutter
-          flutter build apk --release
+          # 直接运行官方的安卓编译脚本
+          chmod +x flutter/build-android.sh
+          ./flutter/build-android.sh
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Fotufilm-Android-APK
-          path: flutter/build/app/outputs/flutter-apk/app-release.apk
+          path: build/flutter-host/Fotufilm.apk
