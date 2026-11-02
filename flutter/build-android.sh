@@ -1,4 +1,8 @@
+
 #!/bin/bash
+# 🌟 暴力注入：强行把宿主机 Swift 路径写死，防止子脚本丢失
+export SWIFT_TOOLCHAIN="$HOME/.local/share/swiftly/toolchains/6.3.3/usr"
+export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
 set -euo pipefail
 cd "$(cd "$(dirname "$0")" && pwd -P)/.."
 flutter_tool="${FLUTTER:-flutter}"
