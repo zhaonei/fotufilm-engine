@@ -30,26 +30,21 @@ jobs:
             libz3-dev pkg-config tzdata zlib1g-dev \
             cmake make g++ automake autoconf libtool
 
-      # 🌟 核心修复：加入 export PATH，让系统立刻认识 swiftly
+      # 1. 成功安装宿主机 Swift 6.3.3
       - name: Install Swift 6.3.3
         run: |
           curl -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz
           tar zxf swiftly-*.tar.gz
           ./swiftly init --quiet-shell-followup --assume-yes
-          
-          # 【修复点】：强行把 swiftly 导入当前环境
           export PATH="$HOME/.local/share/swiftly/bin:$PATH"
           echo "$HOME/.local/share/swiftly/bin" >> $GITHUB_PATH
           
           swiftly install 6.3.3
           swiftly use 6.3.3 --global-default
           
-          # 强行把 6.3.3 的编译器路径塞进系统
           echo "$HOME/.local/share/swiftly/toolchains/6.3.3/usr/bin" >> $GITHUB_PATH
           export PATH="$HOME/.local/share/swiftly/toolchains/6.3.3/usr/bin:$PATH"
-          
-          which swift
-          swift --version
+          which swift && swift --version
 
       - name: Setup NDK
         run: |
@@ -58,10 +53,12 @@ jobs:
           unset ANDROID_NDK_ROOT
           unset ANDROID_NDK_HOME
 
+      # 2. 🌟 核心修复：换成 Swift 官方发布的 6.3.3 SDK 包
       - name: Install Swift Android SDK
         run: |
-          wget https://github.com/finagolfin/swift-android-sdk/releases/download/6.3.3/swift-6.3.3-RELEASE-android-24-0.1.artifactbundle.tar.gz
-          swift sdk install swift-6.3.3-RELEASE-android-24-0.1.artifactbundle.tar.gz
+          # 使用官方源，保证版本严格对齐
+          wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          swift sdk install swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
           swift sdk list
 
       - name: Build Halide for Android
