@@ -35,27 +35,38 @@ jobs:
           sudo apt-get install -y libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
-      - name: Download Official Swift Android SDK
+      - name: Install Swift SDK for Android
         if: always()
         run: |
-          echo "开始下载官方 Swift 6.0.3 Android SDK..."
-          # 使用官方带 patch 版本号的正规链接
-          wget https://download.swift.org/swift-6.0.3-release/android/swift-6.0.3-RELEASE-android-24-sdk.tar.gz
-          tar -xzf swift-6.0.3-RELEASE-android-24-sdk.tar.gz
-          mv swift-6.0.3-RELEASE-android-24-sdk swift-android
-          echo "✅ SDK 下载并解压完成！"
+          echo "📦 通过官方 swift sdk install 命令安装 Android SDK..."
+          # 使用官方文档提供的 6.3.3 版本链接及校验和
+          swift sdk install https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz --checksum d160cc3206dd1886dae3fef2337af5e25ec034692cd0ec225721c56cc69da7f5
 
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行最新代码 V7 (修复官方链接) 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行最终修复版 V8 (官方 sdk install) 🚨🚨🚨"
           
-          export SWIFT_TOOLCHAIN="$GITHUB_WORKSPACE/swift-android/usr"
-          export SDKROOT="$GITHUB_WORKSPACE/swift-android/usr"
-          export PATH="$GITHUB_WORKSPACE/swift-android/usr/bin:$PATH"
+          # 获取 SDK 安装路径并设置环境变量
+          SDK_ROOT=$(swift sdk configure --show-configuration swift-6.3.3-RELEASE_android 2>/dev/null | grep -oP '(?<=SDKROOT=")[^"]*')
+          if [ -z "$SDK_ROOT" ]; then
+            # 如果获取失败，尝试在默认路径查找
+            SDK_ROOT=$(find /home/runner/.swiftpm -type d -name "swift-6.3.3-RELEASE_android*" 2>/dev/null | head -n 1)
+          fi
+          
+          if [ -n "$SDK_ROOT" ]; then
+            echo "✅ 找到 SDK 路径: $SDK_ROOT"
+            export SWIFT_TOOLCHAIN="$SDK_ROOT"
+            export SDKROOT="$SDK_ROOT"
+            export PATH="$SDK_ROOT/usr/bin:$PATH"
+          else
+            echo "⚠️ 无法自动定位 SDK，尝试回退到默认路径"
+            export SWIFT_TOOLCHAIN="/home/runner/.swiftpm/swift-sdks/swift-6.3.3-RELEASE_android"
+            export SDKROOT="$SWIFT_TOOLCHAIN"
+            export PATH="$SWIFT_TOOLCHAIN/usr/bin:$PATH"
+          fi
           
           echo "====== 验证 Swift 工具链 ======"
-          ls -la $GITHUB_WORKSPACE/swift-android/usr/bin/swift || echo "找不到 swift 文件！"
           which swift
           swift --version
           
