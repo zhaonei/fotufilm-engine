@@ -56,7 +56,6 @@ jobs:
         run: |
           wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
           swift sdk install swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-          swift sdk list
 
       - name: Build Halide for Android
         run: |
@@ -68,7 +67,6 @@ jobs:
           CLANG_DIR="/usr/lib/llvm-17/lib/cmake/clang"
           LLD_DIR="/usr/lib/llvm-17/lib/cmake/lld"
           
-          # 🌟 核心修复：加入 Halide_SHARED_LLVM=YES 和 TARGET_WEBASSEMBLY=OFF
           cmake .. \
             -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/android-ndk-r26d/build/cmake/android.toolchain.cmake" \
@@ -90,10 +88,19 @@ jobs:
           ninja && ninja install
           echo "HALIDE_ROOT=$GITHUB_WORKSPACE/halide-android" >> $GITHUB_ENV
 
+      # 🌟 加入缓存：底层 C 库如果没变，直接跳过那20分钟的地狱编译
+      - name: Cache Android Deps
+        id: cache-android-deps
+        uses: actions/cache@v4
+        with:
+          path: build/android-deps
+          key: android-deps-${{ hashFiles('tools/build-android-codecs.sh') }}
+
       - name: Build APK
         run: |
-          export PATH="$HOME/.local/share/swiftly/toolchains/6.3.3/usr/bin:$PATH"
+          # 这里其实上面的脚本头部已经写死了，这里再兜底一次
           export SWIFT_TOOLCHAIN="$HOME/.local/share/swiftly/toolchains/6.3.3/usr"
+          export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
           
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
