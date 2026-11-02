@@ -1,0 +1,106 @@
+name: Build Final V7
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install ALL System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build pkg-config git gnupg2 \
+            llvm-17-dev libclang-17-dev lld-17 liblld-17-dev clang-17 \
+            libedit-dev libz3-dev libffi-dev libncurses5-dev libncursesw5-dev \
+            zlib1g-dev libzstd-dev liblz4-dev libbz2-dev liblzma-dev \
+            libjpeg-dev libpng-dev libtiff-dev libwebp-dev \
+            libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev \
+            libpython3-dev python3-dev swig automake autoconf libtool
+
+      - name: Download Swift Host Toolchain
+        run: |
+          wget https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+          tar -xzf swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+          mv swift-6.3.3-RELEASE-ubuntu22.04 swift-host
+
+      - name: Setup NDK
+        run: |
+          wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
+          unzip android-ndk-r26d-linux.zip
+
+      - name: Download Swift Android SDK
+        run: |
+          wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          mkdir -p $HOME/.swiftpm/swift-sdks
+          mv swift-6.3.3-RELEASE_android.artifactbundle.tar.gz $HOME/.swiftpm/swift-sdks/
+          cd $HOME/.swiftpm/swift-sdks/
+          tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+
+      # 🌟 核心修复：把 Halide 编译成 Linux 原生版本（供代码生成使用）
+      - name: Build Halide for Host (Linux)
+        run: |
+          wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
+          tar -xzf v17.0.1.tar.gz
+          cd Halide-17.0.1 && mkdir build-host && cd build-host
+          
+          LLVM_DIR=$(llvm-config-17 --cmakedir)
+          CLANG_DIR="/usr/lib/llvm-17/lib/cmake/clang"
+          LLD_DIR="/usr/lib/llvm-17/lib/cmake/lld"
+          
+          # 注意：这里去掉了 CMAKE_TOOLCHAIN_FILE，让它用系统默认的 g++ 编译，生成 Linux 可执行文件
+          cmake .. \
+            -G Ninja \
+            -DLLVM_DIR="$LLVM_DIR" \
+            -DClang_DIR="$CLANG_DIR" \
+            -DLLD_DIR="$LLD_DIR" \
+            -DHalide_SHARED_LLVM=YES \
+            -DTARGET_WEBASSEMBLY=OFF \
+            -DWITH_PYTHON_BINDINGS=OFF \
+            -DWITH_TUTORIALS=OFF \
+            -DTARGET_CUDA=OFF \
+            -DTARGET_OPENCL=OFF \
+            -DTARGET_VULKAN=ON \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
+            
+          ninja && ninja install
+
+      - name: Build APK
+        # 🌟 使用最严格的 env 块注入所有变量，直通底层
+        env:
+          SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
+          SWIFT_SDK: swift-6.3.3-RELEASE_android
+          ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r26d
+          HALIDE_ROOT: ${{ github.workspace }}/build/halide-host
+        run: |
+          echo "====== 最终校验 ======"
+          echo "Swift: $SWIFT_TOOLCHAIN/usr/bin/swiftc"
+          ls -la $SWIFT_TOOLCHAIN/usr/bin/swiftc
+          echo "Halide: $HALIDE_ROOT/bin/GenGen"
+          ls -la $HALIDE_ROOT/bin/GenGen
+          echo "======================"
+          
+          chmod +x flutter/build-android.sh
+          ./flutter/build-android.sh
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fotufilm-Android-APK
+          path: build/flutter-host/Fotufilm.apk
