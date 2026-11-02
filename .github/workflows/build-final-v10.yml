@@ -1,4 +1,4 @@
-name: Build Final V12
+name: Build Final V13
 
 on:
   workflow_dispatch:
@@ -33,9 +33,11 @@ jobs:
             libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev \
             libpython3-dev python3-dev swig automake autoconf libtool
 
-      # 🌟 终极保命技能：增加 4GB 虚拟内存（Swap），防止后续 Swift 编译内存溢出
+      # 🌟 修复 Swap 创建：先强制关闭并删除已有的 swapfile，再重新创建
       - name: Enable Swap
         run: |
+          sudo swapoff -a || true
+          sudo rm -f /swapfile
           sudo fallocate -l 4G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
@@ -60,7 +62,6 @@ jobs:
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
-      # 🌟 核心替换：直接下载官方预编译好的 Halide 成品
       - name: Download Prebuilt Halide for Linux
         run: |
           echo "正在下载官方预编译 Halide..."
