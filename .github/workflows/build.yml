@@ -28,15 +28,17 @@ jobs:
           swift-version: '6.3'
           run-tests: false
           build-tests: false
-        continue-on-error: true # 🌟 强行跳过测试脚本的报错
+        continue-on-error: true # 允许报错继续
 
       - name: Download Android NDK
+        if: always() # 🌟 核心：强行继续
         run: |
           wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
           unzip android-ndk-r26d-linux.zip
           echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
 
       - name: Download Halide
+        if: always() # 🌟 核心：强行继续
         run: |
           wget https://github.com/halide/Halide/releases/download/v17.0.1/Halide-17.0.1-x86-64-linux-6b0f3e6c22e0f6ab8f28d0b58f371cc41617481c.tar.gz
           tar -xzf Halide-17.0.1-x86-64-linux-6b0f3e6c22e0f6ab8f28d0b58f371cc41617481c.tar.gz
@@ -44,11 +46,13 @@ jobs:
           echo "HALIDE_ROOT=$GITHUB_WORKSPACE/Halide" >> $GITHUB_ENV
 
       - name: Build Android APK
+        if: always() # 🌟 核心：强行继续
         run: |
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
       - name: Upload APK
+        if: always() # 🌟 核心：强行继续
         uses: actions/upload-artifact@v4
         with:
           name: Fotufilm-Android-APK
