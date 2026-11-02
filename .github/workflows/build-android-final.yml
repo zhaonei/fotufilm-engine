@@ -1,3 +1,4 @@
+
 name: Build Android Final
 
 on:
@@ -46,24 +47,15 @@ jobs:
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行最终修复版 V11 (自动寻路版) 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行最终修复版 V12 (死磕路径版) 🚨🚨🚨"
           
-          # 自动去 artifactbundle 文件夹里寻找真实的 usr 目录
-          SDK_USR_DIR=$(find $GITHUB_WORKSPACE/swift-6.3.3-RELEASE_android.artifactbundle -type d -name "usr" | head -n 1)
-          
-          if [ -n "$SDK_USR_DIR" ]; then
-            echo "✅ 成功探测到真实的 SDK 路径: $SDK_USR_DIR"
-            export SWIFT_TOOLCHAIN="$SDK_USR_DIR"
-            export SDKROOT="$SDK_USR_DIR"
-            export PATH="$SDK_USR_DIR/bin:$PATH"
-          else
-            echo "❌ 探测失败，强制使用相对路径..."
-            export SWIFT_TOOLCHAIN="$GITHUB_WORKSPACE/swift-6.3.3-RELEASE_android.artifactbundle/swift-6.3.3-RELEASE_android/usr"
-            export SDKROOT="$SWIFT_TOOLCHAIN"
-            export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
-          fi
+          # 根据上一次的日志，直接硬编码最精确的路径
+          export SWIFT_TOOLCHAIN="$GITHUB_WORKSPACE/swift-6.3.3-RELEASE_android.artifactbundle/swift-android/usr"
+          export SDKROOT="$SWIFT_TOOLCHAIN"
+          export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
           
           echo "====== 验证 Swift 工具链 ======"
+          ls -la $SWIFT_TOOLCHAIN/bin/swift
           which swift
           swift --version
           echo "==============================="
