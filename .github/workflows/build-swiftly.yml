@@ -1,0 +1,81 @@
+name: Build Swiftly APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
+            libgcc-9-dev libpython3.8 libsqlite3-0 libstdc++-9-dev libxml2-dev \
+            libz3-dev pkg-config tzdata zlib1g-dev \
+            cmake make g++ automake autoconf libtool \
+            libhalide17-1-dev
+          echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
+
+      # 1. 安装 swiftly 及精确匹配的宿主机 Swift 版本
+      - name: Install matching swift.org toolchain via swiftly
+        run: |
+          curl -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz
+          tar zxf swiftly-*.tar.gz
+          ./swiftly init --quiet-shell-followup --assume-yes
+          source ~/.swiftly/env.sh
+          hash -r
+          swiftly install 6.3.3
+          swiftly use 6.3.3 --global
+          which swift
+          swift --version
+
+      # 2. 清空 GitHub Runner 自带的干扰变量（关键！）
+      - name: Neutralize Android env conflicts
+        run: |
+          # 清空环境变量
+          echo "ANDROID_NDK_ROOT=" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=" >> $GITHUB_ENV
+          # 同时在当前 shell 中 unset，确保立即生效
+          unset ANDROID_NDK_ROOT
+          unset ANDROID_NDK_HOME
+
+      # 3. 用同一个 swift 安装指定的 Android SDK
+      - name: Install Android Swift SDK bundle
+        run: |
+          source ~/.swiftly/env.sh
+          # 使用官方推荐的 finagolfin 提供的编译好的包
+          swiftly run swift sdk install https://github.com/finagolfin/swift-android-sdk/releases/download/6.3.3/swift-6.3.3-RELEASE-android-24-0.1.artifactbundle.tar.gz
+          swiftly run swift sdk list
+
+      # 4. 执行编译
+      - name: Build Android APK
+        run: |
+          source ~/.swiftly/env.sh
+          
+          # 🌟 核心：强制传递 --swift-sdk 参数。注意这里由于执行的是项目的脚本，我们需要把环境变量传给脚本
+          # 由于官方脚本是裸跑 swift build 的，我们需要修改一下执行方式，或者通过 wrapper 拦截
+          
+          # 为了不深改官方脚本，我们强制导出正确的 PATH
+          export PATH=$(dirname $(which swift)):$PATH
+          
+          chmod +x flutter/build-android.sh
+          ./flutter/build-android.sh
+          
+          # 如果脚本内部还是报错，那说明它内部写死了 SWIFT_TOOLCHAIN 的判断
+          # 此时你需要在脚本里把那个判断删掉，或者在这里强行指定
