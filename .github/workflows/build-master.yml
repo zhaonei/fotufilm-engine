@@ -21,15 +21,6 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Setup Swift Toolchain via Skiptools
-        uses: skiptools/swift-android-action@v2
-        with:
-          android-api-level: 28
-          swift-version: '6.3'
-          run-tests: false
-          build-tests: false
-        continue-on-error: true
-
       - name: Download Android NDK
         run: |
           wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
@@ -42,9 +33,21 @@ jobs:
           sudo apt-get install -y libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
+      # 🌟 手动下载官方 Swift SDK 并解压，不走任何第三方插件
+      - name: Download Swift Android SDK
+        run: |
+          echo "📦 正在下载官方 Swift SDK..."
+          wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          
+          # 精确写入绝对路径（根据解压包内部结构）
+          SWIFT_PATH="$GITHUB_WORKSPACE/swift-6.3.3-RELEASE_android.artifactbundle/swift-android/usr"
+          echo "SWIFT_TOOLCHAIN=$SWIFT_PATH" >> $GITHUB_ENV
+          echo "✅ 官方 Swift SDK 路径已设定：$SWIFT_PATH"
+
       - name: Build Android APK
         run: |
-          # 🌟 打网络补丁，防止下载 ffmpeg 时断线
+          # 打网络补丁，防止下载 ffmpeg 断线
           sudo mv /usr/bin/curl /usr/bin/curl-original
           sudo tee /usr/bin/curl > /dev/null << 'EOF'
           #!/bin/bash
@@ -52,7 +55,7 @@ jobs:
           EOF
           sudo chmod +x /usr/bin/curl
           
-          # 执行修改过后的脚本
+          # 运行构建脚本（此时 SWIFT_TOOLCHAIN 已经在环境变量里了）
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
