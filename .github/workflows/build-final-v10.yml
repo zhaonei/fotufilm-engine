@@ -1,4 +1,4 @@
-name: Build Final V19
+name: Build Final V20
 
 on:
   workflow_dispatch:
@@ -21,7 +21,6 @@ jobs:
         with:
           channel: 'stable'
 
-      # 安装系统依赖（去掉了 libhalide17-1-dev，改为后面手动编译）
       - name: Install ALL System Dependencies
         run: |
           sudo apt-get update
@@ -34,7 +33,6 @@ jobs:
             libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev \
             libpython3-dev python3-dev swig automake autoconf libtool
 
-      # 开启 4GB 虚拟内存（极其关键，保命用）
       - name: Enable Swap
         run: |
           sudo swapoff -a || true
@@ -63,8 +61,8 @@ jobs:
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
-      # 🌟 核心补丁：从源码编译 Halide，强制单线程(-j1)防 OOM，且务必开启 Vulkan
-      - name: Build Halide Host (Compile from Source)
+      # 🌟 核心修复：只编译 GenGen 和 Halide 库，跳过 3000 多个测试文件！
+      - name: Build Halide Host (Targeted)
         run: |
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
           tar -xzf v17.0.1.tar.gz
@@ -87,34 +85,24 @@ jobs:
             -DTARGET_VULKAN=ON \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
             
-          # ⚠️ 强制单线程编译，哪怕跑到天荒地老，也绝不会爆内存
-          ninja -j1
+          # 🎯 精准打击：只生成 GenGen 工具和 Halide 核心库
+          echo "开始精准编译..."
+          ninja GenGen Halide
           ninja install
           
-          # 强行把生成的 GenGen 和头文件找出来，放到项目脚本期望的位置
-          echo "====== 寻找并复制 GenGen ======"
-          GENGEN_BIN=$(find . -name "GenGen" -type f | head -n 1)
-          mkdir -p $GITHUB_WORKSPACE/build/halide-host/bin
-          cp "$GENGEN_BIN" $GITHUB_WORKSPACE/build/halide-host/bin/
-          chmod +x $GITHUB_WORKSPACE/build/halide-host/bin/GenGen
+          echo "====== 验证产物 ======"
+          ls -la $GITHUB_WORKSPACE/build/halide-host/bin/GenGen
+          ls -la $GITHUB_WORKSPACE/build/halide-host/include/Halide.h
 
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
           SWIFT_SDK: swift-6.3.3-RELEASE_android
           ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r27d
-          # 让编译器去我们刚刚手动编译出来的路径找 Halide
           HALIDE_ROOT: ${{ github.workspace }}/build/halide-host
           MAKEFLAGS: "-j2"
           CMAKE_BUILD_PARALLEL_LEVEL: "2"
         run: |
-          echo "====== 最终环境校验 ======"
-          ls -la $SWIFT_TOOLCHAIN/usr/bin/swiftc
-          ls -la $HALIDE_ROOT/bin/GenGen
-          # 验证头文件确实在这个路径
-          ls -la $HALIDE_ROOT/include/Halide.h
-          echo "========================="
-          
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
@@ -124,3 +112,4 @@ jobs:
         with:
           name: Fotufilm-Android-APK
           path: build/flutter-host/Fotufilm.apk
+
