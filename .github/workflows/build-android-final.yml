@@ -21,6 +21,15 @@ jobs:
         with:
           channel: 'stable'
 
+      - name: Setup Swift Android Toolchain
+        uses: skiptools/swift-android-action@v2
+        with:
+          android-api-level: 28
+          swift-version: '6.3'
+          run-tests: false
+          build-tests: false
+        continue-on-error: true
+
       - name: Download Android NDK
         if: always()
         run: |
@@ -35,29 +44,27 @@ jobs:
           sudo apt-get install -y libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
-      - name: Setup Swift Android SDK Manually
-        if: always()
-        run: |
-          # 🌟 直接从 swift.org 官方下载针对 Android 编译的 SDK
-          wget https://download.swift.org/swift-6.0.3-release/android/swift-6.0.3-RELEASE-android-24-sdk.tar.gz
-          tar -xzf swift-6.0.3-RELEASE-android-24-sdk.tar.gz
-          mv swift-6.0.3-RELEASE-android-24-sdk swift-android
-          
-          # 强行把路径写进环境变量，告诉脚本这就是你要的 Swift
-          echo "SWIFT_TOOLCHAIN=$GITHUB_WORKSPACE/swift-android/usr" >> $GITHUB_ENV
-          echo "SDKROOT=$GITHUB_WORKSPACE/swift-android/usr" >> $GITHUB_ENV
-          echo "$GITHUB_WORKSPACE/swift-android/usr/bin" >> $GITHUB_PATH
-
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行最新代码 V4 (手动安装 SDK) 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行最新代码 V5 (强行定位) 🚨🚨🚨"
           
-          echo "====== 验证当前的 Swift 工具链 ======"
+          # 用通配符抓取刚刚 skiptools 下载的安卓版 Swift 路径
+          REAL_SWIFT_PATH=$(find /home/runner/.config/swiftpm/toolchains -maxdepth 1 -type d -name "swift-*-RELEASE-android" | head -n 1)
+          
+          if [ -n "$REAL_SWIFT_PATH" ]; then
+            echo "✅ 抓到真实的 Swift 路径: $REAL_SWIFT_PATH"
+            export SWIFT_TOOLCHAIN="$REAL_SWIFT_PATH/usr"
+            export SDKROOT="$REAL_SWIFT_PATH/usr"
+            export PATH="$REAL_SWIFT_PATH/usr/bin:$PATH"
+          else
+            echo "❌ 彻底没找到，说明下载真的挂了，准备报错。"
+          fi
+          
+          echo "====== 当前使用的 Swift 版本 ======"
           which swift
           swift --version
           
-          # 运行构建
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
