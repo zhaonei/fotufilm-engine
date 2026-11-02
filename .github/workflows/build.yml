@@ -1,4 +1,4 @@
-name: Build Optimized Fotufilm
+name: Build Fotufilm Android APK
 
 on:
   workflow_dispatch:
@@ -7,27 +7,46 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      - name: Inject Memory Reclaim & Build
+      - name: Setup Swift Android Toolchain
+        uses: skiptools/swift-android-action@v2
+        with:
+          android-api-level: 28
+          swift-version: '6.3'
+
+      - name: Download Android NDK
         run: |
-          # [AI 补丁] 强行注入显存强制回收代码到 JS 引擎中
-          echo "Injecting GPU memory reclaim..."
-          find web/ -name "*.js" -exec sed -i '1i function forceDestroyGPUResources() { if(globalThis.__bufs){ for(const b of globalThis.__bufs){try{b.destroy()}catch(e){}} } globalThis.__bufs=[]; } window.addEventListener("beforeunload", forceDestroyGPUResources);' {} \;
-          
-          cd flutter
-          flutter build web --wasm --release
-          
-          # 把资源文件也复制进去
-          if [ -d ../web ]; then cp -rn ../web/* build/web/ || true; fi
-          
-      - name: Upload Artifact
+          wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
+          unzip android-ndk-r26d-linux.zip
+          echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
+
+      - name: Download Halide
+        run: |
+          wget https://github.com/halide/Halide/releases/download/v17.0.1/Halide-17.0.1-x86-64-linux-6b0f3e6c22e0f6ab8f28d0b58f371cc41617481c.tar.gz
+          tar -xzf Halide-17.0.1-x86-64-linux-6b0f3e6c22e0f6ab8f28d0b58f371cc41617481c.tar.gz
+          mv Halide-17.0.1-x86-64-linux Halide
+          echo "HALIDE_ROOT=$GITHUB_WORKSPACE/Halide" >> $GITHUB_ENV
+
+      - name: Build Android APK
+        run: |
+          chmod +x flutter/build-android.sh
+          ./flutter/build-android.sh
+
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: fotufilm-optimized
-          path: flutter/build/web/
+          name: Fotufilm-Android-APK
+          path: build/flutter-host/Fotufilm.apk
