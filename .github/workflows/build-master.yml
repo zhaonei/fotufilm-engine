@@ -21,7 +21,7 @@ jobs:
         with:
           channel: 'stable'
 
-      # 🌟 1. 补齐 Ubuntu 环境下编译 Swift 和底层 C++ 必须的系统依赖
+      # 1. 安装编译所需的系统依赖库
       - name: Install System Dependencies
         run: |
           sudo apt-get update
@@ -31,22 +31,18 @@ jobs:
             libz3-dev pkg-config tzdata zlib1g-dev \
             cmake make g++ automake autoconf libtool \
             libhalide17-1-dev
-            
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
-      # 🌟 2. 注入全局网络重试补丁（针对 curl 和 wget 断线自动重试 5 次）
+      # 2. 注入网络重试补丁，防止编译底层库时下载断连
       - name: Inject Network Retry Patch
         run: |
-          echo "注入网络强容错补丁..."
-          # 替换 curl
           sudo mv /usr/bin/curl /usr/bin/curl-original
           sudo tee /usr/bin/curl > /dev/null << 'EOF'
           #!/bin/bash
           /usr/bin/curl-original --retry 5 --retry-delay 3 --retry-all-errors "$@"
           EOF
           sudo chmod +x /usr/bin/curl
-          
-          # 替换 wget
+
           sudo mv /usr/bin/wget /usr/bin/wget-original
           sudo tee /usr/bin/wget > /dev/null << 'EOF'
           #!/bin/bash
@@ -60,32 +56,22 @@ jobs:
           unzip android-ndk-r26d-linux.zip
           echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
 
-      # 🌟 3. 下载 Ubuntu 宿主机 Swift 工具链（用于执行编译动作）
+      # 3. 下载 Ubuntu 宿主机 Swift 工具链
       - name: Download Swift Host Toolchain
         run: |
           wget https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
           tar -xzf swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
           mv swift-6.3.3-RELEASE-ubuntu22.04 swift-host
-          
-          # 将宿主机路径写入环境变量
-          echo "SWIFT_TOOLCHAIN=$GITHUB_WORKSPACE/swift-host/usr" >> $GITHUB_ENV
-          echo "PATH=$GITHUB_WORKSPACE/swift-host/usr/bin:$PATH" >> $GITHUB_ENV
 
-      # 🌟 4. 下载 Android 目标 Swift SDK（用于生成手机可用的二进制）
+      # 4. 下载 Android 目标 SDK
       - name: Download Swift Android SDK
         run: |
           wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
+      # 5. 执行构建
       - name: Build Android APK
         run: |
-          echo "====== 验证最终工具链 ======"
-          which swift
-          swift --version
-          echo "SWIFT_TOOLCHAIN=$SWIFT_TOOLCHAIN"
-          echo "============================"
-          
-          # 执行构建
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
