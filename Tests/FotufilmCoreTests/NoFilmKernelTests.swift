@@ -118,7 +118,7 @@ final class NoFilmKernelTests: XCTestCase {
 
     // MARK: - The fused GPU road
 
-    #if canImport(FotufilmMetal)
+    #if canImport(Metal) // 这里从 FotufilmMetal 改成了 Metal
     /// The same frame on the road the app develops on. Both roads read one `plain_print`, so
     /// this is the test that says the fused pipeline reaches it.
     func testGPUNoFilmMatchesPlainDevelop() throws {
