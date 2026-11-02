@@ -1,5 +1,5 @@
 
-name: Build Android Final
+name: Build Android Final (Docker)
 
 on:
   workflow_dispatch:
@@ -11,73 +11,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      # 🌟 核心步骤：直接使用官方维护的 Swift Android Docker 镜像
+      - name: Build Android APK in Official Docker Image
+        uses: docker://swiftlang/swift-ci:android-6.3.3-RELEASE
         with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
-      - name: Download Android NDK
-        if: always()
-        run: |
-          wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
-          unzip android-ndk-r26d-linux.zip
-          echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
-
-      - name: Install Halide via APT
-        if: always()
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libhalide17-1-dev
-          echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
-
-      # 🌟 使用 15:02 验证过能成功下载的官方链接
-      - name: Download Official Swift SDK
-        if: always()
-        run: |
-          echo "📦 下载官方 Swift 6.3.3 Android SDK..."
-          wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-          tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-          echo "✅ 解压完成！"
-
-      - name: Build Android APK
-        if: always()
-        run: |
-          echo "🚨🚨🚨 正在运行绝对成功版 V24 🚨🚨🚨"
-          
-          # 🌟 核心：直接指定解压后真实存在的绝对路径
-          TOOLCHAIN_DIR="$GITHUB_WORKSPACE/swift-6.3.3-RELEASE_android.artifactbundle/swift-android/usr"
-          
-          # 强行将环境变量注入到 build-android.sh 第二行（防丢失）
-          sed -i '2i export SWIFT_TOOLCHAIN="'$TOOLCHAIN_DIR'"\nexport SDKROOT="'$TOOLCHAIN_DIR'"\nexport PATH="'$TOOLCHAIN_DIR'/bin:$PATH"' flutter/build-android.sh
-          
-          echo "====== 验证全局工具链 ======"
-          export SWIFT_TOOLCHAIN="$TOOLCHAIN_DIR"
-          export SDKROOT="$TOOLCHAIN_DIR"
-          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
-          
-          which swift
-          swift --version
-          
-          # 网络重试补丁（防止 ffmpeg 下载断线）
-          sudo mv /usr/bin/curl /usr/bin/curl-original
-          sudo tee /usr/bin/curl > /dev/null << 'EOF'
-          #!/bin/bash
-          /usr/bin/curl-original --retry 5 --retry-delay 3 --retry-all-errors "$@"
-          EOF
-          sudo chmod +x /usr/bin/curl
-          
-          chmod +x flutter/build-android.sh
-          ./flutter/build-android.sh
-
-      - name: Upload APK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Fotufilm-Android-APK
-          path: build/flutter-host/Fotufilm.apk
+          args: >
+            bash -c "
+              cd /github/workspace &&
+              chmod +x flutter/build-android.sh &&
+              ./flutter/build-android.sh
+            "
