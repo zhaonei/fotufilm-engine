@@ -29,36 +29,41 @@ jobs:
             libgcc-9-dev libpython3.8 libsqlite3-0 libstdc++-9-dev libxml2-dev \
             libz3-dev pkg-config tzdata zlib1g-dev \
             cmake make g++ automake autoconf libtool
-          echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
-      # 1. 用 swiftly 安装绝对匹配的 Swift 6.3.3
+      # 🌟 核心修复：加入 export PATH，让系统立刻认识 swiftly
       - name: Install Swift 6.3.3
         run: |
           curl -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz
           tar zxf swiftly-*.tar.gz
           ./swiftly init --quiet-shell-followup --assume-yes
+          
+          # 【修复点】：强行把 swiftly 导入当前环境
+          export PATH="$HOME/.local/share/swiftly/bin:$PATH"
+          echo "$HOME/.local/share/swiftly/bin" >> $GITHUB_PATH
+          
           swiftly install 6.3.3
           swiftly use 6.3.3 --global-default
-          echo "$HOME/.local/share/swiftly/bin" >> $GITHUB_PATH
+          
+          # 强行把 6.3.3 的编译器路径塞进系统
           echo "$HOME/.local/share/swiftly/toolchains/6.3.3/usr/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.local/share/swiftly/toolchains/6.3.3/usr/bin:$PATH"
+          
+          which swift
+          swift --version
 
-      # 2. 安装 Android NDK 并清理环境冲突
       - name: Setup NDK
         run: |
           wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
           unzip android-ndk-r26d-linux.zip
-          # 安装完直接 unset 掉，防止干扰 Swift SDK
           unset ANDROID_NDK_ROOT
           unset ANDROID_NDK_HOME
 
-      # 3. 下载到本地安装 Android SDK (绕过远程 checksum 校验)
       - name: Install Swift Android SDK
         run: |
           wget https://github.com/finagolfin/swift-android-sdk/releases/download/6.3.3/swift-6.3.3-RELEASE-android-24-0.1.artifactbundle.tar.gz
           swift sdk install swift-6.3.3-RELEASE-android-24-0.1.artifactbundle.tar.gz
           swift sdk list
 
-      # 4. 编译底层 Halide 库 (耗时较长，严格指定 Android 架构)
       - name: Build Halide for Android
         run: |
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
@@ -73,7 +78,6 @@ jobs:
           make -j$(nproc) && make install
           echo "HALIDE_ROOT=$GITHUB_WORKSPACE/halide-android" >> $GITHUB_ENV
 
-      # 5. 执行构建
       - name: Build APK
         run: |
           export PATH="$HOME/.local/share/swiftly/toolchains/6.3.3/usr/bin:$PATH"
