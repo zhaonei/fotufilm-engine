@@ -21,15 +21,6 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Setup Swift Toolchain via Skiptools
-        uses: skiptools/swift-android-action@v2
-        with:
-          android-api-level: 28
-          swift-version: '6.3'
-          run-tests: false
-          build-tests: false
-        continue-on-error: true
-
       - name: Download Android NDK
         if: always()
         run: |
@@ -44,33 +35,42 @@ jobs:
           sudo apt-get install -y libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
+      # 🌟 直接用官方链接下载，这个链接在 14:02 的测试中是绝对成功的
+      - name: Download Official Swift Android SDK
+        if: always()
+        run: |
+          echo "📦 下载官方 Swift 6.3.3 Android SDK..."
+          wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          echo "✅ 解压完成！"
+
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行终极成功版 V16 (全盘搜索) 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行终极成功版 V17 (绝对精准定位) 🚨🚨🚨"
           
-          # 寻找官方安装的真正 Android SDK 路径
-          echo "====== 开始搜索真实的 Android SDK 路径 ======"
-          ANDROID_SWIFT_PATH=$(find /home/runner -type d -name "swift-*-android" | head -n 1)
+          # 在全盘范围内搜索，只找位于 usr/bin 目录下的 swift 可执行文件
+          echo "====== 开始精准搜索真正的 Swift 编译器 ======"
+          SWIFT_BIN=$(find . -type f -name "swift" -path "*/usr/bin/*" | head -n 1)
           
-          if [ -n "$ANDROID_SWIFT_PATH" ]; then
-            echo "✅ 找到真实的 Android SDK 路径: $ANDROID_SWIFT_PATH"
-            export SWIFT_TOOLCHAIN="$ANDROID_SWIFT_PATH/usr"
-            export SDKROOT="$SWIFT_TOOLCHAIN"
-            export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
+          if [ -n "$SWIFT_BIN" ]; then
+            # 退两级目录，找到包含 usr 的根目录
+            TOOLCHAIN_ROOT=$(dirname $(dirname $(dirname $SWIFT_BIN)))
+            echo "✅ 找到了！真正的路径是: $TOOLCHAIN_ROOT"
+            export SWIFT_TOOLCHAIN="$TOOLCHAIN_ROOT/usr"
+            export SDKROOT="$TOOLCHAIN_ROOT/usr"
+            export PATH="$TOOLCHAIN_ROOT/usr/bin:$PATH"
           else
-            echo "❌ 找不到，尝试用默认的..."
-            export SWIFT_TOOLCHAIN="/home/runner/.config/swiftpm/toolchains/swift-6.3-RELEASE/usr"
-            export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
+            echo "❌ 彻底失败，没有找到 swift 编译器。"
+            exit 1
           fi
           
-          echo "====== 验证当前的 Swift 工具链 ======"
+          echo "====== 验证工具链 ======"
           which swift
           swift --version
-          echo "====================================="
+          echo "========================="
           
           chmod +x flutter/build-android.sh
-          # 使用 bash 显式运行，确保环境变量不丢失
           bash flutter/build-android.sh
 
       - name: Upload APK
