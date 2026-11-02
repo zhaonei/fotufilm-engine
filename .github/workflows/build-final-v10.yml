@@ -1,4 +1,4 @@
-name: Build Final V22
+name: Build Final V23
 
 on:
   workflow_dispatch:
@@ -61,15 +61,16 @@ jobs:
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
-      # 🌟 终极修复：物理删除 python_bindings，彻底掐死报错源头
-      - name: Build Halide Host (No Python)
+      # 🌟 终极修复：用空文件夹骗过 CMake
+      - name: Build Halide Host (Fast & Clean)
         run: |
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
           tar -xzf v17.0.1.tar.gz
           cd Halide-17.0.1
           
-          # 🎯 斩草除根：直接删掉那个惹祸的 Python 模块
-          rm -rf python_bindings
+          # 🎯 连哄带骗：建一个空文件夹和空文件，让 CMake 的 add_subdirectory 检查通过
+          mkdir -p python_bindings
+          touch python_bindings/CMakeLists.txt
           
           mkdir build-host && cd build-host
           LLVM_DIR=$(llvm-config-17 --cmakedir)
@@ -88,9 +89,11 @@ jobs:
             -DTARGET_VULKAN=ON \
             -DWITH_TESTS=OFF \
             -DWITH_TUTORIALS=OFF \
+            -DWITH_PYTHON_BINDINGS=OFF \
+            -DWITH_DOCS=OFF \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
             
-          # 此时编译，绝对不会再碰到 Python 的坑
+          # 这次绝对不会有 Python 的坑，而且没有测试用例，几分钟就能编完
           ninja
           ninja install
           
