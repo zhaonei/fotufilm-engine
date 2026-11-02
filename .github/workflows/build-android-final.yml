@@ -22,61 +22,35 @@ jobs:
           channel: 'stable'
 
       - name: Download Android NDK
-        if: always()
         run: |
           wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
           unzip android-ndk-r26d-linux.zip
           echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
 
       - name: Install Halide via APT
-        if: always()
         run: |
           sudo apt-get update
           sudo apt-get install -y libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
-      # 🌟 彻底换回官方旧版的完整交叉编译工具链
-      - name: Download Full Swift Android Toolchain
-        if: always()
+      # 🌟 核心步骤：使用官方推荐命令安装 Swift SDK for Android
+      - name: Install Swift SDK for Android
         run: |
-          echo "📦 下载 Swift 6.0.3 完整 Android 工具链..."
-          wget https://download.swift.org/swift-6.0.3-release/android/swift-6.0.3-RELEASE-android-24-sdk.tar.gz
-          tar -xzf swift-6.0.3-RELEASE-android-24-sdk.tar.gz
-          echo "✅ 解压完成！"
+          echo "📦 正在通过 swift sdk install 安装官方 Android SDK..."
+          swift sdk install https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz --checksum d160cc3206dd1886dae3fef2337af5e25ec034692cd0ec225721c56cc69da7f5
+          
+          echo "✅ 安装完成，当前已安装的 SDK："
+          swift sdk list
 
       - name: Build Android APK
-        if: always()
         run: |
-          echo "🚨🚨🚨 正在运行终极成功版 V20 (完整工具链版) 🚨🚨🚨"
+          echo "🚨 正在验证环境并开始编译 🚨"
           
-          # 不放过任何普通文件或者快捷方式
-          echo "====== 搜索实体/链接 swift 可执行文件 ======"
-          SWIFT_BIN=$(find . -path "*/usr/bin/swift" \( -type f -o -type l \) | head -n 1)
-          
-          if [ -n "$SWIFT_BIN" ]; then
-            echo "✅ 找到了！路径是: $SWIFT_BIN"
-            USR_DIR=$(dirname $(dirname $SWIFT_BIN))
-            export SWIFT_TOOLCHAIN="$USR_DIR"
-            export SDKROOT="$USR_DIR"
-            export PATH="$USR_DIR/bin:$PATH"
-            
-            # 强行写入脚本，防止变量丢失
-            sed -i '1i export PATH="'$USR_DIR'/bin:$PATH"\nexport SWIFT_TOOLCHAIN="'$USR_DIR'"\nexport SDKROOT="'$USR_DIR'"' flutter/build-android.sh
-            
-          else
-            echo "❌ 找不到，指定绝对路径 fallback..."
-            USR_DIR="$GITHUB_WORKSPACE/swift-6.0.3-RELEASE-android-24-sdk/usr"
-            export SWIFT_TOOLCHAIN="$USR_DIR"
-            export SDKROOT="$USR_DIR"
-            export PATH="$USR_DIR/bin:$PATH"
-            sed -i '1i export PATH="'$USR_DIR'/bin:$PATH"\nexport SWIFT_TOOLCHAIN="'$USR_DIR'"\nexport SDKROOT="'$USR_DIR'"' flutter/build-android.sh
-          fi
-          
-          echo "====== 验证工具链 ======"
-          which swift
+          # 验证 Swift 编译器版本
+          echo "====== 当前 Swift 编译器版本 ======"
           swift --version
-          echo "========================="
           
+          # 直接执行构建脚本，SDK 的路径已由 swift sdk install 自动配置好
           chmod +x flutter/build-android.sh
           bash flutter/build-android.sh
 
