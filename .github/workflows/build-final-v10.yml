@@ -1,4 +1,4 @@
-name: Build Final V21
+name: Build Final V22
 
 on:
   workflow_dispatch:
@@ -61,18 +61,21 @@ jobs:
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
-      # 🌟 核心修复：使用正确的 CMake 变量关停测试，全量 ninja 就能几分钟搞定
-      - name: Build Halide Host (Fast & Clean)
+      # 🌟 终极修复：物理删除 python_bindings，彻底掐死报错源头
+      - name: Build Halide Host (No Python)
         run: |
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
           tar -xzf v17.0.1.tar.gz
-          cd Halide-17.0.1 && mkdir build-host && cd build-host
+          cd Halide-17.0.1
           
+          # 🎯 斩草除根：直接删掉那个惹祸的 Python 模块
+          rm -rf python_bindings
+          
+          mkdir build-host && cd build-host
           LLVM_DIR=$(llvm-config-17 --cmakedir)
           CLANG_DIR="/usr/lib/llvm-17/lib/cmake/clang"
           LLD_DIR="/usr/lib/llvm-17/lib/cmake/lld"
           
-          # 注意这里加入了 Halide_BUILD_TESTS=OFF 等关键参数
           cmake .. \
             -G Ninja \
             -DLLVM_DIR="$LLVM_DIR" \
@@ -83,19 +86,22 @@ jobs:
             -DTARGET_CUDA=OFF \
             -DTARGET_OPENCL=OFF \
             -DTARGET_VULKAN=ON \
-            -DHalide_BUILD_TESTS=OFF \
-            -DHalide_BUILD_TUTORIALS=OFF \
-            -DHalide_BUILD_PYTHON_BINDINGS=OFF \
-            -DHalide_BUILD_DOCS=OFF \
+            -DWITH_TESTS=OFF \
+            -DWITH_TUTORIALS=OFF \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
             
-          # 直接全量编译，不指定错误的目标名。因为关掉了测试，现在只有几百个核心文件，几分钟就能跑完
+          # 此时编译，绝对不会再碰到 Python 的坑
           ninja
           ninja install
           
-          echo "====== 验证产物 ======"
-          ls -la $GITHUB_WORKSPACE/build/halide-host/bin/GenGen || echo "依然没有 GenGen，尝试搜索"
-          ls -la $GITHUB_WORKSPACE/build/halide-host/include/Halide.h
+          echo "====== 提取 GenGen ======"
+          GENGEN_BIN=$(find . -name "GenGen" -type f | head -n 1)
+          if [ -z "$GENGEN_BIN" ]; then
+            echo "❌ 没找到 GenGen"
+            exit 1
+          fi
+          cp "$GENGEN_BIN" $GITHUB_WORKSPACE/build/halide-host/bin/
+          chmod +x $GITHUB_WORKSPACE/build/halide-host/bin/GenGen
 
       - name: Build APK
         env:
