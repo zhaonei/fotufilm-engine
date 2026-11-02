@@ -47,18 +47,18 @@ jobs:
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行终极成功版 V13 (锁死路径) 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行终极成功版 V14 (暴力注入) 🚨🚨🚨"
           
-          # 根据日志，直接把真实路径写死
-          export SWIFT_TOOLCHAIN="/home/runner/.config/swiftpm/toolchains/swift-6.3-RELEASE/usr"
-          export SDKROOT="$SWIFT_TOOLCHAIN"
-          export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
+          # 直接锁定刚才验证成功的绝对路径
+          SWIFT_USR="/home/runner/.config/swiftpm/toolchains/swift-6.3-RELEASE/usr"
           
-          echo "====== 验证 Swift 工具链 ======"
-          ls -la $SWIFT_TOOLCHAIN/bin/swift
-          which swift
-          swift --version
-          echo "==============================="
+          # 强行把环境变量写到 build-android.sh 的第一行，防止它在内部丢失
+          sed -i '1i export SWIFT_TOOLCHAIN="'$SWIFT_USR'"\nexport SDKROOT="'$SWIFT_USR'"\nexport PATH="'$SWIFT_USR'/bin:$PATH"' flutter/build-android.sh
+          
+          # 验证注入是否成功
+          echo "=== build-android.sh 前 5 行内容 ==="
+          head -n 5 flutter/build-android.sh
+          echo "===================================="
           
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
