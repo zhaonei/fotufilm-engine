@@ -1,4 +1,4 @@
-name: Build Final V15
+name: Build Final V16
 
 on:
   workflow_dispatch:
@@ -21,6 +21,7 @@ jobs:
         with:
           channel: 'stable'
 
+      # 🌟 核心修复：直接在 apt 安装依赖时加上 libhalide17-1-dev
       - name: Install ALL System Dependencies
         run: |
           sudo apt-get update
@@ -31,9 +32,10 @@ jobs:
             zlib1g-dev libzstd-dev liblz4-dev libbz2-dev liblzma-dev \
             libjpeg-dev libpng-dev libtiff-dev libwebp-dev \
             libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev \
-            libpython3-dev python3-dev swig automake autoconf libtool
+            libpython3-dev python3-dev swig automake autoconf libtool \
+            libhalide17-1-dev
 
-      # 🌟 修复 Swap 报错：先强制关闭已有 Swap，再创建
+      # 增加 4GB 虚拟内存（Swap），防止后续 Swift 编译内存溢出
       - name: Enable Swap
         run: |
           sudo swapoff -a || true
@@ -62,28 +64,18 @@ jobs:
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
-      # 🌟 改用最标准的 Release 链接（不带多余 hash），并利用刚才修好的 Swap 防 OOM
-      - name: Download Prebuilt Halide for Linux
-        run: |
-          echo "正在下载官方预编译 Halide..."
-          # 这是最标准的官方 release 下载链接，如果不通，我直接吃键盘
-          wget https://github.com/halide/Halide/releases/download/v17.0.1/Halide-17.0.1-x86-64-linux.tar.gz
-          tar -xzf Halide-17.0.1-x86-64-linux.tar.gz
-          mv Halide-17.0.1-x86-64-linux Halide-host
-          
-          echo "====== 验证 GenGen ======"
-          ls -la Halide-host/bin/GenGen || echo "❌ 包里没有 GenGen"
-
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
           SWIFT_SDK: swift-6.3.3-RELEASE_android
           ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r26d
-          HALIDE_ROOT: ${{ github.workspace }}/Halide-host
+          # 🌟 apt 会把 Halide 装到系统目录，所以根目录直接写 /usr
+          HALIDE_ROOT: /usr
         run: |
           echo "====== 最终环境校验 ======"
           ls -la $SWIFT_TOOLCHAIN/usr/bin/swiftc
-          ls -la $HALIDE_ROOT/bin/GenGen
+          # 看看 apt 自动装好的 GenGen 在不在
+          ls -la /usr/bin/GenGen || echo "尝试查找其他位置的 GenGen"
           echo "========================="
           
           chmod +x flutter/build-android.sh
