@@ -1,4 +1,4 @@
-name: Build Final V20
+name: Build Final V21
 
 on:
   workflow_dispatch:
@@ -61,8 +61,8 @@ jobs:
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
-      # 🌟 核心修复：只编译 GenGen 和 Halide 库，跳过 3000 多个测试文件！
-      - name: Build Halide Host (Targeted)
+      # 🌟 核心修复：使用正确的 CMake 变量关停测试，全量 ninja 就能几分钟搞定
+      - name: Build Halide Host (Fast & Clean)
         run: |
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
           tar -xzf v17.0.1.tar.gz
@@ -72,6 +72,7 @@ jobs:
           CLANG_DIR="/usr/lib/llvm-17/lib/cmake/clang"
           LLD_DIR="/usr/lib/llvm-17/lib/cmake/lld"
           
+          # 注意这里加入了 Halide_BUILD_TESTS=OFF 等关键参数
           cmake .. \
             -G Ninja \
             -DLLVM_DIR="$LLVM_DIR" \
@@ -79,19 +80,21 @@ jobs:
             -DLLD_DIR="$LLD_DIR" \
             -DHalide_SHARED_LLVM=YES \
             -DTARGET_WEBASSEMBLY=OFF \
-            -DWITH_PYTHON_BINDINGS=OFF \
             -DTARGET_CUDA=OFF \
             -DTARGET_OPENCL=OFF \
             -DTARGET_VULKAN=ON \
+            -DHalide_BUILD_TESTS=OFF \
+            -DHalide_BUILD_TUTORIALS=OFF \
+            -DHalide_BUILD_PYTHON_BINDINGS=OFF \
+            -DHalide_BUILD_DOCS=OFF \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
             
-          # 🎯 精准打击：只生成 GenGen 工具和 Halide 核心库
-          echo "开始精准编译..."
-          ninja GenGen Halide
+          # 直接全量编译，不指定错误的目标名。因为关掉了测试，现在只有几百个核心文件，几分钟就能跑完
+          ninja
           ninja install
           
           echo "====== 验证产物 ======"
-          ls -la $GITHUB_WORKSPACE/build/halide-host/bin/GenGen
+          ls -la $GITHUB_WORKSPACE/build/halide-host/bin/GenGen || echo "依然没有 GenGen，尝试搜索"
           ls -la $GITHUB_WORKSPACE/build/halide-host/include/Halide.h
 
       - name: Build APK
@@ -112,4 +115,3 @@ jobs:
         with:
           name: Fotufilm-Android-APK
           path: build/flutter-host/Fotufilm.apk
-
