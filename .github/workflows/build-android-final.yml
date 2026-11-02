@@ -47,22 +47,31 @@ jobs:
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行终极成功版 V15 (防断网版) 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行终极成功版 V16 (全盘搜索) 🚨🚨🚨"
           
-          # 🌟 核心：给系统的 curl 加上强制重试 5 次的补丁
-          sudo mv /usr/bin/curl /usr/bin/curl.bak
-          sudo tee /usr/bin/curl > /dev/null << 'EOF'
-          #!/bin/bash
-          /usr/bin/curl.bak --retry 5 --retry-delay 3 "$@"
-          EOF
-          sudo chmod +x /usr/bin/curl
+          # 寻找官方安装的真正 Android SDK 路径
+          echo "====== 开始搜索真实的 Android SDK 路径 ======"
+          ANDROID_SWIFT_PATH=$(find /home/runner -type d -name "swift-*-android" | head -n 1)
           
-          # 锁定刚才验证成功的 Swift 路径
-          SWIFT_USR="/home/runner/.config/swiftpm/toolchains/swift-6.3-RELEASE/usr"
-          sed -i '1i export SWIFT_TOOLCHAIN="'$SWIFT_USR'"\nexport SDKROOT="'$SWIFT_USR'"\nexport PATH="'$SWIFT_USR'/bin:$PATH"' flutter/build-android.sh
+          if [ -n "$ANDROID_SWIFT_PATH" ]; then
+            echo "✅ 找到真实的 Android SDK 路径: $ANDROID_SWIFT_PATH"
+            export SWIFT_TOOLCHAIN="$ANDROID_SWIFT_PATH/usr"
+            export SDKROOT="$SWIFT_TOOLCHAIN"
+            export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
+          else
+            echo "❌ 找不到，尝试用默认的..."
+            export SWIFT_TOOLCHAIN="/home/runner/.config/swiftpm/toolchains/swift-6.3-RELEASE/usr"
+            export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
+          fi
+          
+          echo "====== 验证当前的 Swift 工具链 ======"
+          which swift
+          swift --version
+          echo "====================================="
           
           chmod +x flutter/build-android.sh
-          ./flutter/build-android.sh
+          # 使用 bash 显式运行，确保环境变量不丢失
+          bash flutter/build-android.sh
 
       - name: Upload APK
         if: always()
