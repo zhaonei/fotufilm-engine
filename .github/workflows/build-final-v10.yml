@@ -1,4 +1,4 @@
-name: Build Final V13
+name: Build Final V14
 
 on:
   workflow_dispatch:
@@ -33,7 +33,6 @@ jobs:
             libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev \
             libpython3-dev python3-dev swig automake autoconf libtool
 
-      # 🌟 修复 Swap 创建：先强制关闭并删除已有的 swapfile，再重新创建
       - name: Enable Swap
         run: |
           sudo swapoff -a || true
@@ -62,26 +61,23 @@ jobs:
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
-      - name: Download Prebuilt Halide for Linux
+      # 从Ubuntu镜像站安装预编译好的Halide
+      - name: Install Prebuilt Halide from Ubuntu Mirror
         run: |
-          echo "正在下载官方预编译 Halide..."
-          wget https://github.com/halide/Halide/releases/download/v17.0.1/Halide-17.0.1-x86-64-linux-6b0f3e6c22e0f6ab8f28d0b58f371cc41617481c.tar.gz
-          tar -xzf Halide-17.0.1-x86-64-linux-*.tar.gz
-          mv Halide-17.0.1-x86-64-linux Halide-host
-          
-          echo "验证 GenGen 是否存在："
-          ls -la Halide-host/bin/GenGen
+          wget http://mirrors.tuna.tsinghua.edu.cn/ubuntu/pool/universe/h/halide/libhalide17-1-dev_17.0.1-1build1_amd64.deb
+          sudo dpkg -i libhalide17-1-dev_17.0.1-1build1_amd64.deb
+          sudo apt-get install -f -y
 
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
           SWIFT_SDK: swift-6.3.3-RELEASE_android
           ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r26d
-          HALIDE_ROOT: ${{ github.workspace }}/Halide-host
+          HALIDE_ROOT: /usr
         run: |
           echo "====== 最终环境校验 ======"
           ls -la $SWIFT_TOOLCHAIN/usr/bin/swiftc
-          ls -la $HALIDE_ROOT/bin/GenGen
+          ls -la /usr/bin/GenGen
           echo "========================="
           
           chmod +x flutter/build-android.sh
