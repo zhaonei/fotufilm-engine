@@ -6,9 +6,11 @@ artifact=apk
 [[ " $* " == *" --appbundle "* ]] && artifact=appbundle
 
 [[ -f "${FOTUFILM_ANDROID_DEPS:-build/android-deps}/arm64/lib/libjpeg.a" ]] || tools/build-android-codecs.sh
-tools/build-android-engine.sh
-export FOTUFILM_ANDROID_ENGINE="$PWD/flutter/build/android-engine"
 
+# 注意：如果你的 tools/build-android-engine.sh 里有检测 SWIFT_TOOLCHAIN 的代码，请去那个文件里把它删掉。
+tools/build-android-engine.sh
+
+export FOTUFILM_ANDROID_ENGINE="$PWD/flutter/build/android-engine"
 tool_dir="$PWD/flutter"
 (cd flutter && tool/prepare.sh)
 stage="$(mktemp -d /tmp/fotufilm.XXXXXX)"
@@ -18,13 +20,11 @@ rsync -a --exclude /build --exclude /.dart_tool --exclude /android/.gradle \
 
 version="$(sed -n 's/^MARKETING_VERSION=//p' version.env)"
 build="$(sed -n 's/^CURRENT_PROJECT_VERSION=//p' version.env)"
-
 (
   cd "$stage/flutter"
   "$flutter_tool" --suppress-analytics build "$artifact" --release --target-platform android-arm64 \
     --build-name "$version" --build-number "$build"
 )
-
 mkdir -p build/flutter-host
 if [[ "$artifact" == apk ]]; then
   cp "$stage/flutter/build/app/outputs/flutter-apk/app-release.apk" "build/flutter-host/Fotufilm.apk"
