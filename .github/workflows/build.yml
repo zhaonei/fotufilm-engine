@@ -25,44 +25,42 @@ jobs:
         uses: skiptools/swift-android-action@v2
         with:
           android-api-level: 28
-          swift-version: '6.3'
+          # 官方支持通过 swift-version 来指定匹配的工具链
+          swift-version: '6.3' 
           run-tests: false
           build-tests: false
-        continue-on-error: true # 允许 Swift 工具链最后的测试脚本报错而不中断
+        continue-on-error: true
 
       - name: Download Android NDK
-        if: always() # 强行继续
+        if: always()
         run: |
           wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
           unzip android-ndk-r26d-linux.zip
           echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
 
       - name: Install Halide via APT
-        if: always() # 强行继续
+        if: always()
         run: |
           sudo apt-get update
           sudo apt-get install -y libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
       - name: Build Android APK
-        if: always() # 强行继续
+        if: always()
         run: |
-          # 🌟 核心修复：自动寻找 Swift for Android 工具链路径
-          TOOLCHAIN_DIR=$(find /home/runner/.config/swiftpm/toolchains -type d -name "swift-android" | head -n 1)
-          if [ -n "$TOOLCHAIN_DIR" ]; then
-            export SWIFT_TOOLCHAIN="$TOOLCHAIN_DIR/usr"
-            echo "Found SWIFT_TOOLCHAIN at: $SWIFT_TOOLCHAIN"
-          else
-            # 如果找不到，尝试回退到默认 Swift 路径
-            export SWIFT_TOOLCHAIN=$(dirname $(dirname $(which swift)))
-            echo "Fallback SWIFT_TOOLCHAIN at: $SWIFT_TOOLCHAIN"
-          fi
-
+          # 打印环境信息，方便排查
+          echo "--- Swift Toolchain Info ---"
+          which swift
+          swift --version
+          echo "--- SDKROOT ---"
+          echo $SDKROOT
+          
+          # 运行构建脚本
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
       - name: Upload APK
-        if: always() # 强行继续
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Fotufilm-Android-APK
