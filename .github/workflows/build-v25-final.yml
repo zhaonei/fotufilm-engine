@@ -1,0 +1,88 @@
+name: Build V25 Final APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
+            libgcc-9-dev libpython3.8 libsqlite3-0 libstdc++-9-dev libxml2-dev \
+            libz3-dev pkg-config tzdata zlib1g-dev \
+            cmake make g++ automake autoconf libtool \
+            libhalide17-1-dev
+          echo "HALIDE_ROOT=/usr" | sudo tee -a /etc/environment
+
+      # 网络重试补丁
+      - name: Inject Network Retry
+        run: |
+          sudo mv /usr/bin/curl /usr/bin/curl-original
+          sudo tee /usr/bin/curl > /dev/null << 'EOF'
+          #!/bin/bash
+          /usr/bin/curl-original --retry 5 --retry-delay 3 --retry-all-errors "$@"
+          EOF
+          sudo chmod +x /usr/bin/curl
+
+      - name: Download Android NDK
+        run: |
+          wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
+          unzip android-ndk-r26d-linux.zip
+          echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26d" | sudo tee -a /etc/environment
+
+      # 下载宿主机 Swift
+      - name: Download Swift Host Toolchain
+        run: |
+          wget https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+          tar -xzf swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+          mv swift-6.3.3-RELEASE-ubuntu22.04 swift-host
+          
+          # 🌟 核心1：写入系统环境变量文件，任何进程都能读到
+          echo "SWIFT_TOOLCHAIN=$GITHUB_WORKSPACE/swift-host/usr" | sudo tee -a /etc/environment
+          echo "$GITHUB_WORKSPACE/swift-host/usr/bin" | sudo tee -a /etc/environment
+
+      # 下载安卓目标 SDK
+      - name: Download Swift Android SDK
+        run: |
+          wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+
+      - name: Build Android APK
+        run: |
+          # 🌟 核心2：把环境变量注入到当前的 shell 全局
+          export SWIFT_TOOLCHAIN="$GITHUB_WORKSPACE/swift-host/usr"
+          export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
+          
+          echo "====== 验证全局工具链 ======"
+          which swift
+          swift --version
+          echo "SWIFT_TOOLCHAIN=$SWIFT_TOOLCHAIN"
+          echo "============================"
+          
+          # 强行用 env 命令把所有变量传给子脚本
+          env SWIFT_TOOLCHAIN="$SWIFT_TOOLCHAIN" PATH="$PATH" ./flutter/build-android.sh
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fotufilm-Android-APK
+          path: build/flutter-host/Fotufilm.apk
