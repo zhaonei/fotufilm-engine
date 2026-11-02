@@ -77,6 +77,34 @@ let halideGPUCXXSettings: [CXXSetting] = []
 let appleOnlyTests: [String] = []
 #endif
 
+// 🌟 新增：在 Linux 环境下彻底禁用测试模块，避免底层 C++ 链接报错
+#if os(Linux)
+let testTargets: [Target] = []
+#else
+let testTargets: [Target] = [
+    .testTarget(
+        name: "FotufilmCoreTests",
+        dependencies: ["FotufilmCore",
+                       .target(name: "FotufilmMetal",
+                               condition: .when(platforms: [.macOS, .iOS])),
+                       "FotufilmImaging", "FotufilmStockMatch"],
+        exclude: appleOnlyTests
+    ),
+    .testTarget(
+        name: "FotufilmEditModelTests",
+        dependencies: ["FotufilmEditModel", "FotufilmCore"]
+    ),
+    .testTarget(
+        name: "FotufilmHostTests",
+        dependencies: ["FotufilmHost", "CFotufilmHost", "FotufilmPlugins"]
+    ),
+    .testTarget(
+        name: "FotufilmUpdateTests",
+        dependencies: ["FotufilmUpdate"]
+    ),
+]
+#endif
+
 let package = Package(
     name: "Fotufilm",
     platforms: [.macOS(.v13), .iOS(.v17)],
@@ -161,25 +189,5 @@ let package = Package(
                           dependencies: ["FotufilmCore", "FotufilmHalide",
                                          .target(name: "FotufilmImaging",
                                                  condition: .when(platforms: [.macOS]))]),
-        .testTarget(
-            name: "FotufilmCoreTests",
-            dependencies: ["FotufilmCore",
-                           .target(name: "FotufilmMetal",
-                                   condition: .when(platforms: [.macOS, .iOS])),
-                           "FotufilmImaging", "FotufilmStockMatch"],
-            exclude: appleOnlyTests
-        ),
-        .testTarget(
-            name: "FotufilmEditModelTests",
-            dependencies: ["FotufilmEditModel", "FotufilmCore"]
-        ),
-        .testTarget(
-            name: "FotufilmHostTests",
-            dependencies: ["FotufilmHost", "CFotufilmHost", "FotufilmPlugins"]
-        ),
-        .testTarget(
-            name: "FotufilmUpdateTests",
-            dependencies: ["FotufilmUpdate"]
-        ),
-    ] + benchmarkTargets
+    ] + testTargets + benchmarkTargets
 )
