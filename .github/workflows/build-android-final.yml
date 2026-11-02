@@ -47,18 +47,19 @@ jobs:
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行终极成功版 V14 (暴力注入) 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行终极成功版 V15 (防断网版) 🚨🚨🚨"
           
-          # 直接锁定刚才验证成功的绝对路径
+          # 🌟 核心：给系统的 curl 加上强制重试 5 次的补丁
+          sudo mv /usr/bin/curl /usr/bin/curl.bak
+          sudo tee /usr/bin/curl > /dev/null << 'EOF'
+          #!/bin/bash
+          /usr/bin/curl.bak --retry 5 --retry-delay 3 "$@"
+          EOF
+          sudo chmod +x /usr/bin/curl
+          
+          # 锁定刚才验证成功的 Swift 路径
           SWIFT_USR="/home/runner/.config/swiftpm/toolchains/swift-6.3-RELEASE/usr"
-          
-          # 强行把环境变量写到 build-android.sh 的第一行，防止它在内部丢失
           sed -i '1i export SWIFT_TOOLCHAIN="'$SWIFT_USR'"\nexport SDKROOT="'$SWIFT_USR'"\nexport PATH="'$SWIFT_USR'/bin:$PATH"' flutter/build-android.sh
-          
-          # 验证注入是否成功
-          echo "=== build-android.sh 前 5 行内容 ==="
-          head -n 5 flutter/build-android.sh
-          echo "===================================="
           
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
