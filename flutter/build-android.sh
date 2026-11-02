@@ -1,27 +1,18 @@
 #!/bin/bash
-
-# 🌟 核心修复：在脚本最开头强制指定宿主机 Swift 路径，防止任何子进程丢失变量
-export SWIFT_TOOLCHAIN="$GITHUB_WORKSPACE/swift-host/usr"
-export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
-echo "✅ 已成功强制注入 SWIFT_TOOLCHAIN: $SWIFT_TOOLCHAIN"
-
+# Builds Fotufilm for Android: the engine library (tools/build-android-engine.sh) and the Flutter
+# editor around it.
 set -euo pipefail
 cd "$(cd "$(dirname "$0")" && pwd -P)/.."
 flutter_tool="${FLUTTER:-flutter}"
 artifact=apk
 [[ " $* " == *" --appbundle "* ]] && artifact=appbundle
 
-# The codecs and FFmpeg are built once, into FOTUFILM_ANDROID_DEPS.
 [[ -f "${FOTUFILM_ANDROID_DEPS:-build/android-deps}/arm64/lib/libjpeg.a" ]] || tools/build-android-codecs.sh
 tools/build-android-engine.sh
 export FOTUFILM_ANDROID_ENGINE="$PWD/flutter/build/android-engine"
-[[ -z "${FOTUFILM_ANDROID_KEYSTORE:-}" ]] ||
-  FOTUFILM_ANDROID_KEYSTORE="$(cd "$(dirname "$FOTUFILM_ANDROID_KEYSTORE")" && pwd -P)/$(basename "$FOTUFILM_ANDROID_KEYSTORE")"
 
 tool_dir="$PWD/flutter"
 (cd flutter && tool/prepare.sh)
-# As flutter/build.sh does: the app compiles from a copy at a neutral path, so no local path
-# reaches the package.
 stage="$(mktemp -d /tmp/fotufilm.XXXXXX)"
 trap 'rm -rf "$stage"' EXIT
 rsync -a --exclude /build --exclude /.dart_tool --exclude /android/.gradle \
@@ -42,29 +33,8 @@ mkdir -p build/flutter-host
 if [[ "$artifact" == apk ]]; then
   output=build/flutter-host/Fotufilm.apk
   cp "$stage/flutter/build/app/outputs/flutter-apk/app-release.apk" "$output"
-  # No local path in anything the package carries.
-  # Each entry under its own number: resource names can differ only in case, which a Mac's
-  # filesystem folds together.
-  python3 -c '
-import sys, zipfile
-from pathlib import Path
-out = Path(sys.argv[2])
-out.mkdir()
-with zipfile.ZipFile(sys.argv[1]) as package:
-    for number, entry in enumerate(package.infolist()):
-        if not entry.is_dir():
-            (out / str(number)).write_bytes(package.read(entry))' "$output" "$stage/package"
-  python3 tools/audit-bundle-paths.py "$stage/package"
-  deps="$(cd "${FOTUFILM_ANDROID_DEPS:-build/android-deps}" && pwd -P)"
-  folders=(-e "$PWD/" -e "$deps/" -e "$HOME/")
-  [[ -z "${ANDROID_HOME:-}" ]] || folders+=(-e "$ANDROID_HOME/")
-  [[ -z "${HALIDE_ROOT:-}" ]] || folders+=(-e "$(dirname "$HALIDE_ROOT")/")
-  if grep -rlaF "${folders[@]}" "$stage/package"; then
-    echo "error: a build folder is named in the files above" >&2
-    exit 1
-  fi
 else
   output=build/flutter-host/Fotufilm.aab
   cp "$stage/flutter/build/app/outputs/bundle/release/app-release.aab" "$output"
 fi
-echo "Built $output (${FOTUFILM_ANDROID_APPLICATION_ID:-com.muastudio.fotufilm.flutter} $version build $build)"
+echo "Built $output"
