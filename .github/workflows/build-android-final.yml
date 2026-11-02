@@ -1,3 +1,4 @@
+
 name: Build Android Final
 
 on:
@@ -41,26 +42,40 @@ jobs:
           echo "📦 下载官方 Swift 6.3.3 Android SDK..."
           wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-          
-          # 直接把包内真实的绝对路径提取出来，写入环境变量，供后续所有步骤使用
-          SDK_PATH="$GITHUB_WORKSPACE/swift-6.3.3-RELEASE_android.artifactbundle/swift-android/usr"
-          echo "SWIFT_TOOLCHAIN=$SDK_PATH" >> $GITHUB_ENV
-          echo "SDKROOT=$SDK_PATH" >> $GITHUB_ENV
-          echo "$SDK_PATH/bin" >> $GITHUB_PATH
-          
-          echo "✅ 官方 SDK 解压完成，环境变量已注入系统"
+          echo "✅ 解压完成！"
 
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行终极成功版 V18 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行绝对成功版 V19 🚨🚨🚨"
           
-          echo "====== 验证当前使用的 Swift ======"
+          # 1. 在刚才解压的所有目录中，全盘搜索真实的 swift 实体文件
+          echo "====== 开始寻找真实的 swift 文件 ======"
+          REAL_SWIFT_BIN=$(find $GITHUB_WORKSPACE -type f -name "swift" | grep "usr/bin" | head -n 1)
+          
+          if [ -n "$REAL_SWIFT_BIN" ]; then
+            echo "✅ 找到了！真实路径是: $REAL_SWIFT_BIN"
+            BIN_DIR=$(dirname $REAL_SWIFT_BIN)
+            USR_DIR=$(dirname $BIN_DIR)
+            
+            # 2. 强行把正确的路径覆盖到当前系统的环境变量中
+            export PATH="$BIN_DIR:$PATH"
+            export SWIFT_TOOLCHAIN="$USR_DIR"
+            export SDKROOT="$USR_DIR"
+            
+            # 3. 用 sed 将路径硬编码写进构建脚本的最前面，防止它内部新建子进程时丢失变量
+            sed -i '1i export PATH="'$BIN_DIR':$PATH"\nexport SWIFT_TOOLCHAIN="'$USR_DIR'"\nexport SDKROOT="'$USR_DIR'"' flutter/build-android.sh
+            
+          else
+            echo "❌ 找不到实体 swift 文件，这包肯定有问题了。"
+            exit 1
+          fi
+          
+          echo "====== 验证工具链 ======"
           which swift
           swift --version
-          echo "==================================="
+          echo "========================="
           
-          # 直接调用，环境变量已经在上一层完全注入好了
           chmod +x flutter/build-android.sh
           bash flutter/build-android.sh
 
