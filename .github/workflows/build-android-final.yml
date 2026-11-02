@@ -21,36 +21,45 @@ jobs:
         with:
           channel: 'stable'
 
+      # 让插件把工具链装好
+      - name: Setup Swift Toolchain via Skiptools
+        uses: skiptools/swift-android-action@v2
+        with:
+          android-api-level: 28
+          swift-version: '6.3'
+          run-tests: false
+          build-tests: false
+        continue-on-error: true
+
       - name: Download Android NDK
+        if: always()
         run: |
           wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
           unzip android-ndk-r26d-linux.zip
           echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
 
       - name: Install Halide via APT
+        if: always()
         run: |
           sudo apt-get update
           sudo apt-get install -y libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
-      # 🌟 核心步骤：使用官方推荐命令安装 Swift SDK for Android
-      - name: Install Swift SDK for Android
-        run: |
-          echo "📦 正在通过 swift sdk install 安装官方 Android SDK..."
-          swift sdk install https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz --checksum d160cc3206dd1886dae3fef2337af5e25ec034692cd0ec225721c56cc69da7f5
-          
-          echo "✅ 安装完成，当前已安装的 SDK："
-          swift sdk list
-
       - name: Build Android APK
+        if: always()
         run: |
-          echo "🚨 正在验证环境并开始编译 🚨"
+          echo "🚨🚨🚨 正在运行最终成功版 V21 🚨🚨🚨"
           
-          # 验证 Swift 编译器版本
-          echo "====== 当前 Swift 编译器版本 ======"
+          # 🌟 核心：直接使用插件下载的 6.4.2 路径
+          export SWIFT_TOOLCHAIN="/home/runner/.config/swiftpm/toolchains/swift-6.4.2-RELEASE-android/usr"
+          export SDKROOT="$SWIFT_TOOLCHAIN"
+          export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
+          
+          echo "====== 验证工具链 ======"
+          which swift
           swift --version
+          echo "========================="
           
-          # 直接执行构建脚本，SDK 的路径已由 swift sdk install 自动配置好
           chmod +x flutter/build-android.sh
           bash flutter/build-android.sh
 
