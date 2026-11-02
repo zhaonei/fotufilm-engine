@@ -1,3 +1,4 @@
+
 name: Build Android New
 
 on:
@@ -33,28 +34,31 @@ jobs:
             libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev \
             libpython3-dev python3-dev swig automake autoconf libtool
 
-      - name: Install Swift 6.3.3
+      # 🌟 核心 1：手动下载 Ubuntu 宿主机 Swift，解压并获取真实路径
+      - name: Download Swift Host Toolchain
         run: |
-          curl -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz
-          tar zxf swiftly-*.tar.gz
-          ./swiftly init --quiet-shell-followup --assume-yes
-          export PATH="$HOME/.local/share/swiftly/bin:$PATH"
-          echo "$HOME/.local/share/swiftly/bin" >> $GITHUB_PATH
-          swiftly install 6.3.3
-          swiftly use 6.3.3 --global-default
-          echo "$HOME/.local/share/swiftly/toolchains/6.3.3/usr/bin" >> $GITHUB_PATH
+          wget https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+          tar -xzf swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+          mv swift-6.3.3-RELEASE-ubuntu22.04 swift-host
+          # 写入环境变量，指向解压出来的真实路径
+          echo "SWIFT_TOOLCHAIN=$GITHUB_WORKSPACE/swift-host/usr" >> $GITHUB_ENV
+          echo "$GITHUB_WORKSPACE/swift-host/usr/bin" >> $GITHUB_PATH
 
       - name: Setup NDK
         run: |
           wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
           unzip android-ndk-r26d-linux.zip
-          # 这里不能 unset，因为原版脚本需要读 ANDROID_NDK_HOME
           echo "ANDROID_NDK_HOME=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
 
-      - name: Install Swift Android SDK
+      # 🌟 核心 2：手动下载 Android SDK，并放到脚本期望的隐藏目录下
+      - name: Download Swift Android SDK
         run: |
           wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-          swift sdk install swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          mkdir -p $HOME/.swiftpm/swift-sdks
+          mv swift-6.3.3-RELEASE_android.artifactbundle.tar.gz $HOME/.swiftpm/swift-sdks/
+          cd $HOME/.swiftpm/swift-sdks/
+          tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          echo "SWIFT_SDK=swift-6.3.3-RELEASE_android" >> $GITHUB_ENV
 
       - name: Build Halide for Android
         run: |
@@ -82,20 +86,15 @@ jobs:
             -DTARGET_CUDA=OFF \
             -DTARGET_OPENCL=OFF \
             -DTARGET_VULKAN=ON \
-            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/halide-android"
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-android-arm64"
             
           ninja && ninja install
-          # 注意：原版脚本里 KERNELS 变量找的是 build/halide-android-arm64
-          # 我们把编译结果软链接过去，让脚本能找得到
-          mkdir -p $GITHUB_WORKSPACE/build
-          ln -s $GITHUB_WORKSPACE/halide-android $GITHUB_WORKSPACE/build/halide-android-arm64
-          echo "HALIDE_ROOT=$GITHUB_WORKSPACE/halide-android" >> $GITHUB_ENV
+          echo "HALIDE_ROOT=$GITHUB_WORKSPACE/build/halide-android-arm64" >> $GITHUB_ENV
 
       - name: Build APK
         run: |
-          # 将变量写入 GitHub 环境，供 build-android.sh 使用
-          echo "SWIFT_TOOLCHAIN=$HOME/.local/share/swiftly/toolchains/6.3.3/usr" >> $GITHUB_ENV
-          echo "SWIFT_SDK=swift-6.3.3-RELEASE_android" >> $GITHUB_ENV
+          # 再次检查一下文件是否存在
+          ls -la $SWIFT_TOOLCHAIN/bin/swiftc
           
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
@@ -106,4 +105,3 @@ jobs:
         with:
           name: Fotufilm-Android-APK
           path: build/flutter-host/Fotufilm.apk
-
