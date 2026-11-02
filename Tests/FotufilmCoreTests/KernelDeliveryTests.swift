@@ -221,7 +221,7 @@ final class KernelDeliveryTests: XCTestCase {
 
     // MARK: - The fused GPU road
 
-    #if canImport(FotufilmMetal)
+    #if canImport(Metal)
     func testGPUKernelDeliveryMatchesTheHostConverter() throws {
         guard let gpu = HalideMetalFilmRenderer.shared else { throw XCTSkip("no Metal") }
         let width = 64, height = 32
