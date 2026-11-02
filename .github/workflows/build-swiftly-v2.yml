@@ -1,0 +1,82 @@
+name: Build Swiftly APK V2
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
+            libgcc-9-dev libpython3.8 libsqlite3-0 libstdc++-9-dev libxml2-dev \
+            libz3-dev pkg-config tzdata zlib1g-dev \
+            cmake make g++ automake autoconf libtool \
+            libhalide17-1-dev
+          echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
+
+      # 🌟 修复：摒弃它自带的 source 脚本，手动配置 PATH 并强制安装 6.3.3
+      - name: Install matching swift.org toolchain via swiftly
+        run: |
+          curl -O https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz
+          tar zxf swiftly-*.tar.gz
+          
+          # 初始化，让它自己配置，但我们不 source 它的脚本
+          ./swiftly init --quiet-shell-followup --assume-yes
+          
+          # 🌟 核心修复 1：直接把它装好的 swiftly 路径加进系统 PATH
+          export PATH="$HOME/.local/share/swiftly/bin:$PATH"
+          echo "$HOME/.local/share/swiftly/bin" >> $GITHUB_PATH
+          
+          # 🌟 核心修复 2：强制安装并切换为 6.3.3，覆盖掉它默认下载的 6.4.2
+          swiftly install 6.3.3
+          swiftly use 6.3.3 --global
+          
+          # 验证
+          which swift
+          swift --version
+
+      - name: Neutralize Android env conflicts
+        run: |
+          echo "ANDROID_NDK_ROOT=" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=" >> $GITHUB_ENV
+          unset ANDROID_NDK_ROOT
+          unset ANDROID_NDK_HOME
+
+      # 🌟 核心修复 3：不依赖 env.sh，直接用 swiftly run 执行安装
+      - name: Install Android Swift SDK bundle
+        run: |
+          export PATH="$HOME/.local/share/swiftly/bin:$PATH"
+          swiftly run swift sdk install https://github.com/finagolfin/swift-android-sdk/releases/download/6.3.3/swift-6.3.3-RELEASE-android-24-0.1.artifactbundle.tar.gz
+          swiftly run swift sdk list
+
+      - name: Build Android APK
+        run: |
+          export PATH="$HOME/.local/share/swiftly/bin:$PATH"
+          
+          chmod +x flutter/build-android.sh
+          ./flutter/build-android.sh
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fotufilm-Android-APK
+          path: build/flutter-host/Fotufilm.apk
