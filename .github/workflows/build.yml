@@ -47,13 +47,13 @@ jobs:
       - name: Build Android APK
         if: always()
         run: |
-          # 🌟 核心修复：获取 Swift 路径，强行赋给 SWIFT_TOOLCHAIN
-          SWIFT_PATH=$(which swift)
-          echo "Current Swift path is: $SWIFT_PATH"
-          export SWIFT_TOOLCHAIN=$(dirname $(dirname $SWIFT_PATH))
-          echo "Force set SWIFT_TOOLCHAIN to: $SWIFT_TOOLCHAIN"
+          # 🌟 强行指定 skiptools 默认的 Swift Android 工具链绝对路径
+          export SWIFT_TOOLCHAIN="/home/runner/.config/swiftpm/toolchains/swift-android/usr"
+          export SDKROOT="/home/runner/.config/swiftpm/toolchains/swift-android/usr"
           
-          # 运行构建
+          echo "=== 正在使用 SWIFT_TOOLCHAIN: $SWIFT_TOOLCHAIN ==="
+          ls -la $SWIFT_TOOLCHAIN || echo "路径不存在，尝试寻找..."
+          
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
