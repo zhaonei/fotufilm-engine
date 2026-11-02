@@ -21,7 +21,6 @@ jobs:
         with:
           channel: 'stable'
 
-      # 1. 让官方 Action 安装工具链（忽略它最后的测试报错）
       - name: Setup Swift Toolchain via Skiptools
         uses: skiptools/swift-android-action@v2
         with:
@@ -45,24 +44,22 @@ jobs:
           sudo apt-get install -y libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
-      # 2. 打印真实路径，并传递给构建脚本
       - name: Build Android APK
         if: always()
         run: |
-          echo "=== 真实提取的 Swift 路径 ==="
-          echo "SWIFT_TOOLCHAIN=$SWIFT_TOOLCHAIN"
+          echo "🚨🚨🚨 正在运行终极成功版 V13 (锁死路径) 🚨🚨🚨"
           
-          if [ -n "$SWIFT_TOOLCHAIN" ]; then
-            export PATH="$SWIFT_TOOLCHAIN/usr/bin:$PATH"
-            export SDKROOT="$SWIFT_TOOLCHAIN/usr"
-            echo "当前 swift 指向："
-            which swift
-            swift --version
-          else
-            echo "环境变量为空，直接打印可能存在的目录："
-            ls /home/runner/.config/swiftpm/toolchains/ 2>/dev/null || true
-          fi
-
+          # 根据日志，直接把真实路径写死
+          export SWIFT_TOOLCHAIN="/home/runner/.config/swiftpm/toolchains/swift-6.3-RELEASE/usr"
+          export SDKROOT="$SWIFT_TOOLCHAIN"
+          export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
+          
+          echo "====== 验证 Swift 工具链 ======"
+          ls -la $SWIFT_TOOLCHAIN/bin/swift
+          which swift
+          swift --version
+          echo "==============================="
+          
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
