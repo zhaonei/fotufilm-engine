@@ -28,32 +28,32 @@ jobs:
           swift-version: '6.3'
           run-tests: false
           build-tests: false
-        continue-on-error: true # 允许 Swift 测试工具链报错而不中断
+        continue-on-error: true # 允许 Swift 工具链最后的测试脚本报错而不中断
 
       - name: Download Android NDK
-        if: always() # 强行继续
+        if: always()
         run: |
           wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
           unzip android-ndk-r26d-linux.zip
           echo "ANDROID_NDK_ROOT=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
 
       - name: Download Halide
-        if: always() # 强行继续
+        if: always()
         run: |
-          # 修复：替换为官方标准下载链接
-          wget https://github.com/halide/Halide/releases/download/v17.0.1/Halide-17.0.1-x86-64-linux.tar.gz
-          tar -xzf Halide-17.0.1-x86-64-linux.tar.gz
-          mv Halide-17.0.1-x86-64-linux Halide
+          # 使用国内镜像加速，下载官方带 Hash 后缀的完整包（保证 GPU 支持）
+          wget https://ghproxy.net/https://github.com/halide/Halide/releases/download/v17.0.1/Halide-17.0.1-x86-64-linux-6b0f3e6c22e0f6ab8f28d0b58f371cc41617481c.tar.gz
+          tar -xzf Halide-17.0.1-x86-64-linux-6b0f3e6c22e0f6ab8f28d0b58f371cc41617481c.tar.gz
+          mv Halide-17.0.1-x86-64-linux-6b0f3e6c22e0f6ab8f28d0b58f371cc41617481c Halide
           echo "HALIDE_ROOT=$GITHUB_WORKSPACE/Halide" >> $GITHUB_ENV
 
       - name: Build Android APK
-        if: always() # 强行继续
+        if: always()
         run: |
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
       - name: Upload APK
-        if: always() # 强行继续
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Fotufilm-Android-APK
