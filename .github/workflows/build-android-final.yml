@@ -1,4 +1,3 @@
-
 name: Build Android Final
 
 on:
@@ -22,15 +21,6 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Setup Swift Android Toolchain
-        uses: skiptools/swift-android-action@v2
-        with:
-          android-api-level: 28
-          swift-version: '6.3'
-          run-tests: false
-          build-tests: false
-        continue-on-error: true
-
       - name: Download Android NDK
         if: always()
         run: |
@@ -45,32 +35,29 @@ jobs:
           sudo apt-get install -y libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
+      - name: Setup Swift Android SDK Manually
+        if: always()
+        run: |
+          # 🌟 直接从 swift.org 官方下载针对 Android 编译的 SDK
+          wget https://download.swift.org/swift-6.0.3-release/android/swift-6.0.3-RELEASE-android-24-sdk.tar.gz
+          tar -xzf swift-6.0.3-RELEASE-android-24-sdk.tar.gz
+          mv swift-6.0.3-RELEASE-android-24-sdk swift-android
+          
+          # 强行把路径写进环境变量，告诉脚本这就是你要的 Swift
+          echo "SWIFT_TOOLCHAIN=$GITHUB_WORKSPACE/swift-android/usr" >> $GITHUB_ENV
+          echo "SDKROOT=$GITHUB_WORKSPACE/swift-android/usr" >> $GITHUB_ENV
+          echo "$GITHUB_WORKSPACE/swift-android/usr/bin" >> $GITHUB_PATH
+
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行最新代码 V3 🚨🚨🚨"
-          echo "====== 开始搜索 Swift 工具链 ======"
+          echo "🚨🚨🚨 正在运行最新代码 V4 (手动安装 SDK) 🚨🚨🚨"
           
-          # 🌟 精准搜索路径：在 .config/swiftpm/toolchains 里面找 swift 可执行文件
-          SWIFT_BIN=$(find /home/runner/.config/swiftpm/toolchains -name "swift" -type f | head -n 1)
-          
-          if [ -n "$SWIFT_BIN" ]; then
-            TOOLCHAIN_DIR=$(dirname $(dirname $SWIFT_BIN))
-            echo "✅ 找到 Swift 路径: $TOOLCHAIN_DIR"
-            export SWIFT_TOOLCHAIN="$TOOLCHAIN_DIR"
-            export SDKROOT="$TOOLCHAIN_DIR"
-            export PATH="$TOOLCHAIN_DIR/bin:$PATH"
-          else
-            echo "⚠️ 未找到路径，强行指定默认版本..."
-            export SWIFT_TOOLCHAIN="/home/runner/.config/swiftpm/toolchains/swift-6.4.2-RELEASE-android/usr"
-            export SDKROOT="$SWIFT_TOOLCHAIN"
-            export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
-          fi
-          
-          echo "====== 当前使用的 Swift 版本 ======"
+          echo "====== 验证当前的 Swift 工具链 ======"
           which swift
           swift --version
           
+          # 运行构建
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
