@@ -1,29 +1,17 @@
 #!/bin/bash
-# 接收外部传入的环境变量
 if [ -n "${SWIFT_TOOLCHAIN:-}" ]; then
-    export SDKROOT="$SWIFT_TOOLCHAIN"
     export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
-    echo "✅ 已成功注入 SWIFT_TOOLCHAIN: $SWIFT_TOOLCHAIN"
+    echo "✅ 已成功注入主工具链: $SWIFT_TOOLCHAIN"
 else
-    echo "⚠️ 警告: 外部未提供 SWIFT_TOOLCHAIN 环境变量"
+    echo "⚠️ 未提供 SWIFT_TOOLCHAIN 环境变量"
 fi
 
-# Builds Fotufilm for Android: the engine library (tools/build-android-engine.sh) and the Flutter
-# editor around it.
-#   flutter/build-android.sh              build build/flutter-host/Fotufilm.apk
-#   flutter/build-android.sh --appbundle  build build/flutter-host/Fotufilm.aab, for Google Play
-# FLUTTER names the flutter tool (default: the one on PATH). An official build
-# (FOTUFILM_SOURCE_BUILD=0) takes the Android app's identity, so it replaces the installed app in
-# place; a source build is an app of its own. FOTUFILM_ANDROID_KEYSTORE, with
-# FOTUFILM_ANDROID_KEYSTORE_PASSWORD, FOTUFILM_ANDROID_KEY_ALIAS and FOTUFILM_ANDROID_KEY_PASSWORD,
-# signs it for release; without one it is signed with the debug keys.
 set -euo pipefail
 cd "$(cd "$(dirname "$0")" && pwd -P)/.."
 flutter_tool="${FLUTTER:-flutter}"
 artifact=apk
 [[ " $* " == *" --appbundle "* ]] && artifact=appbundle
 
-# The codecs and FFmpeg are built once, into FOTUFILM_ANDROID_DEPS.
 [[ -f "${FOTUFILM_ANDROID_DEPS:-build/android-deps}/arm64/lib/libjpeg.a" ]] || tools/build-android-codecs.sh
 tools/build-android-engine.sh
 export FOTUFILM_ANDROID_ENGINE="$PWD/flutter/build/android-engine"
@@ -32,8 +20,6 @@ export FOTUFILM_ANDROID_ENGINE="$PWD/flutter/build/android-engine"
 
 tool_dir="$PWD/flutter"
 (cd flutter && tool/prepare.sh)
-# As flutter/build.sh does: the app compiles from a copy at a neutral path, so no local path
-# reaches the package.
 stage="$(mktemp -d /tmp/fotufilm.XXXXXX)"
 trap 'rm -rf "$stage"' EXIT
 rsync -a --exclude /build --exclude /.dart_tool --exclude /android/.gradle \
