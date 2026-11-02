@@ -1,4 +1,3 @@
-
 name: Build Android Final
 
 on:
@@ -36,39 +35,41 @@ jobs:
           sudo apt-get install -y libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
-      - name: Download Official Swift Android SDK
+      # 🌟 彻底换回官方旧版的完整交叉编译工具链
+      - name: Download Full Swift Android Toolchain
         if: always()
         run: |
-          echo "📦 下载官方 Swift 6.3.3 Android SDK..."
-          wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-          tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          echo "📦 下载 Swift 6.0.3 完整 Android 工具链..."
+          wget https://download.swift.org/swift-6.0.3-release/android/swift-6.0.3-RELEASE-android-24-sdk.tar.gz
+          tar -xzf swift-6.0.3-RELEASE-android-24-sdk.tar.gz
           echo "✅ 解压完成！"
 
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行绝对成功版 V19 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行终极成功版 V20 (完整工具链版) 🚨🚨🚨"
           
-          # 1. 在刚才解压的所有目录中，全盘搜索真实的 swift 实体文件
-          echo "====== 开始寻找真实的 swift 文件 ======"
-          REAL_SWIFT_BIN=$(find $GITHUB_WORKSPACE -type f -name "swift" | grep "usr/bin" | head -n 1)
+          # 不放过任何普通文件或者快捷方式
+          echo "====== 搜索实体/链接 swift 可执行文件 ======"
+          SWIFT_BIN=$(find . -path "*/usr/bin/swift" \( -type f -o -type l \) | head -n 1)
           
-          if [ -n "$REAL_SWIFT_BIN" ]; then
-            echo "✅ 找到了！真实路径是: $REAL_SWIFT_BIN"
-            BIN_DIR=$(dirname $REAL_SWIFT_BIN)
-            USR_DIR=$(dirname $BIN_DIR)
-            
-            # 2. 强行把正确的路径覆盖到当前系统的环境变量中
-            export PATH="$BIN_DIR:$PATH"
+          if [ -n "$SWIFT_BIN" ]; then
+            echo "✅ 找到了！路径是: $SWIFT_BIN"
+            USR_DIR=$(dirname $(dirname $SWIFT_BIN))
             export SWIFT_TOOLCHAIN="$USR_DIR"
             export SDKROOT="$USR_DIR"
+            export PATH="$USR_DIR/bin:$PATH"
             
-            # 3. 用 sed 将路径硬编码写进构建脚本的最前面，防止它内部新建子进程时丢失变量
-            sed -i '1i export PATH="'$BIN_DIR':$PATH"\nexport SWIFT_TOOLCHAIN="'$USR_DIR'"\nexport SDKROOT="'$USR_DIR'"' flutter/build-android.sh
+            # 强行写入脚本，防止变量丢失
+            sed -i '1i export PATH="'$USR_DIR'/bin:$PATH"\nexport SWIFT_TOOLCHAIN="'$USR_DIR'"\nexport SDKROOT="'$USR_DIR'"' flutter/build-android.sh
             
           else
-            echo "❌ 找不到实体 swift 文件，这包肯定有问题了。"
-            exit 1
+            echo "❌ 找不到，指定绝对路径 fallback..."
+            USR_DIR="$GITHUB_WORKSPACE/swift-6.0.3-RELEASE-android-24-sdk/usr"
+            export SWIFT_TOOLCHAIN="$USR_DIR"
+            export SDKROOT="$USR_DIR"
+            export PATH="$USR_DIR/bin:$PATH"
+            sed -i '1i export PATH="'$USR_DIR'/bin:$PATH"\nexport SWIFT_TOOLCHAIN="'$USR_DIR'"\nexport SDKROOT="'$USR_DIR'"' flutter/build-android.sh
           fi
           
           echo "====== 验证工具链 ======"
