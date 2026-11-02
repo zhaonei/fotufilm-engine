@@ -1,4 +1,3 @@
-
 name: Build Android Final
 
 on:
@@ -22,6 +21,16 @@ jobs:
         with:
           channel: 'stable'
 
+      # 1. 让官方 Action 安装工具链（忽略它最后的测试报错）
+      - name: Setup Swift Toolchain via Skiptools
+        uses: skiptools/swift-android-action@v2
+        with:
+          android-api-level: 28
+          swift-version: '6.3'
+          run-tests: false
+          build-tests: false
+        continue-on-error: true
+
       - name: Download Android NDK
         if: always()
         run: |
@@ -36,30 +45,24 @@ jobs:
           sudo apt-get install -y libhalide17-1-dev
           echo "HALIDE_ROOT=/usr" >> $GITHUB_ENV
 
-      - name: Download and Extract Official Swift SDK
-        if: always()
-        run: |
-          echo "📦 手动下载官方 Swift 6.3.3 Android SDK..."
-          wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-          tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-          echo "✅ 下载并解压完成！"
-
+      # 2. 打印真实路径，并传递给构建脚本
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行最终修复版 V12 (死磕路径版) 🚨🚨🚨"
+          echo "=== 真实提取的 Swift 路径 ==="
+          echo "SWIFT_TOOLCHAIN=$SWIFT_TOOLCHAIN"
           
-          # 根据上一次的日志，直接硬编码最精确的路径
-          export SWIFT_TOOLCHAIN="$GITHUB_WORKSPACE/swift-6.3.3-RELEASE_android.artifactbundle/swift-android/usr"
-          export SDKROOT="$SWIFT_TOOLCHAIN"
-          export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
-          
-          echo "====== 验证 Swift 工具链 ======"
-          ls -la $SWIFT_TOOLCHAIN/bin/swift
-          which swift
-          swift --version
-          echo "==============================="
-          
+          if [ -n "$SWIFT_TOOLCHAIN" ]; then
+            export PATH="$SWIFT_TOOLCHAIN/usr/bin:$PATH"
+            export SDKROOT="$SWIFT_TOOLCHAIN/usr"
+            echo "当前 swift 指向："
+            which swift
+            swift --version
+          else
+            echo "环境变量为空，直接打印可能存在的目录："
+            ls /home/runner/.config/swiftpm/toolchains/ 2>/dev/null || true
+          fi
+
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
