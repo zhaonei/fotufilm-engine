@@ -1,3 +1,4 @@
+
 name: Build Android Final
 
 on:
@@ -47,28 +48,29 @@ jobs:
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行最终成功版 V22 (防断网重试) 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行最终成功版 V23 (内部写死) 🚨🚨🚨"
           
-          # 锁定正确的 6.4.2 路径
-          export SWIFT_TOOLCHAIN="/home/runner/.config/swiftpm/toolchains/swift-6.4.2-RELEASE-android/usr"
-          export SDKROOT="$SWIFT_TOOLCHAIN"
-          export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
+          # 1. 设定正确的绝对路径
+          TOOLCHAIN_DIR="/home/runner/.config/swiftpm/toolchains/swift-6.4.2-RELEASE-android/usr"
           
-          echo "====== 验证工具链 ======"
+          # 2. 把环境变量强行插入到 build-android.sh 的第二行（第一行是 #!/bin/bash）
+          sed -i '2i export SWIFT_TOOLCHAIN="'$TOOLCHAIN_DIR'"\nexport SDKROOT="'$TOOLCHAIN_DIR'"\nexport PATH="'$TOOLCHAIN_DIR'/bin:$PATH"' flutter/build-android.sh
+          
+          # 3. 打印出来看看有没有插进去，顺便验证
+          echo "====== 检查脚本头部 ======"
+          head -n 6 flutter/build-android.sh
+          echo "========================="
+          
+          echo "====== 验证全局工具链 ======"
+          export SWIFT_TOOLCHAIN="$TOOLCHAIN_DIR"
+          export SDKROOT="$TOOLCHAIN_DIR"
+          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
           which swift
           swift --version
           
-          # 🌟 核心网络补丁：包装 curl 命令，强制断线重试 5 次
-          echo "====== 注入 curl 重试补丁 ======"
-          sudo mv /usr/bin/curl /usr/bin/curl-original
-          sudo tee /usr/bin/curl > /dev/null << 'EOF'
-          #!/bin/bash
-          /usr/bin/curl-original --retry 5 --retry-delay 3 --retry-all-errors "$@"
-          EOF
-          sudo chmod +x /usr/bin/curl
-          
+          # 4. 加上可执行权限并运行
           chmod +x flutter/build-android.sh
-          bash flutter/build-android.sh
+          ./flutter/build-android.sh
 
       - name: Upload APK
         if: always()
@@ -76,4 +78,3 @@ jobs:
         with:
           name: Fotufilm-Android-APK
           path: build/flutter-host/Fotufilm.apk
-        
