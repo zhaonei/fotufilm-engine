@@ -1,4 +1,17 @@
 #!/bin/bash
+
+# 🌟 核心修复：在脚本最开头动态寻找真实的 Swift 路径并强推给环境变量
+REAL_SWIFT_BIN=$(find /home/runner -path "*/usr/bin/swift" -type f 2>/dev/null | head -n 1)
+if [ -n "$REAL_SWIFT_BIN" ]; then
+    TOOLCHAIN_DIR=$(dirname $(dirname $REAL_SWIFT_BIN))
+    export SWIFT_TOOLCHAIN="$TOOLCHAIN_DIR"
+    export SDKROOT="$TOOLCHAIN_DIR"
+    export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+    echo "✅ 已成功注入 SWIFT_TOOLCHAIN: $SWIFT_TOOLCHAIN"
+else
+    echo "⚠️ 警告: 未能找到 Android Swift 工具链"
+fi
+
 # Builds Fotufilm for Android: the engine library (tools/build-android-engine.sh) and the Flutter
 # editor around it.
 #   flutter/build-android.sh              build build/flutter-host/Fotufilm.apk
