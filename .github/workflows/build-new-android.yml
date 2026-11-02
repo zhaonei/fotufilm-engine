@@ -43,14 +43,13 @@ jobs:
           swiftly install 6.3.3
           swiftly use 6.3.3 --global-default
           echo "$HOME/.local/share/swiftly/toolchains/6.3.3/usr/bin" >> $GITHUB_PATH
-          export PATH="$HOME/.local/share/swiftly/toolchains/6.3.3/usr/bin:$PATH"
 
       - name: Setup NDK
         run: |
           wget https://dl.google.com/android/repository/android-ndk-r26d-linux.zip
           unzip android-ndk-r26d-linux.zip
-          unset ANDROID_NDK_ROOT
-          unset ANDROID_NDK_HOME
+          # 这里不能 unset，因为原版脚本需要读 ANDROID_NDK_HOME
+          echo "ANDROID_NDK_HOME=$GITHUB_WORKSPACE/android-ndk-r26d" >> $GITHUB_ENV
 
       - name: Install Swift Android SDK
         run: |
@@ -86,21 +85,17 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/halide-android"
             
           ninja && ninja install
+          # 注意：原版脚本里 KERNELS 变量找的是 build/halide-android-arm64
+          # 我们把编译结果软链接过去，让脚本能找得到
+          mkdir -p $GITHUB_WORKSPACE/build
+          ln -s $GITHUB_WORKSPACE/halide-android $GITHUB_WORKSPACE/build/halide-android-arm64
           echo "HALIDE_ROOT=$GITHUB_WORKSPACE/halide-android" >> $GITHUB_ENV
-
-      # 🌟 加入缓存：底层 C 库如果没变，直接跳过那20分钟的地狱编译
-      - name: Cache Android Deps
-        id: cache-android-deps
-        uses: actions/cache@v4
-        with:
-          path: build/android-deps
-          key: android-deps-${{ hashFiles('tools/build-android-codecs.sh') }}
 
       - name: Build APK
         run: |
-          # 这里其实上面的脚本头部已经写死了，这里再兜底一次
-          export SWIFT_TOOLCHAIN="$HOME/.local/share/swiftly/toolchains/6.3.3/usr"
-          export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
+          # 将变量写入 GitHub 环境，供 build-android.sh 使用
+          echo "SWIFT_TOOLCHAIN=$HOME/.local/share/swiftly/toolchains/6.3.3/usr" >> $GITHUB_ENV
+          echo "SWIFT_SDK=swift-6.3.3-RELEASE_android" >> $GITHUB_ENV
           
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
@@ -111,3 +106,4 @@ jobs:
         with:
           name: Fotufilm-Android-APK
           path: build/flutter-host/Fotufilm.apk
+
