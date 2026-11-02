@@ -47,13 +47,25 @@ jobs:
       - name: Build Android APK
         if: always()
         run: |
-          # 🌟 强行指定 skiptools 默认的 Swift Android 工具链绝对路径
-          export SWIFT_TOOLCHAIN="/home/runner/.config/swiftpm/toolchains/swift-android/usr"
-          export SDKROOT="/home/runner/.config/swiftpm/toolchains/swift-android/usr"
+          # 🌟 终极修复：把正确的 Swift 工具链路径强行插到系统 PATH 的最前面
+          SWIFT_TOOLCHAIN_DIR="/home/runner/.config/swiftpm/toolchains/swift-android/usr"
+          if [ -d "$SWIFT_TOOLCHAIN_DIR" ]; then
+            echo "✅ 找到 Swift 工具链，正在覆盖环境变量..."
+            export SWIFT_TOOLCHAIN="$SWIFT_TOOLCHAIN_DIR"
+            export PATH="$SWIFT_TOOLCHAIN_DIR/bin:$PATH"
+            export SDKROOT="$SWIFT_TOOLCHAIN_DIR"
+          else
+            echo "⚠️ 未找到默认路径，尝试全局搜索..."
+            SWIFT_TOOLCHAIN_DIR=$(find /home/runner/.config/swiftpm/toolchains -name "swift-android" -type d | head -n 1)/usr
+            export SWIFT_TOOLCHAIN="$SWIFT_TOOLCHAIN_DIR"
+            export PATH="$SWIFT_TOOLCHAIN_DIR/bin:$PATH"
+            export SDKROOT="$SWIFT_TOOLCHAIN_DIR"
+          fi
           
-          echo "=== 正在使用 SWIFT_TOOLCHAIN: $SWIFT_TOOLCHAIN ==="
-          ls -la $SWIFT_TOOLCHAIN || echo "路径不存在，尝试寻找..."
-          
+          echo "当前调用的 Swift 版本："
+          which swift
+          swift --version
+
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
