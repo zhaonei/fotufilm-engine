@@ -39,36 +39,32 @@ jobs:
         if: always()
         run: |
           echo "📦 通过官方 swift sdk install 命令安装 Android SDK..."
-          # 使用官方文档提供的 6.3.3 版本链接及校验和
           swift sdk install https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz --checksum d160cc3206dd1886dae3fef2337af5e25ec034692cd0ec225721c56cc69da7f5
 
       - name: Build Android APK
         if: always()
         run: |
-          echo "🚨🚨🚨 正在运行最终修复版 V8 (官方 sdk install) 🚨🚨🚨"
+          echo "🚨🚨🚨 正在运行最终修复版 V9 (锁定官方路径) 🚨🚨🚨"
           
-          # 获取 SDK 安装路径并设置环境变量
-          SDK_ROOT=$(swift sdk configure --show-configuration swift-6.3.3-RELEASE_android 2>/dev/null | grep -oP '(?<=SDKROOT=")[^"]*')
-          if [ -z "$SDK_ROOT" ]; then
-            # 如果获取失败，尝试在默认路径查找
-            SDK_ROOT=$(find /home/runner/.swiftpm -type d -name "swift-6.3.3-RELEASE_android*" 2>/dev/null | head -n 1)
-          fi
+          # 直接用 find 在官方默认安装目录抓取
+          SDK_DIR=$(find /home/runner/.swiftpm/swift-sdks -maxdepth 1 -type d -name "swift-*-RELEASE_android.artifactbundle" | head -n 1)
           
-          if [ -n "$SDK_ROOT" ]; then
-            echo "✅ 找到 SDK 路径: $SDK_ROOT"
-            export SWIFT_TOOLCHAIN="$SDK_ROOT"
-            export SDKROOT="$SDK_ROOT"
-            export PATH="$SDK_ROOT/usr/bin:$PATH"
+          if [ -n "$SDK_DIR" ]; then
+            echo "✅ 找到官方 SDK 路径: $SDK_DIR"
+            export SWIFT_TOOLCHAIN="$SDK_DIR/usr"
+            export SDKROOT="$SDK_DIR/usr"
+            export PATH="$SDK_DIR/usr/bin:$PATH"
           else
-            echo "⚠️ 无法自动定位 SDK，尝试回退到默认路径"
-            export SWIFT_TOOLCHAIN="/home/runner/.swiftpm/swift-sdks/swift-6.3.3-RELEASE_android"
+            echo "❌ 还是没找到，尝试直接用默认名..."
+            export SWIFT_TOOLCHAIN="/home/runner/.swiftpm/swift-sdks/swift-6.3.3-RELEASE_android.artifactbundle/usr"
             export SDKROOT="$SWIFT_TOOLCHAIN"
-            export PATH="$SWIFT_TOOLCHAIN/usr/bin:$PATH"
+            export PATH="$SWIFT_TOOLCHAIN/bin:$PATH"
           fi
           
           echo "====== 验证 Swift 工具链 ======"
           which swift
           swift --version
+          echo "==============================="
           
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
