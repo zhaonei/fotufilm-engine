@@ -1,4 +1,4 @@
-name: Build Final V8
+name: Build Final V9
 
 on:
   workflow_dispatch:
@@ -52,7 +52,7 @@ jobs:
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
-      # 🌟 核心修复：不再关闭 Tutorials，保证 GenGen 被编译出来
+      # 🌟 去掉瞎指挥，直接全量编译，它绝对会把 GenGen 带上
       - name: Build Halide for Host (Linux)
         run: |
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
@@ -63,7 +63,6 @@ jobs:
           CLANG_DIR="/usr/lib/llvm-17/lib/cmake/clang"
           LLD_DIR="/usr/lib/llvm-17/lib/cmake/lld"
           
-          # 去掉了 WITH_TUTORIALS=OFF，允许它编译 GenGen
           cmake .. \
             -G Ninja \
             -DLLVM_DIR="$LLVM_DIR" \
@@ -77,11 +76,11 @@ jobs:
             -DTARGET_VULKAN=ON \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
             
-          # 明确指定编译 GenGen 和主库
-          ninja Halide_gengen Halide 
+          # 直接 Ninja 全量编译，不再指定错误的 Target 名字
+          ninja
           ninja install
           
-          # 如果 install 没把 gengen 放进 bin，我们手动去 build 目录里找出来放进去
+          # 兜底：如果 install 抽风没把它放进 bin，全盘找出来复制过去
           echo "寻找并复制 GenGen..."
           find $GITHUB_WORKSPACE/build/halide-host -name "GenGen" -type f -exec cp {} $GITHUB_WORKSPACE/build/halide-host/bin/ \;
           chmod +x $GITHUB_WORKSPACE/build/halide-host/bin/GenGen
