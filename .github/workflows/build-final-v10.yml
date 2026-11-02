@@ -1,4 +1,4 @@
-name: Build Final V10
+name: Build Final V11
 
 on:
   workflow_dispatch:
@@ -33,7 +33,6 @@ jobs:
             libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev \
             libpython3-dev python3-dev swig automake autoconf libtool
 
-      # 注入网络重试补丁，防止下载 Halide 或源码时断连
       - name: Inject Network Retry
         run: |
           sudo mv /usr/bin/curl /usr/bin/curl-original
@@ -62,7 +61,6 @@ jobs:
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
-      # 🌟 终极修复：全量编译，并精准定位 GenGen
       - name: Build Halide for Host (Linux)
         run: |
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
@@ -86,11 +84,11 @@ jobs:
             -DTARGET_VULKAN=ON \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
             
-          # 1. 全量编译
-          ninja
+          # 🌟 核心修复：限制并发数，防止内存爆炸被系统强杀
+          echo "开始限制并发编译..."
+          ninja -j2
           ninja install
           
-          # 2. 终极兜底：在构建目录中强行搜索 GenGen 并移动到目标位置
           echo "====== 搜索并提取 GenGen ======"
           GENGEN_BIN=$(find . -name "GenGen" -type f | head -n 1)
           if [ -z "$GENGEN_BIN" ]; then
