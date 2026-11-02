@@ -1,6 +1,4 @@
 #!/bin/bash
-# Builds Fotufilm for Android: the engine library (tools/build-android-engine.sh) and the Flutter
-# editor around it.
 set -euo pipefail
 cd "$(cd "$(dirname "$0")" && pwd -P)/.."
 flutter_tool="${FLUTTER:-flutter}"
