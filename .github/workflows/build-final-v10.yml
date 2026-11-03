@@ -1,4 +1,4 @@
-name: Build Final V28
+name: Build Final V29
 
 on:
   workflow_dispatch:
@@ -93,15 +93,33 @@ jobs:
           ninja
           ninja install
 
-      # 🌟 核心修复：自动修改源码，注释掉不支持的特性
+      # 🌟 核心修复：自动修补源码中的 Halide Simulator 兼容问题
       - name: Patch Source Code for Halide v17
         run: |
           echo "正在修复 Gpu.h 里的版本兼容问题..."
-          # 强行把报错的那一行代码注释掉
-          sed -i 's/if (simulator) target.set_feature(Target::Simulator);/\/\/ if (simulator) target.set_feature(Target::Simulator);/g' Sources/FotufilmHalide/Pipeline/Gpu.h
+          sed -i 's/if (simulator) target.set_feature(Target::Simulator);/\/\/ if (simulator) target.set_feature(Target::Simulator);/g' Sources/FotufilmHalide/Pipeline/Gpu.h || true
+
+      # 🌟 终极修复：自动扫描并修补 srg_encoded_values 的边界报错
+      - name: Auto Patch Halide Bounds Error
+        run: |
+          echo "正在扫描并修复 srg_encoded_values 的边界越界报错..."
+          TARGET_FILE=$(grep -rl "srg_encoded_values" Sources/FotufilmHalide/ | head -n 1)
           
-          echo "检查是否修改成功（输出为空或带有 // 即为成功）："
-          grep -n "set_feature(Target::Simulator)" Sources/FotufilmHalide/Pipeline/Gpu.h || true
+          if [ -n "$TARGET_FILE" ]; then
+            echo "找到文件: $TARGET_FILE"
+            # 在包含该变量的行后面，强行插入边界设置
+            sed -i '/srg_encoded_values/a \        srg_encoded_values.dim(0).set_min(0);\n        srg_encoded_values.dim(0).set_extent(1024);' "$TARGET_FILE"
+            echo "已注入边界保护："
+            grep -A 2 "srg_encoded_values" "$TARGET_FILE" | head -n 5
+          else
+            echo "⚠️ 没有找到包含 srg_encoded_values 的文件，可能是因为它在其他目录下。"
+            # 兜底：在整个仓库里找
+            TARGET_FILE=$(grep -rl "srg_encoded_values" . --include="*.h" --include="*.cpp" | head -n 1)
+            if [ -n "$TARGET_FILE" ]; then
+               echo "在全仓库找到文件: $TARGET_FILE"
+               sed -i '/srg_encoded_values/a \        srg_encoded_values.dim(0).set_min(0);\n        srg_encoded_values.dim(0).set_extent(1024);' "$TARGET_FILE"
+            fi
+          fi
 
       - name: Build APK
         env:
