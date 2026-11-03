@@ -53,15 +53,16 @@ jobs:
           cmake .. -G Ninja -DLLVM_DIR=$(llvm-config-17 --cmakedir) -DClang_DIR="/usr/lib/llvm-17/lib/cmake/clang" -DLLD_DIR="/usr/lib/llvm-17/lib/cmake/lld" -DHalide_SHARED_LLVM=YES -DTARGET_WEBASSEMBLY=OFF -DTARGET_CUDA=OFF -DTARGET_OPENCL=OFF -DTARGET_VULKAN=ON -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF -DWITH_DOCS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
           ninja
           ninja install
-      - name: Patch Code (Nuclear Option)
+          
+      - name: Patch Code (Precise Strike)
         run: |
-          # 1. 修复 Simulator 报错
+          echo "正在注释 Simulator 报错..."
           sed -i 's/if (simulator) target.set_feature(Target::Simulator);/\/\/ if (simulator) target.set_feature(Target::Simulator);/g' Sources/FotufilmHalide/Pipeline/Gpu.h || true
           
-          # 2. 暴力外挂：在所有的 Target 初始化后面强行加入 NoAsserts
-          find . -name "*.cpp" -o -name "*.h" | xargs -r sed -i 's/Target target = get_target_from_environment();/Target target = get_target_from_environment(); target.set_feature(Target::NoAsserts);/g'
-          find . -name "*.cpp" -o -name "*.h" | xargs -r sed -i 's/Target target;/Target target; target.set_feature(Target::NoAsserts);/g'
-          find . -name "*.cpp" -o -name "*.h" | xargs -r sed -i 's/Halide::Target target;/Halide::Target target; target.set_feature(Halide::Target::NoAsserts);/g'
+          echo "正在精准注入 NoAsserts 到生成器..."
+          # 只在 generate_halide_ios.cpp 里匹配获取目标环境的那一行，并在后面追加关闭断言
+          sed -i 's/Target target = get_target_from_environment();/Target target = get_target_from_environment(); target.set_feature(Target::NoAsserts);/g' tools/generate_halide_ios.cpp
+          
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
@@ -73,6 +74,7 @@ jobs:
         run: |
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
+          
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
