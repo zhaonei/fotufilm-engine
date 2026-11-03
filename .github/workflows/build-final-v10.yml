@@ -1,4 +1,4 @@
-name: Build Final V30
+name: Build Final V31
 
 on:
   workflow_dispatch:
@@ -66,14 +66,11 @@ jobs:
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
           tar -xzf v17.0.1.tar.gz
           cd Halide-17.0.1
-          
           rm -rf python_bindings
-          
           mkdir build-host && cd build-host
           LLVM_DIR=$(llvm-config-17 --cmakedir)
           CLANG_DIR="/usr/lib/llvm-17/lib/cmake/clang"
           LLD_DIR="/usr/lib/llvm-17/lib/cmake/lld"
-          
           cmake .. \
             -G Ninja \
             -DLLVM_DIR="$LLVM_DIR" \
@@ -89,37 +86,23 @@ jobs:
             -DWITH_PYTHON_BINDINGS=OFF \
             -DWITH_DOCS=OFF \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
-            
           ninja
           ninja install
 
-      # 🌟 核心修复：自动修补所有 srg_encoded_values 的索引访问
-      - name: Auto Patch Halide Bounds Error
+      # 🌟 终极修复：同时补上 Simulator 和 srg_encoded_values 的坑
+      - name: Auto Patch Source Code for Halide v17
         run: |
-          echo "正在扫描并修复 srg_encoded_values 的边界越界报错..."
-          
-          # 查找所有包含 srg_encoded_values 的 .cpp 和 .h 文件
+          echo "1. 修复 Gpu.h 中的 Simulator 报错..."
+          sed -i 's/if (simulator) target.set_feature(Target::Simulator);/\/\/ if (simulator) target.set_feature(Target::Simulator);/g' Sources/FotufilmHalide/Pipeline/Gpu.h || true
+
+          echo "2. 修复 srg_encoded_values 越界报错..."
           FILES=$(grep -rl "srg_encoded_values" Sources/FotufilmHalide/ --include="*.h" --include="*.cpp" || true)
-          
-          if [ -z "$FILES" ]; then
-            echo "⚠️ 在 Sources/FotufilmHalide/ 中未找到，扩大搜索范围..."
-            FILES=$(grep -rl "srg_encoded_values" . --include="*.h" --include="*.cpp" | grep -v "build" || true)
-          fi
-          
           if [ -n "$FILES" ]; then
             for FILE in $FILES; do
               echo "正在处理文件: $FILE"
-              # 将可能产生负索引的 cast<int> 替换为 saturating_cast<int>（PR #7814 推荐的修复方式）
               sed -i 's/cast<int>/saturating_cast<int>/g' "$FILE"
-              
-              # 如果存在直接调用 srg_encoded_values(...) 的地方，尝试用 clamp 包裹索引
-              # 这里假设索引是简单的变量名或表达式，进行通用包裹
               sed -i 's/srg_encoded_values(\([^)]*\))/srg_encoded_values(clamp(\1, 0, srg_encoded_values.extent(0)-1))/g' "$FILE"
-              
-              echo "已对 $FILE 应用补丁。"
             done
-          else
-            echo "❌ 未找到包含 srg_encoded_values 的文件，请检查源码路径。"
           fi
 
       - name: Build APK
