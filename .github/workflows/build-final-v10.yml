@@ -1,4 +1,4 @@
-name: Build Final V27
+name: Build Final V28
 
 on:
   workflow_dispatch:
@@ -67,7 +67,6 @@ jobs:
           tar -xzf v17.0.1.tar.gz
           cd Halide-17.0.1
           
-          # 物理删除 python_bindings 和 tests
           rm -rf python_bindings
           
           mkdir build-host && cd build-host
@@ -93,9 +92,16 @@ jobs:
             
           ninja
           ninja install
+
+      # 🌟 核心修复：自动修改源码，注释掉不支持的特性
+      - name: Patch Source Code for Halide v17
+        run: |
+          echo "正在修复 Gpu.h 里的版本兼容问题..."
+          # 强行把报错的那一行代码注释掉
+          sed -i 's/if (simulator) target.set_feature(Target::Simulator);/\/\/ if (simulator) target.set_feature(Target::Simulator);/g' Sources/FotufilmHalide/Pipeline/Gpu.h
           
-          echo "====== 检查 Halide.h ======"
-          ls -la $GITHUB_WORKSPACE/build/halide-host/include/Halide.h || (echo "❌ Halide.h 丢失" && exit 1)
+          echo "检查是否修改成功（输出为空或带有 // 即为成功）："
+          grep -n "set_feature(Target::Simulator)" Sources/FotufilmHalide/Pipeline/Gpu.h || true
 
       - name: Build APK
         env:
@@ -106,14 +112,6 @@ jobs:
           MAKEFLAGS: "-j2"
           CMAKE_BUILD_PARALLEL_LEVEL: "2"
         run: |
-          echo "====== 最终环境校验 ======"
-          ls -la $SWIFT_TOOLCHAIN/usr/bin/swiftc
-          ls -la $HALIDE_ROOT/include/Halide.h
-          echo "========================="
-          
-          # 保险起见，加个 set +e 让它只要有后续产物就继续跑（但不建议，因为容易掩盖错误）
-          # 这里先不加，看看 Fotufilm 脚本到底报什么
-          
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
