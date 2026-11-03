@@ -42,6 +42,14 @@ jobs:
           mv swift-6.3.3-RELEASE_android.artifactbundle.tar.gz $HOME/.swiftpm/swift-sdks/
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+      - name: Patch Code (Official Strategy)
+        run: |
+          # 1. 精准替换类型转换，防止负值
+          grep -rl "srg_encoded_values" Sources/FotufilmHalide/ --include="*.h" --include="*.cpp" | xargs -r sed -i 's/cast<int>/saturating_cast<int>/g'
+          # 2. 应用官方提供的 Vulkan 补丁 (如果存在)
+          if [ -f "tools/halide-vulkan-allocation-padding.patch" ]; then
+            git apply tools/halide-vulkan-allocation-padding.patch || true
+          fi
       - name: Build Halide
         run: |
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
@@ -53,16 +61,6 @@ jobs:
           cmake .. -G Ninja -DLLVM_DIR=$(llvm-config-17 --cmakedir) -DClang_DIR="/usr/lib/llvm-17/lib/cmake/clang" -DLLD_DIR="/usr/lib/llvm-17/lib/cmake/lld" -DHalide_SHARED_LLVM=YES -DTARGET_WEBASSEMBLY=OFF -DTARGET_CUDA=OFF -DTARGET_OPENCL=OFF -DTARGET_VULKAN=ON -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF -DWITH_DOCS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
           ninja
           ninja install
-          
-      - name: Patch Code (Precise Strike)
-        run: |
-          echo "正在注释 Simulator 报错..."
-          sed -i 's/if (simulator) target.set_feature(Target::Simulator);/\/\/ if (simulator) target.set_feature(Target::Simulator);/g' Sources/FotufilmHalide/Pipeline/Gpu.h || true
-          
-          echo "正在精准注入 NoAsserts 到生成器..."
-          # 只在 generate_halide_ios.cpp 里匹配获取目标环境的那一行，并在后面追加关闭断言
-          sed -i 's/Target target = get_target_from_environment();/Target target = get_target_from_environment(); target.set_feature(Target::NoAsserts);/g' tools/generate_halide_ios.cpp
-          
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
@@ -74,7 +72,6 @@ jobs:
         run: |
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
-          
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
