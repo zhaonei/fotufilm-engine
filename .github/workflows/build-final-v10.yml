@@ -1,4 +1,4 @@
-name: Build Final V29
+name: Build Final V30
 
 on:
   workflow_dispatch:
@@ -93,32 +93,33 @@ jobs:
           ninja
           ninja install
 
-      # 🌟 核心修复：自动修补源码中的 Halide Simulator 兼容问题
-      - name: Patch Source Code for Halide v17
-        run: |
-          echo "正在修复 Gpu.h 里的版本兼容问题..."
-          sed -i 's/if (simulator) target.set_feature(Target::Simulator);/\/\/ if (simulator) target.set_feature(Target::Simulator);/g' Sources/FotufilmHalide/Pipeline/Gpu.h || true
-
-      # 🌟 终极修复：自动扫描并修补 srg_encoded_values 的边界报错
+      # 🌟 核心修复：自动修补所有 srg_encoded_values 的索引访问
       - name: Auto Patch Halide Bounds Error
         run: |
           echo "正在扫描并修复 srg_encoded_values 的边界越界报错..."
-          TARGET_FILE=$(grep -rl "srg_encoded_values" Sources/FotufilmHalide/ | head -n 1)
           
-          if [ -n "$TARGET_FILE" ]; then
-            echo "找到文件: $TARGET_FILE"
-            # 在包含该变量的行后面，强行插入边界设置
-            sed -i '/srg_encoded_values/a \        srg_encoded_values.dim(0).set_min(0);\n        srg_encoded_values.dim(0).set_extent(1024);' "$TARGET_FILE"
-            echo "已注入边界保护："
-            grep -A 2 "srg_encoded_values" "$TARGET_FILE" | head -n 5
+          # 查找所有包含 srg_encoded_values 的 .cpp 和 .h 文件
+          FILES=$(grep -rl "srg_encoded_values" Sources/FotufilmHalide/ --include="*.h" --include="*.cpp" || true)
+          
+          if [ -z "$FILES" ]; then
+            echo "⚠️ 在 Sources/FotufilmHalide/ 中未找到，扩大搜索范围..."
+            FILES=$(grep -rl "srg_encoded_values" . --include="*.h" --include="*.cpp" | grep -v "build" || true)
+          fi
+          
+          if [ -n "$FILES" ]; then
+            for FILE in $FILES; do
+              echo "正在处理文件: $FILE"
+              # 将可能产生负索引的 cast<int> 替换为 saturating_cast<int>（PR #7814 推荐的修复方式）
+              sed -i 's/cast<int>/saturating_cast<int>/g' "$FILE"
+              
+              # 如果存在直接调用 srg_encoded_values(...) 的地方，尝试用 clamp 包裹索引
+              # 这里假设索引是简单的变量名或表达式，进行通用包裹
+              sed -i 's/srg_encoded_values(\([^)]*\))/srg_encoded_values(clamp(\1, 0, srg_encoded_values.extent(0)-1))/g' "$FILE"
+              
+              echo "已对 $FILE 应用补丁。"
+            done
           else
-            echo "⚠️ 没有找到包含 srg_encoded_values 的文件，可能是因为它在其他目录下。"
-            # 兜底：在整个仓库里找
-            TARGET_FILE=$(grep -rl "srg_encoded_values" . --include="*.h" --include="*.cpp" | head -n 1)
-            if [ -n "$TARGET_FILE" ]; then
-               echo "在全仓库找到文件: $TARGET_FILE"
-               sed -i '/srg_encoded_values/a \        srg_encoded_values.dim(0).set_min(0);\n        srg_encoded_values.dim(0).set_extent(1024);' "$TARGET_FILE"
-            fi
+            echo "❌ 未找到包含 srg_encoded_values 的文件，请检查源码路径。"
           fi
 
       - name: Build APK
