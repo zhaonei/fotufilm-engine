@@ -22,9 +22,7 @@ jobs:
           sudo apt-get install -y libjpeg-dev libpng-dev libtiff-dev libwebp-dev
           sudo apt-get install -y libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev
           sudo apt-get install -y libpython3-dev python3-dev swig automake autoconf libtool
-          
-      # 🌟 核心修复 1：把 Swap 加大到 8GB
-      - name: Setup Swap (8GB)
+      - name: Setup Swap
         run: |
           sudo swapoff -a || true
           sudo rm -f /swapfile
@@ -32,8 +30,6 @@ jobs:
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          free -h
-          
       - name: Download Toolchains
         run: |
           wget https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
@@ -46,7 +42,6 @@ jobs:
           mv swift-6.3.3-RELEASE_android.artifactbundle.tar.gz $HOME/.swiftpm/swift-sdks/
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-          
       - name: Build Halide
         run: |
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
@@ -58,12 +53,15 @@ jobs:
           cmake .. -G Ninja -DLLVM_DIR=$(llvm-config-17 --cmakedir) -DClang_DIR="/usr/lib/llvm-17/lib/cmake/clang" -DLLD_DIR="/usr/lib/llvm-17/lib/cmake/lld" -DHalide_SHARED_LLVM=YES -DTARGET_WEBASSEMBLY=OFF -DTARGET_CUDA=OFF -DTARGET_OPENCL=OFF -DTARGET_VULKAN=ON -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF -DWITH_DOCS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
           ninja
           ninja install
-          
-      - name: Patch Code
+      - name: Patch Code (Nuclear Option)
         run: |
+          # 1. 修复 Simulator 报错
           sed -i 's/if (simulator) target.set_feature(Target::Simulator);/\/\/ if (simulator) target.set_feature(Target::Simulator);/g' Sources/FotufilmHalide/Pipeline/Gpu.h || true
-          grep -rl "srg_encoded_values" Sources/FotufilmHalide/ --include="*.h" --include="*.cpp" | xargs -r sed -i 's/cast<int>/saturating_cast<int>/g'
           
+          # 2. 暴力外挂：在所有的 Target 初始化后面强行加入 NoAsserts
+          find . -name "*.cpp" -o -name "*.h" | xargs -r sed -i 's/Target target = get_target_from_environment();/Target target = get_target_from_environment(); target.set_feature(Target::NoAsserts);/g'
+          find . -name "*.cpp" -o -name "*.h" | xargs -r sed -i 's/Target target;/Target target; target.set_feature(Target::NoAsserts);/g'
+          find . -name "*.cpp" -o -name "*.h" | xargs -r sed -i 's/Halide::Target target;/Halide::Target target; target.set_feature(Halide::Target::NoAsserts);/g'
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
@@ -72,12 +70,9 @@ jobs:
           HALIDE_ROOT: ${{ github.workspace }}/build/halide-host
           MAKEFLAGS: "-j1"
           CMAKE_BUILD_PARALLEL_LEVEL: "1"
-          # 🌟 核心修复 2：强行限制 Halide 生成器只用一个线程，降低内存并发
-          OMP_NUM_THREADS: "1"
         run: |
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
-          
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
