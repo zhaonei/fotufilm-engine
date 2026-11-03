@@ -50,68 +50,13 @@ jobs:
           rm -rf python_bindings
           mkdir build-host
           cd build-host
-          cmake .. -G Ninja \
-            -DLLVM_DIR=$(llvm-config-17 --cmakedir) \
-            -DClang_DIR="/usr/lib/llvm-17/lib/cmake/clang" \
-            -DLLD_DIR="/usr/lib/llvm-17/lib/cmake/lld" \
-            -DHalide_SHARED_LLVM=YES \
-            -DTARGET_WEBASSEMBLY=OFF \
-            -DTARGET_CUDA=OFF \
-            -DTARGET_OPENCL=OFF \
-            -DTARGET_VULKAN=ON \
-            -DWITH_TESTS=OFF \
-            -DWITH_TUTORIALS=OFF \
-            -DWITH_PYTHON_BINDINGS=OFF \
-            -DWITH_DOCS=OFF \
-            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
+          cmake .. -G Ninja -DLLVM_DIR=$(llvm-config-17 --cmakedir) -DClang_DIR="/usr/lib/llvm-17/lib/cmake/clang" -DLLD_DIR="/usr/lib/llvm-17/lib/cmake/lld" -DHalide_SHARED_LLVM=YES -DTARGET_WEBASSEMBLY=OFF -DTARGET_CUDA=OFF -DTARGET_OPENCL=OFF -DTARGET_VULKAN=ON -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF -DWITH_DOCS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
           ninja
           ninja install
       - name: Patch Code
         run: |
-          # 1. 修复 Simulator
           sed -i 's/if (simulator) target.set_feature(Target::Simulator);/\/\/ if (simulator) target.set_feature(Target::Simulator);/g' Sources/FotufilmHalide/Pipeline/Gpu.h || true
-          
-          # 2. 用 Python 进行无死角扫描
-          python3 -c '
-import os, re
-for root, dirs, files in os.walk("."):
-    if "build" in root or ".git" in root:
-        continue
-    for file in files:
-        if file.endswith((".cpp", ".h", ".hpp")):
-            path = os.path.join(root, file)
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                
-                # 第一招：寻找 Target 定义，强行加上 NoAsserts
-                if re.search(r"(Halide::)?Target\s+target\s*=", content):
-                    new_content = re.sub(
-                        r"((?:Halide::)?Target\s+target\s*=\s*[^;]+;)", 
-                        r"\1\n    target.set_feature(Halide::Target::NoAsserts);", 
-                        content
-                    )
-                    if new_content != content:
-                        with open(path, "w", encoding="utf-8") as f:
-                            f.write(new_content)
-                        print(f"✅ 注入 NoAsserts 到: {path}")
-                        continue
-                
-                # 第二招：如果没找到 Target，直接给 srg_encoded_values 加钳制
-                if "srg_encoded_values" in content:
-                    # 匹配 srg_encoded_values(...)，如果是直接读，用 clamp 包住
-                    new_content = re.sub(
-                        r"srg_encoded_values\((?!clamp)(.*?)\)", 
-                        r"srg_encoded_values(clamp(\1, 0, srg_encoded_values.extent(0)-1))", 
-                        content
-                    )
-                    if new_content != content:
-                        with open(path, "w", encoding="utf-8") as f:
-                            f.write(new_content)
-                        print(f"✅ 对 {path} 应用了 clamp 保护")
-            except Exception as e:
-                pass
-          '
+          grep -rl "srg_encoded_values" Sources/FotufilmHalide/ --include="*.h" --include="*.cpp" | xargs -r sed -i 's/cast<int>/saturating_cast<int>/g'
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
