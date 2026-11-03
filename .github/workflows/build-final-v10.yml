@@ -1,4 +1,4 @@
-name: Build Final V26
+name: Build Final V27
 
 on:
   workflow_dispatch:
@@ -21,7 +21,6 @@ jobs:
         with:
           channel: 'stable'
 
-      # 1. 安装系统依赖，带上了 libhalide 作为备用
       - name: Install ALL System Dependencies
         run: |
           sudo apt-get update
@@ -34,7 +33,6 @@ jobs:
             libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev \
             libpython3-dev python3-dev swig automake autoconf libtool
 
-      # 2. 挂载 4GB 虚拟内存（Swap），这是防止底层 C++ 编译内存溢出被强杀的唯一解药
       - name: Enable Swap
         run: |
           sudo swapoff -a || true
@@ -44,20 +42,17 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
-      # 3. 下载 Swift 宿主机编译器（手动解压，路径绝对准确）
       - name: Download Swift Host Toolchain
         run: |
           wget https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
           tar -xzf swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
           mv swift-6.3.3-RELEASE-ubuntu22.04 swift-host
 
-      # 4. 下载 NDK 27（官方硬性要求）
       - name: Setup NDK 27
         run: |
           wget https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
           unzip android-ndk-r27d-linux.zip
 
-      # 5. 下载 Swift Android 目标 SDK（手动放入隐藏目录）
       - name: Download Swift Android SDK
         run: |
           wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
@@ -66,14 +61,13 @@ jobs:
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
-      # 6. 源码编译 Halide（极度克制版，绝不爆内存）
       - name: Build Halide Host (Minimal)
         run: |
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
           tar -xzf v17.0.1.tar.gz
           cd Halide-17.0.1
           
-          # 直接物理删除惹祸的 python_bindings 文件夹，连根拔起
+          # 物理删除 python_bindings 和 tests
           rm -rf python_bindings
           
           mkdir build-host && cd build-host
@@ -81,7 +75,6 @@ jobs:
           CLANG_DIR="/usr/lib/llvm-17/lib/cmake/clang"
           LLD_DIR="/usr/lib/llvm-17/lib/cmake/lld"
           
-          # 严格关闭无关选项，只留 Vulkan
           cmake .. \
             -G Ninja \
             -DLLVM_DIR="$LLVM_DIR" \
@@ -98,40 +91,29 @@ jobs:
             -DWITH_DOCS=OFF \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
             
-          # 编译。因为删了测试和python，只剩核心库，几分钟必完事
           ninja
           ninja install
           
-          # 终极兜底：确保 GenGen 和 Halide.h 在指定位置
-          echo "====== 检查并强行移动产物 ======"
-          mkdir -p $GITHUB_WORKSPACE/build/halide-host/bin
-          GENGEN_BIN=$(find . -name "GenGen" -type f | head -n 1)
-          if [ -n "$GENGEN_BIN" ]; then
-            cp "$GENGEN_BIN" $GITHUB_WORKSPACE/build/halide-host/bin/
-            chmod +x $GITHUB_WORKSPACE/build/halide-host/bin/GenGen
-          fi
+          echo "====== 检查 Halide.h ======"
           ls -la $GITHUB_WORKSPACE/build/halide-host/include/Halide.h || (echo "❌ Halide.h 丢失" && exit 1)
 
-      # 7. 执行最终的 APK 构建
       - name: Build APK
         env:
-          # 把所有路径焊死在环境变量里
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
           SWIFT_SDK: swift-6.3.3-RELEASE_android
           ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r27d
           HALIDE_ROOT: ${{ github.workspace }}/build/halide-host
-          # 限制 Swift/CMake 并发，防止 OOM
           MAKEFLAGS: "-j2"
           CMAKE_BUILD_PARALLEL_LEVEL: "2"
         run: |
-          # 再次确认变量
           echo "====== 最终环境校验 ======"
           ls -la $SWIFT_TOOLCHAIN/usr/bin/swiftc
-          ls -la $HALIDE_ROOT/bin/GenGen
           ls -la $HALIDE_ROOT/include/Halide.h
           echo "========================="
           
-          # 给脚本执行权限并运行
+          # 保险起见，加个 set +e 让它只要有后续产物就继续跑（但不建议，因为容易掩盖错误）
+          # 这里先不加，看看 Fotufilm 脚本到底报什么
+          
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
