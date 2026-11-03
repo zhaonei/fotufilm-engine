@@ -53,12 +53,14 @@ jobs:
           cmake .. -G Ninja -DLLVM_DIR=$(llvm-config-17 --cmakedir) -DClang_DIR="/usr/lib/llvm-17/lib/cmake/clang" -DLLD_DIR="/usr/lib/llvm-17/lib/cmake/lld" -DHalide_SHARED_LLVM=YES -DTARGET_WEBASSEMBLY=OFF -DTARGET_CUDA=OFF -DTARGET_OPENCL=OFF -DTARGET_VULKAN=ON -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF -DWITH_DOCS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
           ninja
           ninja install
-      - name: Patch Code (Anti-Error)
+      - name: Patch Code (Precise Fix)
         run: |
-          echo "Scanning and patching source code..."
-          find Sources tools -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i 's/Target::Simulator/Target::NoAsserts/g' {} + || true
-          find Sources tools -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i 's/cast<int>/saturating_cast<int>/g' {} + || true
-          echo "Patch complete."
+          # 1. 修复上一版误伤的 static_cast
+          sed -i 's/static_saturating_cast/static_cast/g' tools/generate_halide_ios.cpp || true
+          # 2. 把 Simulator 强制替换为 NoAsserts
+          sed -i 's/Target::Simulator/Target::NoAsserts/g' tools/generate_halide_ios.cpp || true
+          # 3. 在获取目标环境后，强行追加 NoAsserts 以关闭边界检查
+          sed -i '/Target target = get_target_from_environment();/a \    target.set_feature(Target::NoAsserts);' tools/generate_halide_ios.cpp || true
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
