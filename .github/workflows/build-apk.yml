@@ -14,10 +14,10 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # 🌟 核心修复 1：强制使用包含联发科 Vulkan 修复的 Flutter 版本
+      # 🌟 核心修复：将 Flutter 版本升级到 3.38.0 以匹配项目的 SDK 要求
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.3'
+          flutter-version: '3.38.0'
 
       # ==========================================
       # 🚀 开启极速缓存：只要文件没变，直接秒过
@@ -36,7 +36,6 @@ jobs:
       # ==========================================
       # 如果缓存没命中，才执行下载和编译
       # ==========================================
-      # 🌟 核心修复 2：修复 GPG 密钥安装和网络解析问题
       - name: Install Dependencies & LLVM 21
         if: steps.cache-env.outputs.cache-hit != 'true'
         run: |
@@ -90,7 +89,6 @@ jobs:
           cd swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
-      # 把 Swift SDK 放到官方默认找的位置 (无论是否命中缓存都要执行)
       - name: Setup Swift SDK Path
         run: |
           mkdir -p $HOME/.swiftpm/swift-sdks
@@ -133,4 +131,3 @@ jobs:
         with:
           name: Fotufilm-APK
           path: build/flutter-host/Fotufilm.apk
-      
