@@ -42,50 +42,20 @@ jobs:
           mv swift-6.3.3-RELEASE_android.artifactbundle.tar.gz $HOME/.swiftpm/swift-sdks/
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-      - name: Build Halide
+      - name: Build Halide via Official Script
         run: |
-          wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
-          tar -xzf v17.0.1.tar.gz
-          cd Halide-17.0.1
-          rm -rf python_bindings
-          mkdir build-host
-          cd build-host
-          cmake .. -G Ninja -DLLVM_DIR=$(llvm-config-17 --cmakedir) -DClang_DIR="/usr/lib/llvm-17/lib/cmake/clang" -DLLD_DIR="/usr/lib/llvm-17/lib/cmake/lld" -DHalide_SHARED_LLVM=YES -DTARGET_WEBASSEMBLY=OFF -DTARGET_CUDA=OFF -DTARGET_OPENCL=OFF -DTARGET_VULKAN=ON -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF -DWITH_DOCS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
-          ninja
-          ninja install
-      - name: Apply Patches and Fix Code
-        run: |
-          echo "应用官方补丁并修复源码..."
-          cd tools
-          if [ -f "halide-vulkan-allocation-padding.patch" ]; then git apply halide-vulkan-allocation-padding.patch || true; fi
-          if [ -f "halide-vulkan-strict-float.patch" ]; then git apply halide-vulkan-strict-float.patch || true; fi
-          cd ..
-          
-          python3 - <<'PYTHON'
-          import os, re
-          for root, dirs, files in os.walk("Sources/FotufilmHalide"):
-              for file in files:
-                  if file.endswith((".cpp", ".h", ".hpp")):
-                      path = os.path.join(root, file)
-                      with open(path, "r", encoding="utf-8") as f: content = f.read()
-                      if "srg_encoded_values" in content:
-                          new_content = re.sub(r"srg_encoded_values\((?!clamp)(.*?)\)", r"srg_encoded_values(clamp(\1, 0, 1023))", content)
-                          if new_content != content:
-                              with open(path, "w", encoding="utf-8") as f: f.write(new_content)
-                              print(f"✅ 已为 {path} 注入 Clamp 边界约束")
-          PYTHON
-          
+          echo "正在使用官方脚本构建 Halide (包含所有 Vulkan 补丁)..."
+          chmod +x tools/build-halide-linux.sh
+          ./tools/build-halide-linux.sh
+          # 官方脚本通常将产物放在 build/halide 或类似位置
+          echo "HALIDE_ROOT=$PWD/build/halide" >> $GITHUB_ENV
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
           SWIFT_SDK: swift-6.3.3-RELEASE_android
           ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r27d
-          HALIDE_ROOT: ${{ github.workspace }}/build/halide-host
           MAKEFLAGS: "-j1"
           CMAKE_BUILD_PARALLEL_LEVEL: "1"
-          # 核心修复：强制底层构建脚本使用正确的 Android 配置
-          CMAKE_C_FLAGS: "-DWITH_LIBDE265=ON -DWITH_AOM_DECODER=OFF -DWITH_AOM_DECODER_PLUGIN=OFF -DWITH_X265=OFF -DWITH_DAV1D=OFF -DENABLE_PLUGIN_LOADING=OFF -DENABLE_EXAMPLES=OFF -DBUILD_TESTING=OFF"
-          CMAKE_CXX_FLAGS: "-DWITH_LIBDE265=ON -DWITH_AOM_DECODER=OFF -DWITH_AOM_DECODER_PLUGIN=OFF -DWITH_X265=OFF -DWITH_DAV1D=OFF -DENABLE_PLUGIN_LOADING=OFF -DENABLE_EXAMPLES=OFF -DBUILD_TESTING=OFF"
         run: |
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
