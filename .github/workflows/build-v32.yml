@@ -137,4 +137,4 @@ for root, dirs, files in os.walk("."):
         uses: actions/upload-artifact@v4
         with:
           name: Fotufilm-Android-APK
-          path: build/flutter-host/Fotufilm.apk
+          path: build/flutter-host/Fotufilm.apk  
