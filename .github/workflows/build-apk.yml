@@ -42,6 +42,7 @@ jobs:
           mv swift-6.3.3-RELEASE_android.artifactbundle.tar.gz $HOME/.swiftpm/swift-sdks/
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+
       - name: Build Halide
         run: |
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
@@ -53,14 +54,44 @@ jobs:
           cmake .. -G Ninja -DLLVM_DIR=$(llvm-config-17 --cmakedir) -DClang_DIR="/usr/lib/llvm-17/lib/cmake/clang" -DLLD_DIR="/usr/lib/llvm-17/lib/cmake/lld" -DHalide_SHARED_LLVM=YES -DTARGET_WEBASSEMBLY=OFF -DTARGET_CUDA=OFF -DTARGET_OPENCL=OFF -DTARGET_VULKAN=ON -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF -DWITH_DOCS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
           ninja
           ninja install
-      - name: Patch Code (Scorched Earth)
+
+      - name: Apply Official Halide Patches
         run: |
-          echo "正在全盘清理 Simulator 和 srg_encoded_values..."
-          # 1. 只要看到 Target::Simulator，无条件替换为 Target::NoAsserts (关闭断言)
-          find Sources tools -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i 's/Target::Simulator/Target::NoAsserts/g' {} +
-          # 2. 保险起见，修复上一版留下的静态转换报错
-          find Sources tools -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i 's/static_saturating_cast/static_cast/g' {} +
-          
+          cd tools
+          if [ -f "halide-vulkan-allocation-padding.patch" ]; then
+            git apply halide-vulkan-allocation-padding.patch || true
+            echo "✅ 已应用官方 Vulkan 内存填充补丁"
+          fi
+          if [ -f "halide-vulkan-strict-float.patch" ]; then
+            git apply halide-vulkan-strict-float.patch || true
+            echo "✅ 已应用官方 StrictFloat 补丁"
+          fi
+          cd ..
+
+      - name: Patch Source Code (Precise Clamp)
+        run: |
+          echo "正在精准应用 Clamp 边界约束..."
+          python3 - <<'PYTHON'
+          import os, re
+          for root, dirs, files in os.walk("Sources/FotufilmHalide"):
+              for file in files:
+                  if file.endswith((".cpp", ".h", ".hpp")):
+                      path = os.path.join(root, file)
+                      with open(path, "r", encoding="utf-8") as f:
+                          content = f.read()
+                      if "srg_encoded_values" in content:
+                          # 将 srg_encoded_values(expr) 替换为 srg_encoded_values(clamp(expr, 0, 1023))
+                          new_content = re.sub(
+                              r"srg_encoded_values\((?!clamp)(.*?)\)",
+                              r"srg_encoded_values(clamp(\1, 0, 1023))",
+                              content
+                          )
+                          if new_content != content:
+                              with open(path, "w", encoding="utf-8") as f:
+                                  f.write(new_content)
+                              print(f"✅ 已为 {path} 注入 Clamp 边界约束")
+          PYTHON
+
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
@@ -72,6 +103,7 @@ jobs:
         run: |
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
+
       - name: Upload
         if: always()
         uses: actions/upload-artifact@v4
