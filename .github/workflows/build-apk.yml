@@ -14,11 +14,30 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
+      # 🌟 修复黑屏的核心：强制使用包含联发科修复的 Flutter 3.29.3
       - uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          flutter-version: '3.29.3'
 
+      # ==========================================
+      # 🚀 开启极速缓存：只要文件没变，直接秒过
+      # ==========================================
+      - name: Cache Toolchains & Halide
+        id: cache-env
+        uses: actions/cache@v4
+        with:
+          path: |
+            swift-host
+            android-ndk-r27d
+            swift-sdks
+            build/halide-host
+          key: fotufilm-env-v1
+
+      # ==========================================
+      # 如果缓存没命中，才执行下载和编译
+      # ==========================================
       - name: Install Dependencies & LLVM 21
+        if: steps.cache-env.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config git
@@ -48,6 +67,7 @@ jobs:
           sudo swapon /swapfile
 
       - name: Download Toolchains
+        if: steps.cache-env.outputs.cache-hit != 'true'
         run: |
           wget https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
           tar -xzf swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
@@ -55,12 +75,19 @@ jobs:
           wget https://dl.google.com/android/repository/android-ndk-r27d-linux.zip
           unzip android-ndk-r27d-linux.zip
           wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-          mkdir -p $HOME/.swiftpm/swift-sdks
-          mv swift-6.3.3-RELEASE_android.artifactbundle.tar.gz $HOME/.swiftpm/swift-sdks/
-          cd $HOME/.swiftpm/swift-sdks/
+          mkdir -p swift-sdks
+          mv swift-6.3.3-RELEASE_android.artifactbundle.tar.gz swift-sdks/
+          cd swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
 
+      # 把 Swift SDK 放到官方默认找的位置
+      - name: Setup Swift SDK Path
+        run: |
+          mkdir -p $HOME/.swiftpm/swift-sdks
+          cp -r ./swift-sdks/* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
+
       - name: Build Halide via Official Script
+        if: steps.cache-env.outputs.cache-hit != 'true'
         run: |
           echo "开始官方构建..."
           chmod +x tools/build-halide-linux.sh
@@ -75,40 +102,20 @@ jobs:
           fi
           HALIDE_INC_DIR=$(dirname "$HALIDE_HEADER_PATH")
           REAL_HALIDE_ROOT=$(dirname "$HALIDE_INC_DIR")
-          echo "✅ 找到真实的 HALIDE_ROOT: $REAL_HALIDE_ROOT"
-          echo "HALIDE_ROOT=$REAL_HALIDE_ROOT" >> $GITHUB_ENV
+          mkdir -p build
+          cp -r $REAL_HALIDE_ROOT build/halide-host
 
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
           SWIFT_SDK: swift-6.3.3-RELEASE_android
           ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r27d
+          HALIDE_ROOT: ${{ github.workspace }}/build/halide-host
           MAKEFLAGS: "-j1"
           CMAKE_BUILD_PARALLEL_LEVEL: "1"
         run: |
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
-
-      # 🌟 新增：将所有环境打包并上传
-      - name: Prepare Environment for Download
-        if: always()
-        run: |
-          # 将 Swift SDK 从隐藏目录复制到工作目录，方便一起打包
-          cp -r $HOME/.swiftpm/swift-sdks ./swift-sdks || true
-
-      - name: Upload Full Environment
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: prebuilt-env
-          path: |
-            swift-host/
-            android-ndk-r27d/
-            swift-sdks/
-            build/
-            third_party/
-            flutter/.dart_tool/
-            flutter/build/
 
       - name: Upload APK
         if: always()
