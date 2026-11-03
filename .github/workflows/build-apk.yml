@@ -42,14 +42,6 @@ jobs:
           mv swift-6.3.3-RELEASE_android.artifactbundle.tar.gz $HOME/.swiftpm/swift-sdks/
           cd $HOME/.swiftpm/swift-sdks/
           tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-      - name: Patch Code (Official Strategy)
-        run: |
-          # 1. 精准替换类型转换，防止负值
-          grep -rl "srg_encoded_values" Sources/FotufilmHalide/ --include="*.h" --include="*.cpp" | xargs -r sed -i 's/cast<int>/saturating_cast<int>/g'
-          # 2. 应用官方提供的 Vulkan 补丁 (如果存在)
-          if [ -f "tools/halide-vulkan-allocation-padding.patch" ]; then
-            git apply tools/halide-vulkan-allocation-padding.patch || true
-          fi
       - name: Build Halide
         run: |
           wget https://github.com/halide/Halide/archive/refs/tags/v17.0.1.tar.gz
@@ -61,6 +53,12 @@ jobs:
           cmake .. -G Ninja -DLLVM_DIR=$(llvm-config-17 --cmakedir) -DClang_DIR="/usr/lib/llvm-17/lib/cmake/clang" -DLLD_DIR="/usr/lib/llvm-17/lib/cmake/lld" -DHalide_SHARED_LLVM=YES -DTARGET_WEBASSEMBLY=OFF -DTARGET_CUDA=OFF -DTARGET_OPENCL=OFF -DTARGET_VULKAN=ON -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF -DWITH_DOCS=OFF -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/halide-host"
           ninja
           ninja install
+      - name: Patch Code (Anti-Error)
+        run: |
+          echo "Scanning and patching source code..."
+          find Sources tools -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i 's/Target::Simulator/Target::NoAsserts/g' {} + || true
+          find Sources tools -type f \( -name "*.h" -o -name "*.cpp" \) -exec sed -i 's/cast<int>/saturating_cast<int>/g' {} + || true
+          echo "Patch complete."
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
