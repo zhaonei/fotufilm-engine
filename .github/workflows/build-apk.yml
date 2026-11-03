@@ -14,12 +14,10 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # 🌟 坑1解决：使用最新的 master 分支，获取对天玑 9300 Vulkan 黑屏的官方修复
       - uses: subosito/flutter-action@v2
         with:
           channel: 'master'
 
-      # 🌟 坑2解决：缓存环境，避免每次重新编译底层
       - name: Cache Toolchains & Halide
         id: cache-env
         uses: actions/cache@v4
@@ -30,9 +28,8 @@ jobs:
             swift-sdks
             build/halide-host
             llvm-prebuilt
-          key: fotufilm-env-v6
+          key: fotufilm-env-v7 # 🌟 升级 key，确保清理旧的损坏缓存
 
-      # 🌟 坑3解决：直接下载官方 LLVM 预编译包，绕开 apt.llvm.org 的 DNS 解析死局
       - name: Install Dependencies (Prebuilt LLVM)
         if: steps.cache-env.outputs.cache-hit != 'true'
         run: |
@@ -52,7 +49,6 @@ jobs:
           echo "LLVM_DIR=$GITHUB_WORKSPACE/llvm-prebuilt/lib/cmake/llvm" >> $GITHUB_ENV
           echo "LLD_DIR=$GITHUB_WORKSPACE/llvm-prebuilt/lib/cmake/lld" >> $GITHUB_ENV
 
-      # 🌟 坑4解决：强行分配 8GB 虚拟内存，防止 Halide 编译时 OOM 被杀
       - name: Setup Swap
         if: steps.cache-env.outputs.cache-hit != 'true'
         run: |
@@ -82,16 +78,19 @@ jobs:
           mkdir -p $HOME/.swiftpm/swift-sdks
           cp -r ./swift-sdks/* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
 
-      # 🌟 坑5解决：关闭损坏的 WASM 库，全盘搜索 Halide 产物，强行绑定路径
+      # 🌟 核心修复：强制禁用 WASM 后端，并注入 CMake 参数
       - name: Build Halide via Official Script
         if: steps.cache-env.outputs.cache-hit != 'true'
         run: |
           echo "开始官方构建..."
           chmod +x tools/build-halide-linux.sh
           
-          # 核心防弹补丁：关闭所有 WebAssembly 相关的编译
+          # 强制禁用 WebAssembly 后端
           export TARGET_WEBASSEMBLY=OFF
           export Halide_WASM_BACKEND=OFF
+          
+          # 注入 CMake 参数，强制链接动态库，绕过损坏的静态库
+          export CMAKE_ARGS="-DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_LINK_LLVM_DYLIB=ON -DBUILD_SHARED_LIBS=0"
           
           ./tools/build-halide-linux.sh
           
@@ -106,7 +105,6 @@ jobs:
           mkdir -p build
           cp -r $REAL_HALIDE_ROOT build/halide-host
 
-      # 🌟 坑6解决：彻底清理环境变量污染，强制使用我们指定的路径
       - name: Build APK
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
