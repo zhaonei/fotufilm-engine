@@ -1,4 +1,5 @@
-name: Build Final V31
+
+name: Build Final V32
 
 on:
   workflow_dispatch:
@@ -89,21 +90,40 @@ jobs:
           ninja
           ninja install
 
-      # 🌟 终极修复：同时补上 Simulator 和 srg_encoded_values 的坑
+      # 🌟 终极 Python 补丁：地毯式搜索并强制注入 clamp 边界
       - name: Auto Patch Source Code for Halide v17
         run: |
           echo "1. 修复 Gpu.h 中的 Simulator 报错..."
           sed -i 's/if (simulator) target.set_feature(Target::Simulator);/\/\/ if (simulator) target.set_feature(Target::Simulator);/g' Sources/FotufilmHalide/Pipeline/Gpu.h || true
 
-          echo "2. 修复 srg_encoded_values 越界报错..."
-          FILES=$(grep -rl "srg_encoded_values" Sources/FotufilmHalide/ --include="*.h" --include="*.cpp" || true)
-          if [ -n "$FILES" ]; then
-            for FILE in $FILES; do
-              echo "正在处理文件: $FILE"
-              sed -i 's/cast<int>/saturating_cast<int>/g' "$FILE"
-              sed -i 's/srg_encoded_values(\([^)]*\))/srg_encoded_values(clamp(\1, 0, srg_encoded_values.extent(0)-1))/g' "$FILE"
-            done
-          fi
+          echo "2. Python 脚本全局搜索并修复 srg_encoded_values 越界报错..."
+          python3 -c '
+import os, re
+for root, dirs, files in os.walk("."):
+    # 跳过编译生成目录和隐藏目录
+    if "build" in root or ".git" in root:
+        continue
+    for file in files:
+        if file.endswith((".cpp", ".h", ".hpp")):
+            path = os.path.join(root, file)
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                if "srg_encoded_values" in content:
+                    # 强行给 srg_encoded_values(...) 加上 clamp 保护
+                    # 使用正则匹配，避免重复包裹已经 clamp 的
+                    new_content = re.sub(
+                        r"srg_encoded_values\((?!clamp)(.*?)\)", 
+                        r"srg_encoded_values(clamp(\1, 0, srg_encoded_values.extent(0)-1))", 
+                        content
+                    )
+                    if new_content != content:
+                        with open(path, "w", encoding="utf-8") as f:
+                            f.write(new_content)
+                        print(f"✅ 成功修补文件: {path}")
+            except Exception as e:
+                pass
+          '
 
       - name: Build APK
         env:
