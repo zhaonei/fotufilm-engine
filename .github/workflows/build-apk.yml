@@ -67,28 +67,16 @@ jobs:
           export LLD_DIR="/usr/lib/llvm-21/lib/cmake/lld"
           ./tools/build-halide-linux.sh
           
-          # 🌟 核心修复：全盘搜索 Halide.h 所在的目录，并动态设置环境变量
           echo "正在搜索 Halide.h..."
           HALIDE_HEADER_PATH=$(find $GITHUB_WORKSPACE -name "Halide.h" -type f | head -n 1)
-          
           if [ -z "$HALIDE_HEADER_PATH" ]; then
             echo "❌ 依然找不到 Halide.h"
             exit 1
           fi
-          
-          # 截取 include 目录的上一级作为 HALIDE_ROOT
           HALIDE_INC_DIR=$(dirname "$HALIDE_HEADER_PATH")
           REAL_HALIDE_ROOT=$(dirname "$HALIDE_INC_DIR")
           echo "✅ 找到真实的 HALIDE_ROOT: $REAL_HALIDE_ROOT"
           echo "HALIDE_ROOT=$REAL_HALIDE_ROOT" >> $GITHUB_ENV
-          
-          # 验证 GenGen 是否存在
-          if [ -f "$REAL_HALIDE_ROOT/bin/GenGen" ]; then
-            echo "✅ 确认 GenGen 存在"
-          else
-            echo "⚠️ 警告：GenGen 似乎不在 bin 目录下"
-            find $GITHUB_WORKSPACE -name "GenGen" -type f
-          fi
 
       - name: Build APK
         env:
@@ -101,7 +89,28 @@ jobs:
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
-      - name: Upload
+      # 🌟 新增：将所有环境打包并上传
+      - name: Prepare Environment for Download
+        if: always()
+        run: |
+          # 将 Swift SDK 从隐藏目录复制到工作目录，方便一起打包
+          cp -r $HOME/.swiftpm/swift-sdks ./swift-sdks || true
+
+      - name: Upload Full Environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuilt-env
+          path: |
+            swift-host/
+            android-ndk-r27d/
+            swift-sdks/
+            build/
+            third_party/
+            flutter/.dart_tool/
+            flutter/build/
+
+      - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
