@@ -14,14 +14,11 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # 🌟 核心修复：将 Flutter 版本升级到 3.38.0 以匹配项目的 SDK 要求
+      # 🌟 核心修复：使用 master 通道，获取最新的 Dart SDK 以满足 >=3.11.5 的要求
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.38.0'
+          channel: 'master'
 
-      # ==========================================
-      # 🚀 开启极速缓存：只要文件没变，直接秒过
-      # ==========================================
       - name: Cache Toolchains & Halide
         id: cache-env
         uses: actions/cache@v4
@@ -33,9 +30,6 @@ jobs:
             build/halide-host
           key: fotufilm-env-v1
 
-      # ==========================================
-      # 如果缓存没命中，才执行下载和编译
-      # ==========================================
       - name: Install Dependencies & LLVM 21
         if: steps.cache-env.outputs.cache-hit != 'true'
         run: |
