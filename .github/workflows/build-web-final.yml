@@ -1,4 +1,4 @@
-name: Build Web to APK via Cordova
+name: Build 100% Offline Fotufilm APK (Capacitor Release Final)
 on: workflow_dispatch
 
 jobs:
@@ -15,158 +15,89 @@ jobs:
 
       - name: Setup Java
         uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
+        with: { distribution: 'zulu', java-version: '17' }
 
-      - name: Install Puppeteer & Prepare Samples
-        shell: bash
+      # 🌟 核心：从你刚发布的 Release 下载 5 个核心文件，放到正确的位置
+      - name: Download Full Engine from Release
+        run: |
+          mkdir -p web-export/engine
+          
+          echo "正在下载 index.html..."
+          wget -q https://github.com/zhaonei/fotufilm-engine/releases/download/v1.0/index.html -O web-export/index.html
+          
+          echo "正在下载 bridge.js..."
+          wget -q https://github.com/zhaonei/fotufilm-engine/releases/download/v1.0/bridge.js -O web-export/engine/bridge.js
+          
+          echo "正在下载 builder.wasm..."
+          wget -q https://github.com/zhaonei/fotufilm-engine/releases/download/v1.0/builder.wasm -O web-export/engine/builder.wasm
+          
+          echo "正在下载 decoder.wasm..."
+          wget -q https://github.com/zhaonei/fotufilm-engine/releases/download/v1.0/decoder.wasm -O web-export/engine/decoder.wasm
+          
+          echo "正在下载 fotufilm.wasm..."
+          wget -q https://github.com/zhaonei/fotufilm-engine/releases/download/v1.0/fotufilm.wasm -O web-export/engine/fotufilm.wasm
+          
+          echo "检查文件是否到位："
+          ls -lh web-export/engine/
+
+      - name: Build APK via Capacitor
         run: |
           npm init -y
-          npm install puppeteer
+          npm install @capacitor/core @capacitor/cli @capacitor/android
           
-          echo "正在下载真实测试样片..."
-          wget -q --tries=3 --timeout=15 -O sample.cr2 "https://raw.pixls.us/getfile.php/1425/nice/Canon%20-%20EOS%205D%20Mark%20III%20-%2012bit%20%283%3A2%29.CR2" || \
-          wget -q --tries=3 --timeout=15 -O sample.cr2 "https://github.com/letmaik/rawpy-test-data/raw/master/RAW_CANON_40D_SRAW_V103.CR2"
+          npx cap init Fotufilm com.fotufilm.offline --web-dir=web-export
+          npx cap add android
+          npx cap sync android
           
-          wget -q --tries=3 --timeout=15 -O sample.tiff "https://github.com/python-pillow/Pillow/raw/main/Tests/images/hopper.tif" || \
-          wget -q --tries=3 --timeout=15 -O sample.tiff "https://filesamples.com/samples/image/tiff/sample_640%C3%97426.tiff"
+          # 开启硬件加速大内存
+          sed -i 's|<application|<application android:hardwareAccelerated="true" android:largeHeap="true" android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
           
-          ls -lh sample.cr2 sample.tiff
+          # 强制注入跨域头（为了 WASM 多线程满血运行）
+          mkdir -p android/app/src/main/java/com/fotufilm/offline
+          cat << 'EOF' > android/app/src/main/java/com/fotufilm/offline/MainActivity.java
+          package com.fotufilm.offline;
 
-      - name: Run Ultimate Deep Extractor
-        run: |
-          cat << 'EOF' > extract.js
-          const puppeteer = require('puppeteer');
-          const fs = require('fs');
-          const path = require('path');
+          import com.getcapacitor.BridgeActivity;
+          import android.os.Bundle;
+          import android.webkit.WebView;
+          import com.getcapacitor.BridgeWebViewClient;
+          import android.webkit.WebResourceResponse;
+          import java.util.HashMap;
+          import java.util.Map;
 
-          (async () => {
-              const baseUrl = 'https://fotufilm.com/demo/';
-              const baseDir = './web';
-              let activeRequests = 0;
-
-              console.log('🚀 启动 1:1 深度复刻抓取引擎...');
-              const browser = await puppeteer.launch({ 
-                  args: ['--no-sandbox', '--disable-setuid-sandbox'],
-                  headless: "new" 
-              });
-              const page = await browser.newPage();
-              await page.setViewport({ width: 1920, height: 1080 });
-
-              page.on('request', () => { activeRequests++; });
-              page.on('requestfinished', () => { activeRequests--; });
-              page.on('requestfailed', () => { activeRequests--; });
-
-              page.on('response', async (response) => {
-                  const url = response.url();
-                  if (url.startsWith(baseUrl)) {
-                      let relPath = url.replace(baseUrl, '').split('?')[0];
-                      if (!relPath) relPath = 'index.html';
-                      if (relPath.startsWith('assets/assets/')) relPath = relPath.replace('assets/assets/', 'assets/');
-                      const filePath = path.join(baseDir, relPath);
-                      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-                      try {
-                          const buffer = await response.buffer();
-                          fs.writeFileSync(filePath, buffer);
-                      } catch (e) {}
-                  }
-              });
-
-              const waitForNetworkIdle = async (description) => {
-                  const start = Date.now();
-                  let idleFrames = 0;
-                  while (Date.now() - start < 20000) {
-                      if (activeRequests <= 0) {
-                          idleFrames++;
-                          if (idleFrames >= 4) return;
-                      } else {
-                          idleFrames = 0;
-                      }
-                      await new Promise(r => setTimeout(r, 500));
-                  }
-              };
-
-              try {
-                  await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-                  await page.evaluate(() => { document.querySelector('flt-semantics-placeholder')?.click(); });
-                  await waitForNetworkIdle('主界面初始化');
-
-                  try {
-                      const input = await page.$('input[type="file"]');
-                      if (input) await input.uploadFile('./sample.cr2');
-                  } catch(e) {}
-                  await waitForNetworkIdle('RAW 引擎加载');
-
-                  try {
-                      const inputs = await page.$$('input[type="file"]');
-                      if (inputs.length > 0) await inputs[inputs.length - 1].uploadFile('./sample.tiff');
-                  } catch(e) {}
-                  await waitForNetworkIdle('TIFF 引擎加载');
-
-                  await page.evaluate(async () => {
-                      const sleep = ms => new Promise(r => setTimeout(r, ms));
-                      for (let round = 0; round < 5; round++) {
-                          const interactables = Array.from(document.querySelectorAll(
-                              'flt-semantics[role="button"], flt-semantics[role="menuitem"], flt-semantics[role="option"], flt-semantics[role="switch"], flt-semantics[role="slider"], flt-semantics[role="combobox"]'
-                          ));
-                          for (const el of interactables) {
-                              if (el.offsetParent === null) continue;
-                              try {
-                                  if (el.getAttribute('role') === 'slider') {
-                                      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
-                                      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
-                                  } else {
-                                      el.click();
-                                  }
-                                  await sleep(200);
-                              } catch (e) {}
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  WebView.setWebContentsDebuggingEnabled(true);
+                  
+                  this.bridge.getWebView().setWebViewClient(new BridgeWebViewClient(this.bridge) {
+                      @Override
+                      public WebResourceResponse shouldInterceptRequest(WebView view, android.webkit.WebResourceRequest request) {
+                          WebResourceResponse response = super.shouldInterceptRequest(view, request);
+                          if (response != null) {
+                              Map<String, String> headers = response.getResponseHeaders();
+                              if (headers == null) headers = new HashMap<>();
+                              headers.put("Cross-Origin-Opener-Policy", "same-origin");
+                              headers.put("Cross-Origin-Embedder-Policy", "require-corp");
+                              headers.put("Access-Control-Allow-Origin", "*");
+                              response.setResponseHeaders(headers);
                           }
-                          await sleep(1000);
+                          return response;
                       }
                   });
-                  await waitForNetworkIdle('配置加载');
-              } catch (err) {
-                  console.log('⚠️ 抓取异常:', err.message);
               }
-              await browser.close();
-          })();
+          }
           EOF
-          node extract.js
 
-      - name: Fix Paths
-        run: |
-          if [ -f web/index.html ]; then
-            sed -i 's|src="/|src="./|g' web/index.html
-            sed -i 's|href="/|href="./|g' web/index.html
-          fi
-
-      - name: Build APK via Cordova
-        run: |
-          echo "正在安装 Cordova..."
-          npm install -g cordova
+          sed -i 's|dependencies {|dependencies {\n    implementation "androidx.webkit:webkit:1.10.0"|' android/app/build.gradle
           
-          echo "创建 Cordova 项目..."
-          cordova create cordova-app com.fotufilm.offline Fotufilm
-          cd cordova-app
-          
-          echo "添加 Android 平台..."
-          cordova platform add android
-          
-          echo "替换网页资源..."
-          rm -rf www/*
-          cp -r ../web/* www/
-          
-          # 修改 config.xml，开启跨域隔离、硬件加速和全屏
-          sed -i 's|<preference name="Hostname" value="localhost" />|<preference name="Hostname" value="localhost" />\n    <preference name="AndroidInsecureFileModeEnabled" value="true" />\n    <preference name="CrossOriginIsolation" value="true" />\n    <preference name="HardwareAcceleration" value="true" />|' config.xml
-          
-          echo "开始编译 Debug APK（自带签名可直接安装）..."
-          # 编译 debug 版本，确保生成可直接安装的 APK 文件
-          cordova build android --debug --no-telemetry
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
 
       - name: Upload Fully Offline APK
         uses: actions/upload-artifact@v4
         with:
-          name: Fotufilm-Cordova-APK
-          # 精准定位 Cordova 编译生成的 debug 目录下的 APK
-          path: cordova-app/platforms/android/app/build/outputs/apk/debug/app-debug.apk
+          name: Fotufilm-Capacitor-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
