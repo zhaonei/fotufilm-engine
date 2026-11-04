@@ -1,4 +1,4 @@
-name: Build 100% Offline Fotufilm APK (Ultimate V5)
+name: Build 100% Offline Fotufilm APK (Ultimate Final)
 on: workflow_dispatch
 
 jobs:
@@ -28,8 +28,7 @@ jobs:
           
           ls -lh sample.cr2 sample.tiff
 
-      # 🌟 深度遍历，全方位捕获所有资源
-      - name: Run Deep Asset Extractor
+      - name: Run Ultimate Deep Extractor
         run: |
           cat << 'EOF' > extract.js
           const puppeteer = require('puppeteer');
@@ -41,7 +40,7 @@ jobs:
               const baseDir = './web';
               let activeRequests = 0;
 
-              console.log('🚀 启动 1:1 深度复刻抓取引擎...');
+              console.log('🚀 启动 1:1 终极全量复刻抓取引擎...');
               const browser = await puppeteer.launch({ 
                   args: ['--no-sandbox', '--disable-setuid-sandbox'],
                   headless: "new" 
@@ -75,10 +74,10 @@ jobs:
                   console.log(`⏳ 等待 [${description}] 加载完成...`);
                   const start = Date.now();
                   let idleFrames = 0;
-                  while (Date.now() - start < 15000) {
+                  while (Date.now() - start < 20000) {
                       if (activeRequests <= 0) {
                           idleFrames++;
-                          if (idleFrames >= 3) return;
+                          if (idleFrames >= 4) return;
                       } else {
                           idleFrames = 0;
                       }
@@ -105,10 +104,11 @@ jobs:
                   } catch(e) {}
                   await waitForNetworkIdle('TIFF 引擎加载');
 
-                  console.log('💥 开始深度遍历所有菜单与设置面板...');
+                  // 🌟 终极深挖：5轮地毯式遍历，连各种菜单和设置页都不放过
+                  console.log('💥 开始深度遍历所有菜单与设置面板 (共5轮)...');
                   await page.evaluate(async () => {
                       const sleep = ms => new Promise(r => setTimeout(r, ms));
-                      for (let round = 0; round < 4; round++) {
+                      for (let round = 0; round < 5; round++) {
                           const interactables = Array.from(document.querySelectorAll(
                               'flt-semantics[role="button"], flt-semantics[role="menuitem"], flt-semantics[role="option"], flt-semantics[role="switch"], flt-semantics[role="slider"], flt-semantics[role="combobox"]'
                           ));
@@ -121,7 +121,7 @@ jobs:
                                   } else {
                                       el.click();
                                   }
-                                  await sleep(300);
+                                  await sleep(250);
                               } catch (e) {}
                           }
                           await sleep(1000);
@@ -155,14 +155,14 @@ jobs:
         uses: actions/setup-java@v4
         with: { distribution: 'zulu', java-version: '17' }
 
-      - name: Build Android WebView Shell
+      # 🌟 核心修复：全新生成纯净的 Android 工程，并强制锁定 Gradle Wrapper 版本
+      - name: Build Android WebView Shell (Fixed Gradle)
         run: |
-          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          mkdir -p android-app/app/src/main/java/com/fotufilm/offline
+          mkdir -p android-app/app/src/main/assets
+          cp -r web/* android-app/app/src/main/assets/
 
-          mkdir -p app/src/main/java/com/fotufilm/offline
-          mkdir -p app/src/main/assets
-          cp -r web/* app/src/main/assets/
+          cd android-app
 
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
@@ -277,7 +277,6 @@ jobs:
           }
           EOF
 
-          # 🌟 核心修复：优化 settings.gradle 的仓库配置
           cat << 'EOF' > settings.gradle
           pluginManagement {
               repositories {
@@ -303,18 +302,25 @@ jobs:
           }
           EOF
 
-      # 🌟 核心修复：增加 --refresh-dependencies 强制刷新缓存
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          systemProp.http.proxyHost=mirrors.aliyun.com
+          systemProp.https.proxyHost=mirrors.aliyun.com
+          EOF
+
+          # 生成 Gradle Wrapper 并锁定版本，彻底解决版本冲突
+          gradle wrapper --gradle-version 8.2
+
       - name: Build Android APK
         run: |
-          mkdir -p ~/.gradle
-          echo "systemProp.http.proxyHost=mirrors.aliyun.com" > ~/.gradle/gradle.properties
-          echo "systemProp.https.proxyHost=mirrors.aliyun.com" >> ~/.gradle/gradle.properties
-          
-          gradle wrapper --gradle-version 8.2
+          cd android-app
+          chmod +x gradlew
+          # 加上 --no-daemon 和 --refresh-dependencies 确保干净构建
           ./gradlew assembleDebug --no-daemon --refresh-dependencies --stacktrace
 
       - name: Upload Fully Offline APK
         uses: actions/upload-artifact@v4
         with:
           name: Fotufilm-Offline-1to1
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: android-app/app/build/outputs/apk/debug/app-debug.apk
