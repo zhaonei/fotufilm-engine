@@ -1,4 +1,4 @@
-name: Build 100% Offline Fotufilm APK (Ultimate V6)
+name: Build 100% Offline Fotufilm APK (Ultimate V7)
 on: workflow_dispatch
 
 jobs:
@@ -40,7 +40,7 @@ jobs:
               const baseDir = './web';
               let activeRequests = 0;
 
-              console.log('🚀 启动 1:1 终极全量复刻抓取引擎...');
+              console.log('🚀 启动 1:1 深度复刻抓取引擎...');
               const browser = await puppeteer.launch({ 
                   args: ['--no-sandbox', '--disable-setuid-sandbox'],
                   headless: "new" 
@@ -154,8 +154,7 @@ jobs:
         uses: actions/setup-java@v4
         with: { distribution: 'zulu', java-version: '17' }
 
-      # 🌟 核心修复：全新生成 Android 工程，并强制锁定 Gradle 版本
-      - name: Build Android WebView Shell (Fixed Gradle)
+      - name: Build Android WebView Shell (V7 Fixed)
         run: |
           mkdir -p android-app/app/src/main/java/com/fotufilm/offline
           mkdir -p android-app/app/src/main/assets
@@ -295,9 +294,10 @@ jobs:
           include ':app'
           EOF
 
+          # 🌟 核心修复：将 AGP 版本升级到 8.4.0，以兼容 Gradle 8.5
           cat << 'EOF' > build.gradle
           plugins {
-              id 'com.android.application' version '8.2.0' apply false
+              id 'com.android.application' version '8.4.0' apply false
           }
           EOF
 
@@ -308,7 +308,7 @@ jobs:
           systemProp.https.proxyHost=mirrors.aliyun.com
           EOF
 
-          # 🌟 核心修复：强制指定 Gradle 8.5 版本，避免云端 9.8.2 的冲突
+          # 🌟 核心修复：强制指定 Gradle Wrapper 版本为 8.5
           mkdir -p gradle/wrapper
           cat << 'EOF' > gradle/wrapper/gradle-wrapper.properties
           distributionBase=GRADLE_USER_HOME
@@ -320,7 +320,6 @@ jobs:
           zipStorePath=wrapper/dists
           EOF
 
-          # 生成 Gradle Wrapper
           gradle wrapper --gradle-version 8.5
 
       - name: Build Android APK
