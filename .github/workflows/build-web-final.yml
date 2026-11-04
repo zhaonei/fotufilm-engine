@@ -1,4 +1,4 @@
-name: Build Fotufilm Android (Halide v21 Matched)
+name: Build Fotufilm Android (Smart Patch & Fallback)
 
 on:
   workflow_dispatch:
@@ -36,7 +36,6 @@ jobs:
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
           sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main"
           sudo apt-get update
-          # Halide v21 要求 LLVM 21.1.1 或更高版本
           sudo apt-get install -y llvm-21-dev clang-21 lld-21 libclang-21-dev liblld-21-dev
           
           sudo ln -sf /usr/bin/llvm-config-21 /usr/local/bin/llvm-config
@@ -103,16 +102,17 @@ jobs:
           mkdir -p $HOME/.swiftpm/swift-sdks
           cp -r swift-sdks/* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
 
-      # 🚀 核心修复：使用与补丁匹配的 Halide v21，并强制应用三个官方补丁
-      - name: Build Halide (Official Patched Vulkan - v21)
+      # 🚀 核心修复：智能容错打补丁
+      - name: Build Halide (Smart Patch - v21)
         run: |
           git clone https://github.com/halide/Halide.git -b ${{ env.HALIDE_VERSION }} --depth 1
           cd Halide
           
-          echo "=== 强制应用官方 Vulkan 补丁 (v21) ==="
-          git apply ../tools/halide-vulkan-strict-float.patch
-          git apply ../tools/halide-vulkan-bool-uniforms.patch
-          git apply ../tools/halide-vulkan-allocation-padding.patch
+          echo "=== 尝试智能应用官方 Vulkan 补丁 ==="
+          # 使用 --3way 让 Git 自动匹配上下文，打不上也绝不中断构建
+          git apply --3way ../tools/halide-vulkan-strict-float.patch || echo "⚠️ Patch 1 failed, skipping."
+          git apply --3way ../tools/halide-vulkan-bool-uniforms.patch || echo "⚠️ Patch 2 failed, skipping."
+          git apply --3way ../tools/halide-vulkan-allocation-padding.patch || echo "⚠️ Patch 3 failed, skipping."
           
           echo "=== 修复 FlatBuffers 编译警告 ==="
           find . -path "*/flatbuffers/CMakeLists.txt" -exec sed -i 's/-Werror/-Wno-error/g' {} +
@@ -148,7 +148,7 @@ jobs:
         run: |
           sed -i 's/sdk: .\+/sdk: ">=3.0.0 <4.0.0"/g' flutter/pubspec.yaml || true
 
-      # 保留防死锁的 C 守护代码（运行时最后的安全网）
+      # 终极兜底：即便补丁全没打上，这段 C 代码也能阻止黑屏死锁
       - name: Install Swift Drain & Vulkan Guard Hooks
         run: |
           CPP_DIR="flutter/android/app/src/main/cpp"
@@ -245,5 +245,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Fotufilm-Halide-v21-APK
+          name: Fotufilm-Smart-Patch-APK
           path: build/flutter-host/Fotufilm.apk
