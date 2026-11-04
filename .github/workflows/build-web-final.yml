@@ -7,7 +7,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive # 必须拉取所有子模块（Halide等）
+          submodules: recursive
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -30,7 +30,11 @@ jobs:
         with:
           node-version: '20'
 
-      # 🌟 核心 1：安装 Emscripten (用于编译 RAW/TIFF 底层 C++ 库)
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config git libedit-dev libz3-dev libffi-dev libncurses5-dev zlib1g-dev libzstd-dev liblz4-dev libbz2-dev liblzma-dev libjpeg-dev libpng-dev libtiff-dev libwebp-dev libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev libpython3-dev python3-dev swig automake autoconf libtool
+
       - name: Install Emscripten
         run: |
           git clone https://github.com/emscripten-core/emsdk.git
@@ -39,47 +43,63 @@ jobs:
           ./emsdk activate latest
           source ./emsdk_env.sh
 
-      # 🌟 核心 2：编译底层引擎，生成 bridge.js 和相关的 .wasm
+      - name: Build Halide with WebGPU Support
+        run: |
+          source emsdk/emsdk_env.sh
+          # 编译支持 WebGPU 的 Halide 工具链
+          chmod +x tools/build-halide.sh
+          ./tools/build-halide.sh --webgpu
+          # 根据脚本实际安装位置设置 HALIDE_ROOT，通常为 build 目录
+          if [ -d "build/halide-webgpu" ]; then
+            echo "HALIDE_ROOT=$PWD/build/halide-webgpu" >> $GITHUB_ENV
+          else
+            echo "HALIDE_ROOT=$PWD/build/halide" >> $GITHUB_ENV
+          fi
+
       - name: Build Engine WASM & Bridge
         run: |
           source emsdk/emsdk_env.sh
-          if [ -f "tools/build-wasm.sh" ]; then
-            chmod +x tools/build-wasm.sh
-            ./tools/build-wasm.sh
-          elif [ -f "tools/build-web-engine.sh" ]; then
-            chmod +x tools/build-web-engine.sh
-            ./tools/build-web-engine.sh
+          # 编译底层引擎（含 WebGPU 支持）
+          chmod +x tools/build-webgpu-wasm.sh
+          ./tools/build-webgpu-wasm.sh
+          
+          # 编译负片处理等附加 WASM 模块
+          if [ -f "tools/build-negative-wasm.sh" ]; then
+            chmod +x tools/build-negative-wasm.sh
+            ./tools/build-negative-wasm.sh
           fi
 
       - name: Setup Web Node Modules
         run: |
           cd web
           npm ci || true
+          cd ..
 
-      # 🌟 核心 3：编译 Flutter UI，并把刚才编好的 WASM 以及所有资源合入
       - name: Build Flutter Web UI & Merge Assets
         run: |
+          source emsdk/emsdk_env.sh
           cd flutter
           git checkout pubspec.yaml || true
           
-          # 优先调用官方脚本，它懂如何合拢所有文件
-          if [ -f "tool/build-web.sh" ]; then
-            chmod +x tool/build-web.sh
-            tool/build-web.sh --assets ../web/public
-          else
-            flutter build web --wasm --release --no-web-resources-cdn
-          fi
+          # 编译 Flutter Web 前端
+          flutter build web --wasm --release --no-web-resources-cdn
           
-          # 🌟 暴力兜底：防止官方脚本有 bug，手动把底层的引擎和资源全部硬塞进去
+          # 🌟 暴力兜底：确保所有底层 WASM、bridge.js 和资源全部就位
           mkdir -p build/web/engine build/web/assets/generated
           
-          # 抓取所有编好的 bridge 和底层 wasm
+          # 查找并复制 bridge.js
           find .. -name "bridge.js" -exec cp {} build/web/engine/ \; 2>/dev/null || true
+          
+          # 查找并复制所有 WASM 文件
           find .. -name "*.wasm" -not -path "*/build/web/*" -exec cp {} build/web/ \; 2>/dev/null || true
           
-          # 抓取所有的配置 JSON 和图标
+          # 查找并复制生成的 JSON 和图标资源
           find ../web/public -type f -exec cp {} build/web/ \; 2>/dev/null || true
           find .. -name "*.json" -path "*generated*" -exec cp {} build/web/assets/generated/ \; 2>/dev/null || true
+          
+          # 复制 RAW/TIFF 相关的资源
+          find .. -name "*.wasm" -path "*raw*" -exec cp {} build/web/ \; 2>/dev/null || true
+          find .. -name "*.wasm" -path "*tiff*" -exec cp {} build/web/ \; 2>/dev/null || true
 
       - name: Upload Fully Offline Web Folder
         uses: actions/upload-artifact@v4
