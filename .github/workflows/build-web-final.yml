@@ -1,43 +1,21 @@
-name: Build From Source to APK
+name: Build Fotufilm (Vulkan GPU Ultimate)
+
 on: workflow_dispatch
+
+env:
+  EMSCRIPTEN_VERSION: '3.1.61'
+  FLUTTER_VERSION: '3.29.3'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Cache Flutter SDK
-        uses: actions/cache@v4
-        with:
-          path: ~/.flutter
-          key: ${{ runner.os }}-flutter-3.29.3
-
-      - name: Cache Node Modules
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+        with: { node-version: '20' }
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -46,88 +24,83 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config git
-          sudo apt-get install -y libedit-dev libz3-dev libffi-dev libncurses5-dev zlib1g-dev
-          sudo apt-get install -y xrcrun || true
-          sudo apt-get install -y x11-utils mesa-utils libgl1-mesa-dri libglx-mesa0 || true
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config git libedit-dev libz3-dev libffi-dev libncurses5-dev zlib1g-dev
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.3'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Setup Emscripten
+      - name: Setup Emscripten (Pinned)
         run: |
           git clone https://github.com/emscripten-core/emsdk.git
-          cd emsdk && ./emsdk install latest && ./emsdk activate latest
+          cd emsdk
+          ./emsdk install ${{ env.EMSCRIPTEN_VERSION }}
+          ./emsdk activate ${{ env.EMSCRIPTEN_VERSION }}
 
       - name: Build Web Engine
         run: |
           source emsdk/emsdk_env.sh
-
-          # 使用 printf 单行输出创建占位脚本，彻底避免 YAML 缩进错误
-          if ! command -v xrcrun >/dev/null 2>&1; then
-            echo "xrcrun not found, creating dummy wrapper."
-            printf '#!/bin/bash\necho "[dummy xrcrun] called with: $@"\nexit 0\n' | sudo tee /usr/local/bin/xrcrun > /dev/null
-            sudo chmod +x /usr/local/bin/xrcrun
-          fi
-
           if [ -f "tools/build-webgpu-wasm.sh" ]; then
             chmod +x tools/build-webgpu-wasm.sh
-            ./tools/build-webgpu-wasm.sh || echo "WASM 引擎构建失败，继续..."
+            ./tools/build-webgpu-wasm.sh
           elif [ -f "tools/build-wasm.sh" ]; then
             chmod +x tools/build-wasm.sh
-            ./tools/build-wasm.sh || echo "WASM 引擎构建失败，继续..."
-          else
-            echo "未找到官方引擎编译脚本，跳过..."
+            ./tools/build-wasm.sh
           fi
 
-      - name: Build Flutter Web UI & Merge
+      - name: Build Flutter Web UI (CanvasKit)
         run: |
           cd flutter
-          flutter pub get || true
-          flutter build web --wasm --release --no-web-resources-cdn
+          flutter pub get
+          flutter build web --web-renderer canvaskit --release --no-web-resources-cdn
           cd ..
-
           mkdir -p final_web
           cp -r flutter/build/web/* final_web/
-          
           mkdir -p final_web/engine
-          find . -name "bridge.js" -exec cp {} final_web/engine/ \; 2>/dev/null || true
-          find . -name "*.wasm" -not -path "*/flutter/build/web/*" -exec cp {} final_web/ \; 2>/dev/null || true
-          
-          sed -i 's|src="/|src="./|g' final_web/index.html
-          sed -i 's|href="/|href="./|g' final_web/index.html
-          
-          echo "资源总大小:"
-          du -sh final_web/
+          # ⚠️ 下面这一行的 tools/dist 需要你根据实际输出路径确认
+          cp -r tools/dist/* final_web/engine/ 2>/dev/null || true
 
-      - name: Build APK via Capacitor
+      - name: Capacitor Setup & WebKit 1.18.0
         run: |
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
-          
+          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
           npx cap init Fotufilm com.fotufilm.offline --web-dir=final_web
           npx cap add android
           npx cap sync android
-          
-          sed -i 's|<application|<application android:hardwareAccelerated="true" android:largeHeap="true" android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
-          
+          sed -i 's|dependencies {|dependencies {\n    implementation "androidx.webkit:webkit:1.18.0"|' android/app/build.gradle
+
+      - name: Inject Native Vulkan & Hardware Acceleration
+        run: |
           mkdir -p android/app/src/main/java/com/fotufilm/offline
+          cat > android/app/src/main/java/com/fotufilm/offline/MainActivity.java <<'JAVA_EOF'
+          package com.fotufilm.offline;
+          import android.os.Bundle;
+          import android.webkit.WebView;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  WebView.setWebContentsDebuggingEnabled(true);
+                  WebView webView = this.bridge.getWebView();
+                  webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null);
+              }
+          }
+          JAVA_EOF
           
-          # 核心修复：使用 Base64 写入 Java 代码，避免多行文本导致 YAML 标红报错
-          echo "cGFja2FnZSBjb20uZm90dWZpbG0ub2ZmbGluZTsKaW1wb3J0IGNvbS5nZXRjYXBhY2l0b3IuQnJpZGdlQWN0aXZpdHk7CmltcG9ydCBhbmRyb2lkLm9zLkJ1bmRsZTsKaW1wb3J0IGFuZHJvaWQud2Via2l0LldlYlZpZXc7CmltcG9ydCBjb20uZ2V0Y2FwYWNpdG9yLkJyaWRnZVdlYlZpZXdDbGllbnQ7CmltcG9ydCBhbmRyb2lkLndlYmtpdC5XZWJSZXNvdXJjZVJlc3BvbnNlOwppbXBvcnQgYW5kcm9pZC53ZWJraXQuQ29uc29sZU1lc3NhZ2U7CmltcG9ydCBhbmRyb2lkLndlYmtpdC5XZWJDaHJvbWVDbGllbnQ7CmltcG9ydCBhbmRyb2lkLnV0aWwuTG9nOwppbXBvcnQgamF2YS51dGlsLkhhc2hNYXA7CmltcG9ydCBqYXZhLnV0aWwuTWFwOwoKcHVibGljIGNsYXNzIE1haW5BY3Rpdml0eSBleHRlbmRzIEJyaWRnZUFjdGl2aXR5IHsKICAgIEBPdmVycmlkZQogICAgcHVibGljIHZvaWQgb25DcmVhdGUoQnVuZGxlIHNhdmVkSW5zdGFuY2VTdGF0ZSkgewogICAgICAgIHN1cGVyLm9uQ3JlYXRlKHNhdmVkSW5zdGFuY2VTdGF0ZSk7CiAgICAgICAgV2ViVmlldy5zZXRXZWJDb250ZW50c0RlYnVnZ2luZ0VuYWJsZWQodHJ1ZSk7CiAgICAgICAgdGhpcy5icmlkZ2UuZ2V0V2ViVmlldygpLnNldFdlYkNocm9tZUNsaWVudChuZXcgV2ViQ2hyb21lQ2xpZW50KCkgewogICAgICAgICAgICBAT3ZlcnJpZGUKICAgICAgICAgICAgcHVibGljIGJvb2xlYW4gb25Db25zb2xlTWVzc2FnZShDb25zb2xlTWVzc2FnZSBtc2cpIHsKICAgICAgICAgICAgICAgIExvZy5kKCJGT1RVRklMTV9KUyIsIG1zZy5tZXNzYWdlKCkgKyAiIGF0ICIgKyBtc2cuc291cmNlSWQoKSArICI6IiArIG1zZy5saW5lTnVtYmVyKCkpOwogICAgICAgICAgICAgICAgcmV0dXJuIHRydWU7CiAgICAgICAgICAgIH0KICAgICAgICB9KTsKICAgICAgICB0aGlzLmJyaWRnZS5nZXRXZWJWaWV3KCkuc2V0V2ViVmlld0NsaWVudChuZXcgQnJpZGdlV2ViVmlld0NsaWVudCh0aGlzLmJyaWRnZSkgewogICAgICAgICAgICBAT3ZlcnJpZGUKICAgICAgICAgICAgcHVibGljIFdlYlJlc291cmNlUmVzcG9uc2Ugc2hvdWxkSW50ZXJjZXB0UmVxdWVzdChXZWJWaWV3IHZpZXcsIGFuZHJvaWQud2Via2l0LldlYlJlc291cmNlUmVxdWVzdCByZXF1ZXN0KSB7CiAgICAgICAgICAgICAgICBXZWJSZXNvdXJjZVJlc3BvbnNlIHJlc3BvbnNlID0gc3VwZXIuc2hvdWxkSW50ZXJjZXB0UmVxdWVzdCh2aWV3LCByZXF1ZXN0KTsKICAgICAgICAgICAgICAgIGlmIChyZXNwb25zZSAhPSBudWxsKSB7CiAgICAgICAgICAgICAgICAgICAgTWFwPFN0cmluZywgU3RyaW5nPiBoZWFkZXJzID0gcmVzcG9uc2UuZ2V0UmVzcG9uc2VIZWFkZXJzKCk7CiAgICAgICAgICAgICAgICAgICAgaWYgKGhlYWRlcnMgPT0gbnVsbCkgaGVhZGVycyA9IG5ldyBIYXNoTWFwPD4oKTsKICAgICAgICAgICAgICAgICAgICBoZWFkZXJzLnB1dCgiQ3Jvc3MtT3JpZ2luLU9wZW5lci1Qb2xpY3kiLCAic2FtZS1vcmlnaW4iKTsKICAgICAgICAgICAgICAgICAgICBoZWFkZXJzLnB1dCgiQ3Jvc3MtT3JpZ2luLUVtYmVkZGVyLVBvbGljeSIsICJyZXF1aXJlLWNvcnAiKTsKICAgICAgICAgICAgICAgICAgICBoZWFkZXJzLnB1dCgiQWNjZXNzLUNvbnRyb2wtQWxsb3ctT3JpZ2luIiwgIioiKTsKICAgICAgICAgICAgICAgICAgICByZXNwb25zZS5zZXRSZXNwb25zZUhlYWRlcnMoaGVhZGVycyk7CiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICByZXR1cm4gcmVzcG9uc2U7CiAgICAgICAgICAgIH0KICAgICAgICB9KTsKICAgIH0KfQo=" | base64 -d > android/app/src/main/java/com/fotufilm/offline/MainActivity.java
-          
-          sed -i 's|dependencies {|dependencies {\n    implementation "androidx.webkit:webkit:1.10.0"|' android/app/build.gradle
-          sed -i 's|allprojects {|allprojects {\n    configurations.all {\n        resolutionStrategy {\n            force "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"\n            force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.22"\n        }\n    }|' android/build.gradle
-          
+          mkdir -p android/app/src/main/assets
+          echo '_ --use-webgpu-adapter=vulkan' > android/app/src/main/assets/webview-command-line
+
+      - name: Build APK
+        run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Upload Fully Offline APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: Fotufilm-Source-APK
+          name: Fotufilm-Ultimate-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
