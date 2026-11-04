@@ -2,7 +2,7 @@ name: Build Fully Offline Web
 on: workflow_dispatch
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,19 +30,24 @@ jobs:
         with:
           node-version: '20'
 
+      # 1. 安装底层图形、编解码库及编译工具链
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config git libedit-dev libz3-dev libffi-dev libncurses5-dev zlib1g-dev libzstd-dev liblz4-dev libbz2-dev liblzma-dev libjpeg-dev libpng-dev libtiff-dev libwebp-dev libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev libpython3-dev python3-dev swig automake autoconf libtool
 
-      # 🌟 核心修复：自动下载并配置 Halide，解决 not found 报错
-      - name: Install Halide
+      # 2. 从官方 APT 源安装 Halide 与 LLD，确保编译工具齐全
+      - name: Install Halide & Toolchain
         run: |
-          wget https://github.com/halide/Halide/releases/download/v17.0.1/Halide-17.0.1-x86-64-linux.tar.gz
-          tar -xzf Halide-17.0.1-x86-64-linux.tar.gz
-          mv Halide-17.0.1-x86-64-linux Halide
-          echo "HALIDE_ROOT=$PWD/Halide" >> $GITHUB_ENV
+          sudo apt-get update
+          sudo apt-get install -y libhalide17-1-dev lld-17
+          # 自动探测 Halide 根目录并写入环境变量
+          HALIDE_ROOT=$(dpkg -L libhalide17-1-dev | grep -m 1 'include/Halide.h' | xargs dirname | xargs dirname)
+          echo "HALIDE_ROOT=$HALIDE_ROOT" >> $GITHUB_ENV
+          echo "LLD_DIR=/usr/lib/llvm-17/lib/cmake/lld" >> $GITHUB_ENV
+          sudo ln -sf /usr/bin/ld.lld-17 /usr/local/bin/lld
 
+      # 3. 安装 Emscripten WASM 编译器
       - name: Install Emscripten
         run: |
           git clone https://github.com/emscripten-core/emsdk.git
@@ -51,13 +56,16 @@ jobs:
           ./emsdk activate latest
           source ./emsdk_env.sh
 
+      # 4. 编译底层 RAW/TIFF C++ 引擎与 Web 桥接层
       - name: Build Engine WASM & Bridge
         run: |
           source emsdk/emsdk_env.sh
-          # 环境变量已经通过 $GITHUB_ENV 注入，现在脚本应该能找到 Halide 了
           if [ -f "tools/build-wasm.sh" ]; then
             chmod +x tools/build-wasm.sh
             ./tools/build-wasm.sh
+          elif [ -f "tools/build-web-engine.sh" ]; then
+            chmod +x tools/build-web-engine.sh
+            ./tools/build-web-engine.sh
           fi
 
       - name: Setup Web Node Modules
@@ -66,21 +74,27 @@ jobs:
           npm ci || true
           cd ..
 
+      # 5. 编译 Flutter 前端并全量合并所有静态资源
       - name: Build Flutter Web UI & Merge Assets
         run: |
           source emsdk/emsdk_env.sh
           cd flutter
           git checkout pubspec.yaml || true
           
-          # 编译 Flutter Web 前端
+          # 生成 Flutter Web/WASM 静态包
           flutter build web --wasm --release --no-web-resources-cdn
           
-          # 🌟 强制全量打包兜底，确保绝对没有 404
+          # 全量兜底合并：确保底层桥接文件、核心 WASM、配置 JSON 与图标全部在位
           mkdir -p build/web/engine build/web/assets/generated
+          
+          # 拷贝引擎桥接与核心 WASM
           find .. -name "bridge.js" -exec cp {} build/web/engine/ \; 2>/dev/null || true
           find .. -name "*.wasm" -not -path "*/build/web/*" -exec cp {} build/web/ \; 2>/dev/null || true
+          
+          # 拷贝 UI 配置、生成资源与相机参数
           find ../web/public -type f -exec cp {} build/web/ \; 2>/dev/null || true
           find .. -name "*.json" -path "*generated*" -exec cp {} build/web/assets/generated/ \; 2>/dev/null || true
+          find .. -name "*.json" -path "*assets*" -exec cp --parents {} build/web/ \; 2>/dev/null || true
 
       - name: Upload Fully Offline Web Folder
         uses: actions/upload-artifact@v4
