@@ -1,4 +1,4 @@
-name: Build Fully Offline Web (Full Engine)
+name: Build Fully Offline Web (Prebuilt Halide)
 on: workflow_dispatch
 jobs:
   build:
@@ -20,10 +20,23 @@ jobs:
         with:
           channel: 'master'
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config git libedit-dev libz3-dev libffi-dev libncurses5-dev zlib1g-dev libzstd-dev liblz4-dev libbz2-dev liblzma-dev libjpeg-dev libpng-dev libtiff-dev libwebp-dev libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev libpython3-dev python3-dev swig automake autoconf libtool
+
+      # 🌟 核心修复 1：直接下载官方预编译的 Halide 17.0.1 完整包
+      - name: Download Prebuilt Halide
+        run: |
+          wget https://github.com/halide/Halide/releases/download/v17.0.1/Halide-17.0.1-x86-64-linux.tar.gz
+          tar -xzf Halide-17.0.1-x86-64-linux.tar.gz
+          mv Halide-17.0.1-x86-64-linux Halide
+          echo "HALIDE_ROOT=$PWD/Halide" >> $GITHUB_ENV
 
       - name: Install Emscripten
         run: |
@@ -33,39 +46,21 @@ jobs:
           ./emsdk activate latest
           source ./emsdk_env.sh
 
-      # 1. 编译 WebGPU 版 Halide 工具链
-      - name: Build Halide with WebGPU Support
-        run: |
-          source emsdk/emsdk_env.sh
-          chmod +x tools/build-halide.sh
-          ./tools/build-halide.sh --webgpu
-          # 设置 HALIDE_ROOT 指向编译产物
-          HALIDE_ROOT=$(find $PWD -name "Halide.h" -path "*include*" -exec dirname {} \; | head -n 1 | xargs dirname)
-          echo "HALIDE_ROOT=$HALIDE_ROOT" >> $GITHUB_ENV
-
-      # 2. 编译底层 Web 引擎
+      # 🌟 核心修复 2：使用项目自带的脚本编译底层引擎，它会自动寻找 HALIDE_ROOT
       - name: Build Web Engine
         run: |
           source emsdk/emsdk_env.sh
           chmod +x tools/build-wasm.sh
           ./tools/build-wasm.sh
 
-      # 3. 编译 Flutter UI 并全量合并
-      - name: Build Flutter UI & Merge All Assets
+      # 🌟 核心修复 3：使用官方脚本编译 UI 并合并引擎
+      - name: Build Flutter UI & Merge Engine
         run: |
           source emsdk/emsdk_env.sh
           cd flutter
           git checkout pubspec.yaml || true
-          flutter build web --wasm --release --no-web-resources-cdn
-          
-          # 全量兜底合并，确保所有引擎文件、资源、配置全部到位
-          mkdir -p build/web/engine build/web/assets/generated
-          
-          find .. -name "bridge.js" -exec cp {} build/web/engine/ \; 2>/dev/null || true
-          find .. -name "*.wasm" -not -path "*/build/web/*" -exec cp {} build/web/ \; 2>/dev/null || true
-          find ../web/public -type f -exec cp {} build/web/ \; 2>/dev/null || true
-          find .. -name "*.json" -path "*generated*" -exec cp {} build/web/assets/generated/ \; 2>/dev/null || true
-          find .. -name "*.json" -path "*assets*" -exec cp --parents {} build/web/ \; 2>/dev/null || true
+          chmod +x tool/build-web.sh
+          tool/build-web.sh
 
       - name: Upload Fully Offline Web Folder
         uses: actions/upload-artifact@v4
