@@ -1,4 +1,4 @@
-name: Build 100% Offline Fotufilm APK (Ultimate Final)
+name: Build 100% Offline Fotufilm APK (Ultimate V6)
 on: workflow_dispatch
 
 jobs:
@@ -104,7 +104,6 @@ jobs:
                   } catch(e) {}
                   await waitForNetworkIdle('TIFF 引擎加载');
 
-                  // 🌟 终极深挖：5轮地毯式遍历，连各种菜单和设置页都不放过
                   console.log('💥 开始深度遍历所有菜单与设置面板 (共5轮)...');
                   await page.evaluate(async () => {
                       const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -155,7 +154,7 @@ jobs:
         uses: actions/setup-java@v4
         with: { distribution: 'zulu', java-version: '17' }
 
-      # 🌟 核心修复：全新生成纯净的 Android 工程，并强制锁定 Gradle Wrapper 版本
+      # 🌟 核心修复：全新生成 Android 工程，并强制锁定 Gradle 版本
       - name: Build Android WebView Shell (Fixed Gradle)
         run: |
           mkdir -p android-app/app/src/main/java/com/fotufilm/offline
@@ -309,14 +308,25 @@ jobs:
           systemProp.https.proxyHost=mirrors.aliyun.com
           EOF
 
-          # 生成 Gradle Wrapper 并锁定版本，彻底解决版本冲突
-          gradle wrapper --gradle-version 8.2
+          # 🌟 核心修复：强制指定 Gradle 8.5 版本，避免云端 9.8.2 的冲突
+          mkdir -p gradle/wrapper
+          cat << 'EOF' > gradle/wrapper/gradle-wrapper.properties
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip
+          networkTimeout=10000
+          validateDistributionUrl=true
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
+
+          # 生成 Gradle Wrapper
+          gradle wrapper --gradle-version 8.5
 
       - name: Build Android APK
         run: |
           cd android-app
           chmod +x gradlew
-          # 加上 --no-daemon 和 --refresh-dependencies 确保干净构建
           ./gradlew assembleDebug --no-daemon --refresh-dependencies --stacktrace
 
       - name: Upload Fully Offline APK
