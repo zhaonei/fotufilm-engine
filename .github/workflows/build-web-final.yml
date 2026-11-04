@@ -141,7 +141,6 @@ jobs:
             sed -i 's|href="/|href="./|g' web/index.html
           fi
 
-      # 🌟 核心换道：使用 Cordova 打包
       - name: Build APK via Cordova
         run: |
           echo "正在安装 Cordova..."
@@ -158,14 +157,16 @@ jobs:
           rm -rf www/*
           cp -r ../web/* www/
           
-          # 核心：修改 config.xml，开启跨域隔离、硬件加速和全屏
+          # 修改 config.xml，开启跨域隔离、硬件加速和全屏
           sed -i 's|<preference name="Hostname" value="localhost" />|<preference name="Hostname" value="localhost" />\n    <preference name="AndroidInsecureFileModeEnabled" value="true" />\n    <preference name="CrossOriginIsolation" value="true" />\n    <preference name="HardwareAcceleration" value="true" />|' config.xml
           
-          echo "开始编译 APK..."
-          cordova build android --release --no-telemetry
+          echo "开始编译 Debug APK（自带签名可直接安装）..."
+          # 编译 debug 版本，确保生成可直接安装的 APK 文件
+          cordova build android --debug --no-telemetry
 
       - name: Upload Fully Offline APK
         uses: actions/upload-artifact@v4
         with:
           name: Fotufilm-Cordova-APK
-          path: cordova-app/platforms/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          # 精准定位 Cordova 编译生成的 debug 目录下的 APK
+          path: cordova-app/platforms/android/app/build/outputs/apk/debug/app-debug.apk
