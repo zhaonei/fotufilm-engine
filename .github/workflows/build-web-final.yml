@@ -75,40 +75,23 @@ jobs:
             -DHalide_SHARED_LLVM=YES \
             -DTARGET_WEBASSEMBLY=OFF \
             -DTARGET_VULKAN=ON \
-            -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF \
-            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/Halide
-          ninja && ninja install
-          echo "HALIDE_ROOT=$GITHUB_WORKSPACE/Halide" >> $GITHUB_ENV
-
-      # 🚀 关键修复：确保 Halide 头文件在正确的位置
-      - name: Ensure Halide Headers are Accessible
-        run: |
-          HALIDE_DIR="$GITHUB_WORKSPACE/Halide"
-          TARGET_INCLUDE="$HALIDE_DIR/include"
-          mkdir -p "$TARGET_INCLUDE"
+            -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF
           
-          if [ ! -f "$TARGET_INCLUDE/Halide.h" ]; then
-            echo "⚠️ Halide.h not found at $TARGET_INCLUDE. Searching..."
-            FOUND_H=$(find /usr/local/include /usr/include "$HALIDE_DIR" -name "Halide.h" 2>/dev/null | head -n 1)
-            if [ -n "$FOUND_H" ]; then
-              echo "Found at: $FOUND_H. Copying to $TARGET_INCLUDE"
-              cp "$FOUND_H" "$TARGET_INCLUDE/"
-            else
-              echo "❌ FATAL: Halide.h could not be found anywhere."
-              exit 1
-            fi
-          fi
-
-          for header in HalideRuntime.h HalideBuffer.h; do
-            if [ ! -f "$TARGET_INCLUDE/$header" ]; then
-              FOUND=$(find /usr/local/include /usr/include "$HALIDE_DIR" -name "$header" 2>/dev/null | head -n 1)
-              if [ -n "$FOUND" ]; then
-                echo "Copying $header from $FOUND"
-                cp "$FOUND" "$TARGET_INCLUDE/"
-              fi
-            fi
-          done
-          ls -la "$TARGET_INCLUDE"
+          # 🚀 关键修复：不再依赖 "ninja install"，而是直接编译后手动打包产物
+          ninja
+          
+          echo "=== Manually creating a Halide distribution directory ==="
+          HALIDE_DIST="$GITHUB_WORKSPACE/Halide-dist"
+          rm -rf "$HALIDE_DIST"
+          mkdir -p "$HALIDE_DIST/include" "$HALIDE_DIST/lib"
+          
+          # 从构建目录中复制头文件和库文件
+          find . -name "Halide.h" -exec cp {} "$HALIDE_DIST/include/" \;
+          find . -name "HalideRuntime.h" -exec cp {} "$HALIDE_DIST/include/" \;
+          find . -name "libHalide.so" -exec cp {} "$HALIDE_DIST/lib/" \;
+          
+          echo "HALIDE_ROOT=$HALIDE_DIST" >> $GITHUB_ENV
+          ls -la "$HALIDE_DIST/include" "$HALIDE_DIST/lib"
 
       - name: Fix Dart SDK & Pubspec
         run: |
@@ -204,7 +187,7 @@ jobs:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
           SWIFT_SDK: swift-6.3.3-RELEASE_android
           ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r27d
-          HALIDE_ROOT: ${{ github.workspace }}/Halide
+          HALIDE_ROOT: ${{ github.workspace }}/Halide-dist
           MAKEFLAGS: "-j1"
           CMAKE_BUILD_PARALLEL_LEVEL: "1"
         run: |
