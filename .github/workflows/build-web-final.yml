@@ -2,99 +2,55 @@ name: Build Fully Offline Web
 on: workflow_dispatch
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'master'
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # 1. 安装底层图形、编解码库及编译工具链
-      - name: Install System Dependencies
+      - name: Build Flutter Web UI
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config git libedit-dev libz3-dev libffi-dev libncurses5-dev zlib1g-dev libzstd-dev liblz4-dev libbz2-dev liblzma-dev libjpeg-dev libpng-dev libtiff-dev libwebp-dev libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev libpython3-dev python3-dev swig automake autoconf libtool
-
-      # 2. 从官方 APT 源安装 Halide 与 LLD，确保编译工具齐全
-      - name: Install Halide & Toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libhalide17-1-dev lld-17
-          # 自动探测 Halide 根目录并写入环境变量
-          HALIDE_ROOT=$(dpkg -L libhalide17-1-dev | grep -m 1 'include/Halide.h' | xargs dirname | xargs dirname)
-          echo "HALIDE_ROOT=$HALIDE_ROOT" >> $GITHUB_ENV
-          echo "LLD_DIR=/usr/lib/llvm-17/lib/cmake/lld" >> $GITHUB_ENV
-          sudo ln -sf /usr/bin/ld.lld-17 /usr/local/bin/lld
-
-      # 3. 安装 Emscripten WASM 编译器
-      - name: Install Emscripten
-        run: |
-          git clone https://github.com/emscripten-core/emsdk.git
-          cd emsdk
-          ./emsdk install latest
-          ./emsdk activate latest
-          source ./emsdk_env.sh
-
-      # 4. 编译底层 RAW/TIFF C++ 引擎与 Web 桥接层
-      - name: Build Engine WASM & Bridge
-        run: |
-          source emsdk/emsdk_env.sh
-          if [ -f "tools/build-wasm.sh" ]; then
-            chmod +x tools/build-wasm.sh
-            ./tools/build-wasm.sh
-          elif [ -f "tools/build-web-engine.sh" ]; then
-            chmod +x tools/build-web-engine.sh
-            ./tools/build-web-engine.sh
-          fi
-
-      - name: Setup Web Node Modules
-        run: |
-          cd web
-          npm ci || true
-          cd ..
-
-      # 5. 编译 Flutter 前端并全量合并所有静态资源
-      - name: Build Flutter Web UI & Merge Assets
-        run: |
-          source emsdk/emsdk_env.sh
           cd flutter
           git checkout pubspec.yaml || true
+          flutter clean
           
-          # 生成 Flutter Web/WASM 静态包
+          # 基础编译外壳
           flutter build web --wasm --release --no-web-resources-cdn
+
+      - name: Ultimate Merge All Assets & Engines
+        run: |
+          cd flutter/build/web
           
-          # 全量兜底合并：确保底层桥接文件、核心 WASM、配置 JSON 与图标全部在位
-          mkdir -p build/web/engine build/web/assets/generated
+          # 1. 把源码 web 目录下的所有东西强行全量拷贝过来（包含 bridge.js、各种加载器）
+          if [ -d "../../../web" ]; then
+            cp -r ../../../web/* ./
+          fi
           
-          # 拷贝引擎桥接与核心 WASM
-          find .. -name "bridge.js" -exec cp {} build/web/engine/ \; 2>/dev/null || true
-          find .. -name "*.wasm" -not -path "*/build/web/*" -exec cp {} build/web/ \; 2>/dev/null || true
+          # 2. 建立底层引擎目录，防止路径报错
+          mkdir -p engine
           
-          # 拷贝 UI 配置、生成资源与相机参数
-          find ../web/public -type f -exec cp {} build/web/ \; 2>/dev/null || true
-          find .. -name "*.json" -path "*generated*" -exec cp {} build/web/assets/generated/ \; 2>/dev/null || true
-          find .. -name "*.json" -path "*assets*" -exec cp --parents {} build/web/ \; 2>/dev/null || true
+          # 3. 在源码里全盘搜索所有的 .wasm 和 .js 桥接文件，强行挖出来塞进包里
+          find ../../.. -name "*.wasm" -not -path "*/build/web/*" -exec cp {} ./ \; 2>/dev/null || true
+          find ../../.. -name "bridge.js" -exec cp {} engine/ \; 2>/dev/null || true
+          
+          # 4. 全盘搜索所有的胶片预设、控制配置文件 (JSON 格式) 和图标，强行塞进 assets
+          mkdir -p assets/generated
+          find ../../.. -name "*.json" -path "*generated*" -exec cp {} assets/generated/ \; 2>/dev/null || true
+          find ../../.. -name "*.json" -not -path "*/build/web/*" -not -path "*/node_modules/*" -exec cp --parents {} . \; 2>/dev/null || true
+          
+          # 5. 最后清理一下，把可能多出来的无用文件删掉，保持包体纯净
+          rm -rf ../../../web/node_modules || true
 
       - name: Upload Fully Offline Web Folder
         uses: actions/upload-artifact@v4
