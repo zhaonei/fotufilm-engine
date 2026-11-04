@@ -1,4 +1,4 @@
-name: Build APK (Pure CPU Ultimate)
+name: Build APK (Pure CPU Ultimate V2)
 on: workflow_dispatch
 jobs:
   build:
@@ -18,14 +18,10 @@ jobs:
         with:
           flutter-version: '3.47.9'
 
-      # 🌟 防弹 1：强制关闭 Flutter 的 Impeller 引擎，彻底杜绝 UI 层黑屏
       - name: Disable Impeller & Restore Configs
         run: |
-          echo "正在还原配置文件..."
           git checkout flutter/pubspec.yaml || true
           git checkout pubspec.yaml || true
-          
-          echo "正在强制关闭 Impeller 渲染..."
           MANIFEST="flutter/android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST" ]; then
             sed -i '/<application/i \        <meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />' "$MANIFEST" || true
@@ -44,7 +40,7 @@ jobs:
             android-ndk-r27d
             swift-sdks
             build/halide-host
-          key: fotufilm-env-v19 # 全新缓存，隔离之前的污染
+          key: fotufilm-env-v20
 
       - name: Setup Swap
         if: steps.cache-env.outputs.cache-hit != 'true'
@@ -112,8 +108,8 @@ jobs:
           mkdir -p $HOME/.swiftpm/swift-sdks
           cp -r ./swift-sdks/* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
 
-      # 🌟 防弹 2：编译纯 CPU 版 Halide，并强行把库路径写入环境变量
-      - name: Build Halide (Pure CPU) & Export Paths
+      # 🌟 核心修复：构建 Halide 后，手动补全缺失的运行时头文件
+      - name: Build Halide (Pure CPU) & Fix Missing Headers
         if: steps.cache-env.outputs.cache-hit != 'true'
         run: |
           chmod +x tools/build-halide-linux.sh
@@ -124,7 +120,6 @@ jobs:
           
           ./tools/build-halide-linux.sh
           
-          echo "正在搜索 Halide.h 和 libHalide..."
           HALIDE_HEADER_PATH=$(find $GITHUB_WORKSPACE -name "Halide.h" -type f | head -n 1)
           if [ -z "$HALIDE_HEADER_PATH" ]; then exit 1; fi
           HALIDE_INC_DIR=$(dirname "$HALIDE_HEADER_PATH")
@@ -132,26 +127,42 @@ jobs:
           mkdir -p build
           cp -r $REAL_HALIDE_ROOT build/halide-host
           
-          # 搜索 libHalide（可能是 .a 或 .so）
+          # 手动补全 HalideBuffer.h 和 HalideRuntime.h
+          echo "正在补全运行时头文件..."
+          HALIDE_SRC_INC="$GITHUB_WORKSPACE/third_party/Halide/src/runtime"
+          DEST_INC="$GITHUB_WORKSPACE/build/halide-host/include"
+          
+          for header in HalideBuffer.h HalideRuntime.h; do
+            if [ -f "$DEST_INC/$header" ]; then
+              echo "✅ $header 已存在"
+            elif [ -f "$HALIDE_SRC_INC/$header" ]; then
+              cp "$HALIDE_SRC_INC/$header" "$DEST_INC/"
+              echo "✅ 已复制 $header"
+            else
+              FOUND=$(find $GITHUB_WORKSPACE -name "$header" -type f | head -n 1)
+              if [ -n "$FOUND" ]; then
+                cp "$FOUND" "$DEST_INC/"
+                echo "✅ 已从 $FOUND 复制 $header"
+              else
+                echo "❌ 找不到 $header"
+                exit 1
+              fi
+            fi
+          done
+          
+          # 导出库路径
           HALIDE_LIB_PATH=$(find $GITHUB_WORKSPACE -name "libHalide.*" -type f | head -n 1)
           if [ -n "$HALIDE_LIB_PATH" ]; then
             HALIDE_LIB_DIR=$(dirname "$HALIDE_LIB_PATH")
-            echo "✅ 找到 libHalide 目录: $HALIDE_LIB_DIR"
-            # 注入到全局环境变量，解决找不到 -lHalide 的问题
             echo "LIBRARY_PATH=$HALIDE_LIB_DIR:$LIBRARY_PATH" >> $GITHUB_ENV
             echo "LD_LIBRARY_PATH=$HALIDE_LIB_DIR:$LD_LIBRARY_PATH" >> $GITHUB_ENV
             echo "CMAKE_PREFIX_PATH=$HALIDE_LIB_DIR:$CMAKE_PREFIX_PATH" >> $GITHUB_ENV
-          else
-            echo "❌ 致命错误：找不到 libHalide"
-            exit 1
           fi
 
-      # 🌟 防弹 3：打包前强行把生成的 .so 库塞进 jniLibs，防止 Gradle 忽略
       - name: Force Include Native Libs
         run: |
           NATIVE_LIB=$(find flutter/build -name "libfotufilm.so" | head -n 1)
           if [ -n "$NATIVE_LIB" ]; then
-             echo "找到核心库: $NATIVE_LIB，强行拷贝..."
              mkdir -p flutter/android/app/src/main/jniLibs/arm64-v8a/
              cp "$NATIVE_LIB" flutter/android/app/src/main/jniLibs/arm64-v8a/
           fi
