@@ -1,112 +1,202 @@
-name: Build Fotufilm (Vulkan GPU Ultimate)
+name: Build Fotufilm Android (Decoupled Vulkan)
 
 on: workflow_dispatch
-
-env:
-  EMSCRIPTEN_VERSION: '3.1.61'
-  FLUTTER_VERSION: '3.29.3'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with: { submodules: recursive }
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with: { node-version: '20' }
 
       - name: Setup Java
         uses: actions/setup-java@v4
-        with: { distribution: 'zulu', java-version: '21' }
-
-      - name: Install System Dependencies (含 Halide)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config git libedit-dev libz3-dev libffi-dev libncurses5-dev zlib1g-dev
-          # 安装 Halide 及其依赖（LLVM, lld, wabt 等）
-          sudo apt-get install -y llvm lld wabt
-          # 从官方 GitHub Releases 下载 Halide 预编译包
-          wget https://github.com/halide/Halide/releases/download/v21.0.0/halide-linux-x86-64-gcc-21.0.0.tar.gz
-          tar -xzf halide-linux-x86-64-gcc-21.0.0.tar.gz
-          sudo cp -r halide /usr/local/
+        with: { distribution: 'zulu', java-version: '17' }
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          cache: true
+        with: { flutter-version: '3.29.3', cache: true }
 
-      - name: Setup Emscripten (Pinned)
+      - name: Install System Dependencies & LLVM 21
         run: |
-          git clone https://github.com/emscripten-core/emsdk.git
-          cd emsdk
-          ./emsdk install ${{ env.EMSCRIPTEN_VERSION }}
-          ./emsdk activate ${{ env.EMSCRIPTEN_VERSION }}
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config git
+          sudo apt-get install -y libedit-dev libz3-dev libffi-dev libncurses5-dev
+          sudo apt-get install -y zlib1g-dev libzstd-dev liblz4-dev libbz2-dev liblzma-dev
+          sudo apt-get install -y libjpeg-dev libpng-dev libtiff-dev libwebp-dev
+          sudo apt-get install -y libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev
+          sudo apt-get install -y libpython3-dev python3-dev swig automake autoconf libtool
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main"
+          sudo apt-get update
+          sudo apt-get install -y llvm-21-dev clang-21 lld-21 libclang-21-dev liblld-21-dev
+          sudo ln -sf /usr/bin/llvm-config-21 /usr/local/bin/llvm-config
+          sudo ln -sf /usr/bin/clang-21 /usr/local/bin/clang
+          sudo ln -sf /usr/bin/clang++-21 /usr/local/bin/clang++
+          sudo ln -sf /usr/bin/lld-21 /usr/local/bin/lld
 
-      - name: Build Web Engine
+      - name: Setup Swap (8G)
         run: |
-          source emsdk/emsdk_env.sh
-          if [ -f "tools/build-webgpu-wasm.sh" ]; then
-            chmod +x tools/build-webgpu-wasm.sh
-            ./tools/build-webgpu-wasm.sh
-          elif [ -f "tools/build-wasm.sh" ]; then
-            chmod +x tools/build-wasm.sh
-            ./tools/build-wasm.sh
+          sudo swapoff -a || true
+          sudo rm -f /swapfile
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
+      - name: Download Toolchains (Swift + NDK)
+        run: |
+          wget https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+          tar -xzf swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+          mv swift-6.3.3-RELEASE-ubuntu22.04 swift-host
+          wget https://dl.google.com/dl/android/repository/android-ndk-r27d-linux.zip
+          unzip -q android-ndk-r27d-linux.zip
+          wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          mkdir -p swift-sdks
+          mv swift-6.3.3-RELEASE_android.artifactbundle.tar.gz swift-sdks/
+          cd swift-sdks && tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          mkdir -p $HOME/.swiftpm/swift-sdks
+          cp -r ./* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
+
+      - name: Build Halide (Vulkan AOT)
+        run: |
+          git clone https://github.com/halide/Halide.git -b v17.0.1 --depth 1
+          cd Halide && mkdir build && cd build
+          cmake .. -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm \
+            -DClang_DIR=/usr/lib/llvm-21/lib/cmake/clang \
+            -DLLD_DIR=/usr/lib/llvm-21/lib/cmake/lld \
+            -DHalide_SHARED_LLVM=YES \
+            -DTARGET_WEBASSEMBLY=OFF \
+            -DTARGET_VULKAN=ON \
+            -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF
+          ninja && ninja install
+          echo "HALIDE_ROOT=$GITHUB_WORKSPACE/Halide" >> $GITHUB_ENV
+
+      - name: Fix Dart SDK & Pubspec
+        run: |
+          sed -i 's/sdk: .\+/sdk: ">=3.0.0 <4.0.0"/g' flutter/pubspec.yaml || true
+
+      # ============================================================
+      # 修复层：Swift MainQueue Drain Hook & Vulkan 超时降级
+      # 自动将 C 文件放入 Flutter 的 CMake 编译目录
+      # ============================================================
+      - name: Install Swift Drain & Vulkan Guard Hooks
+        run: |
+          CPP_DIR="flutter/android/app/src/main/cpp"
+          mkdir -p "$CPP_DIR"
+
+          # 1. Swift 主队列 Drain Hook
+          cat > "$CPP_DIR/swift_main_drain.c" <<'EOF'
+          #include <jni.h>
+          #include <android/log.h>
+
+          extern void _dispatch_main_queue_callback_4CF(void *msg);
+
+          JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
+              __android_log_print(ANDROID_LOG_INFO, "Fotufilm", "JNI_OnLoad: Swift main queue drain hook ready");
+              return JNI_VERSION_1_6;
+          }
+
+          // 在合适的时机（如引擎初始化前）调用此函数
+          void fotufilm_drain_swift_main_queue(void) {
+              _dispatch_main_queue_callback_4CF(NULL);
+          }
+          EOF
+
+          # 2. Halide Vulkan 初始化超时守护
+          # 注意：实际符号名可能因 Halide 版本或生成器前缀不同而略有差异
+          cat > "$CPP_DIR/halide_vulkan_guard.c" <<'EOF'
+          #include <pthread.h>
+          #include <unistd.h>
+          #include <stdatomic.h>
+          #include <android/log.h>
+
+          extern int fotufilm_aot_vulkan_halide_vulkan_device_init(void);
+
+          static atomic_int vulkan_init_done = 0;
+          static atomic_int vulkan_init_ok = 0;
+
+          static void* vulkan_init_thread(void* arg) {
+              int r = fotufilm_aot_vulkan_halide_vulkan_device_init();
+              atomic_store(&vulkan_init_ok, (r == 0));
+              atomic_store(&vulkan_init_done, 1);
+              return NULL;
+          }
+
+          int fotufilm_init_vulkan_with_timeout(int timeout_ms) {
+              pthread_t t;
+              atomic_store(&vulkan_init_done, 0);
+              atomic_store(&vulkan_init_ok, 0);
+              pthread_create(&t, NULL, vulkan_init_thread, NULL);
+              pthread_detach(t);
+
+              int waited = 0;
+              while (!atomic_load(&vulkan_init_done) && waited < timeout_ms) {
+                  usleep(100 * 1000);
+                  waited += 100;
+              }
+
+              if (!atomic_load(&vulkan_init_done)) {
+                  __android_log_print(ANDROID_LOG_ERROR, "Fotufilm",
+                      "Vulkan init TIMEOUT after %d ms — falling back to CPU", timeout_ms);
+                  return 0;
+              }
+              return atomic_load(&vulkan_init_ok) ? 1 : 0;
+          }
+          EOF
+
+          # 确保 CMakeLists.txt 包含这两个源文件
+          CMAKE_FILE="$CPP_DIR/CMakeLists.txt"
+          if [ -f "$CMAKE_FILE" ]; then
+            if ! grep -q "swift_main_drain.c" "$CMAKE_FILE"; then
+              sed -i '/add_library/a\    src/main/cpp/swift_main_drain.c' "$CMAKE_FILE"
+            fi
+            if ! grep -q "halide_vulkan_guard.c" "$CMAKE_FILE"; then
+              sed -i '/add_library/a\    src/main/cpp/halide_vulkan_guard.c' "$CMAKE_FILE"
+            fi
+          else
+            cat > "$CMAKE_FILE" <<'EOF'
+          cmake_minimum_required(VERSION 3.18.1)
+          project(fotufilm)
+          add_library(fotufilm SHARED
+              src/main/cpp/swift_main_drain.c
+              src/main/cpp/halide_vulkan_guard.c
+          )
+          EOF
+          fi
+          echo "C files installed and registered in CMakeLists.txt"
+
+      - name: Build Native Engine (Swift + Halide)
+        env:
+          SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
+          SWIFT_SDK: swift-6.3.3-RELEASE_android
+          ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r27d
+          HALIDE_ROOT: ${{ github.workspace }}/Halide
+          MAKEFLAGS: "-j1"
+          CMAKE_BUILD_PARALLEL_LEVEL: "1"
+        run: |
+          chmod +x flutter/build-android.sh
+          ./flutter/build-android.sh
+
+      # ============================================================
+      # 修复层：强制 Flutter Impeller 退出 Vulkan 争夺
+      # ============================================================
+      - name: Force Impeller to OpenGL ES (Release Vulkan for Halide)
+        run: |
+          MANIFEST="flutter/android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            sed -i '/<application /a\        <meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />' "$MANIFEST"
+            echo "Injected: Impeller disabled (falls back to Skia/OpenGL ES)"
+          else
+            echo "Warning: AndroidManifest.xml not found at $MANIFEST"
           fi
 
-      - name: Build Flutter Web UI (CanvasKit)
-        run: |
-          cd flutter
-          flutter pub get
-          flutter build web --web-renderer canvaskit --release --no-web-resources-cdn
-          cd ..
-          mkdir -p final_web
-          cp -r flutter/build/web/* final_web/
-          mkdir -p final_web/engine
-          # ✅ 根据脚本截图，引擎产物输出在 web/public 目录
-          cp -r web/public/* final_web/engine/ 2>/dev/null || true
-
-      - name: Capacitor Setup & WebKit 1.18.0
-        run: |
-          npm init -y
-          npm install @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
-          npx cap init Fotufilm com.fotufilm.offline --web-dir=final_web
-          npx cap add android
-          npx cap sync android
-          sed -i 's|dependencies {|dependencies {\n    implementation "androidx.webkit:webkit:1.18.0"|' android/app/build.gradle
-
-      - name: Inject Native Vulkan & Hardware Acceleration
-        run: |
-          mkdir -p android/app/src/main/java/com/fotufilm/offline
-          cat > android/app/src/main/java/com/fotufilm/offline/MainActivity.java <<'JAVA_EOF'
-          package com.fotufilm.offline;
-          import android.os.Bundle;
-          import android.webkit.WebView;
-          import com.getcapacitor.BridgeActivity;
-
-          public class MainActivity extends BridgeActivity {
-              @Override
-              public void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  WebView.setWebContentsDebuggingEnabled(true);
-                  WebView webView = this.bridge.getWebView();
-                  webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null);
-              }
-          }
-          JAVA_EOF
-          
-          mkdir -p android/app/src/main/assets
-          echo '_ --use-webgpu-adapter=vulkan' > android/app/src/main/assets/webview-command-line
-
-      - name: Build APK
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
-
-      - uses: actions/upload-artifact@v4
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: Fotufilm-Ultimate-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: Fotufilm-Decoupled-Vulkan-APK
+          path: build/flutter-host/Fotufilm.apk
