@@ -1,4 +1,4 @@
-name: Build Fully Offline Web (Prebuilt Halide)
+name: Build Fully Offline Web (Source Halide)
 on: workflow_dispatch
 jobs:
   build:
@@ -20,23 +20,34 @@ jobs:
         with:
           channel: 'master'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config git libedit-dev libz3-dev libffi-dev libncurses5-dev zlib1g-dev libzstd-dev liblz4-dev libbz2-dev liblzma-dev libjpeg-dev libpng-dev libtiff-dev libwebp-dev libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev libpython3-dev python3-dev swig automake autoconf libtool
 
-      # 🌟 核心修复 1：直接下载官方预编译的 Halide 17.0.1 完整包
-      - name: Download Prebuilt Halide
+      # 🌟 核心修复：从源码编译 Halide，并开启 WebGPU 支持
+      - name: Build Halide with WebGPU from Source
         run: |
-          wget https://github.com/halide/Halide/releases/download/v17.0.1/Halide-17.0.1-x86-64-linux.tar.gz
-          tar -xzf Halide-17.0.1-x86-64-linux.tar.gz
-          mv Halide-17.0.1-x86-64-linux Halide
-          echo "HALIDE_ROOT=$PWD/Halide" >> $GITHUB_ENV
+          git clone https://github.com/halide/Halide.git -b v17.0.1 --depth 1
+          cd Halide
+          mkdir build && cd build
+          
+          cmake .. -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHalide_SHARED_LLVM=YES \
+            -DTARGET_WEBASSEMBLY=OFF \
+            -DTARGET_VULKAN=ON \
+            -DWITH_TESTS=OFF \
+            -DWITH_TUTORIALS=OFF \
+            -DWITH_PYTHON_BINDINGS=OFF \
+            -DWITH_DOCS=OFF \
+            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/Halide
+          
+          ninja
+          ninja install
+          
+          # 设置 HALIDE_ROOT 指向编译产物
+          echo "HALIDE_ROOT=$GITHUB_WORKSPACE/Halide" >> $GITHUB_ENV
 
       - name: Install Emscripten
         run: |
@@ -46,14 +57,12 @@ jobs:
           ./emsdk activate latest
           source ./emsdk_env.sh
 
-      # 🌟 核心修复 2：使用项目自带的脚本编译底层引擎，它会自动寻找 HALIDE_ROOT
       - name: Build Web Engine
         run: |
           source emsdk/emsdk_env.sh
           chmod +x tools/build-wasm.sh
           ./tools/build-wasm.sh
 
-      # 🌟 核心修复 3：使用官方脚本编译 UI 并合并引擎
       - name: Build Flutter UI & Merge Engine
         run: |
           source emsdk/emsdk_env.sh
