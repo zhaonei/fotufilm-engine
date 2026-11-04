@@ -1,4 +1,4 @@
-name: Build Fotufilm Android (Decoupled Vulkan)
+name: Build Fotufilm Android (Official Patched Vulkan)
 
 on: workflow_dispatch
 
@@ -50,6 +50,7 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
+      # 下载和缓存工具链（带重试和缓存）
       - name: Cache Swift Host
         uses: actions/cache@v4
         id: cache-swift-host
@@ -60,7 +61,6 @@ jobs:
       - name: Download Swift Host
         if: steps.cache-swift-host.outputs.cache-hit != 'true'
         run: |
-          echo "Downloading Swift Host..."
           curl -L -C - -o swift.tar.gz https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
           tar -xzf swift.tar.gz
           mv swift-6.3.3-RELEASE-ubuntu22.04 swift-host
@@ -76,7 +76,6 @@ jobs:
       - name: Download Android NDK
         if: steps.cache-ndk.outputs.cache-hit != 'true'
         run: |
-          echo "Downloading NDK..."
           curl -L -C - -o ndk.zip https://dl.google.com/dl/android/repository/android-ndk-r27d-linux.zip
           unzip -q ndk.zip
           rm ndk.zip
@@ -91,7 +90,6 @@ jobs:
       - name: Download Swift Android SDK
         if: steps.cache-swift-sdk.outputs.cache-hit != 'true'
         run: |
-          echo "Downloading Swift Android SDK..."
           curl -L -C - -o swift-android.tar.gz https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
           mkdir -p swift-sdks
           mv swift-android.tar.gz swift-sdks/
@@ -103,23 +101,25 @@ jobs:
           mkdir -p $HOME/.swiftpm/swift-sdks
           cp -r swift-sdks/* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
 
-      # 🚀 关键修复：在编译前直接修改 flatbuffers 的 CMakeLists.txt
-      - name: Patch FlatBuffers
+      # 🚀 官方最优解：克隆 Halide 并强制应用三个 Vulkan 补丁
+      - name: Build Halide (Official Patched Vulkan)
         run: |
           git clone https://github.com/halide/Halide.git -b v17.0.1 --depth 1
           cd Halide
           
-          # 修改 flatbuffers 的 CMakeLists.txt，强制移除 -Werror
-          find . -path "*/flatbuffers/CMakeLists.txt" -exec sed -i 's/-Werror /-Wno-error=stringop-overflow /g' {} +
+          echo "=== 强制应用官方 Vulkan 补丁 ==="
+          git apply ../tools/halide-vulkan-strict-float.patch
+          git apply ../tools/halide-vulkan-bool-uniforms.patch
+          git apply ../tools/halide-vulkan-allocation-padding.patch
           
-          echo "Patched FlatBuffers CMakeLists.txt:"
-          find . -path "*/flatbuffers/CMakeLists.txt" -exec grep -n "Werror" {} \;
-
-      - name: Build Halide (Vulkan AOT - Static Runtime)
-        run: |
-          cd Halide && mkdir build && cd build
+          echo "=== 修复 FlatBuffers 编译警告 ==="
+          find . -path "*/flatbuffers/CMakeLists.txt" -exec sed -i 's/-Werror/-Wno-error/g' {} +
+          
+          mkdir build && cd build
           
           cmake .. -G Ninja \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_BUILD_TYPE=Release \
             -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm \
             -DClang_DIR=/usr/lib/llvm-21/lib/cmake/clang \
@@ -147,6 +147,7 @@ jobs:
         run: |
           sed -i 's/sdk: .\+/sdk: ">=3.0.0 <4.0.0"/g' flutter/pubspec.yaml || true
 
+      # 保留防死锁的 C 守护代码（官方补丁无法覆盖的运行时安全网）
       - name: Install Swift Drain & Vulkan Guard Hooks
         run: |
           CPP_DIR="flutter/android/app/src/main/cpp"
@@ -239,16 +240,9 @@ jobs:
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
-      - name: Force Impeller to OpenGL ES
-        run: |
-          MANIFEST="flutter/android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST" ]; then
-            sed -i '/<application /a\        <meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />' "$MANIFEST"
-          fi
-
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Fotufilm-Decoupled-Vulkan-APK
+          name: Fotufilm-Official-Patched-APK
           path: build/flutter-host/Fotufilm.apk
