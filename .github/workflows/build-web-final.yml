@@ -14,21 +14,24 @@ jobs:
           node-version: '20'
 
       - name: Install Puppeteer & Prepare Real Samples
+        shell: bash
         run: |
           npm init -y
           npm install puppeteer
           
-          # 【修正1】放弃伪造，从 GitHub 开源测试库下载真实的、微小的 RAW 和 TIFF
-          echo "下载真实测试样片..."
-          wget -q https://raw.pixls.us/getfile.php/1425/nice/Canon%20-%20EOS%205D%20Mark%20III%20-%2012bit%20(3:2).CR2 -O sample.cr2 || \
-          wget -q https://github.com/letmaik/rawpy-test-data/raw/master/RAW_CANON_40D_SRAW_V103.CR2 -O sample.cr2
+          echo "正在下载真实测试样片..."
           
-          # 使用一张极小的真实 16-bit TIFF
-          wget -q https://github.com/python-pillow/Pillow/raw/main/Tests/images/hopper.tif -O sample.tiff || \
-          wget -q https://filesamples.com/samples/image/tiff/sample_640%C3%97426.tiff -O sample.tiff
-
-          echo "文件下载完成："
-          ls -lh sample.*
+          # 【修复】给包含特殊字符(如括号)的 URL 加双引号，并加入错误重试
+          # RAW 样片
+          wget -q --tries=3 --timeout=15 -O sample.cr2 "https://raw.pixls.us/getfile.php/1425/nice/Canon%20-%20EOS%205D%20Mark%20III%20-%2012bit%20%283%3A2%29.CR2" || \
+          wget -q --tries=3 --timeout=15 -O sample.cr2 "https://github.com/letmaik/rawpy-test-data/raw/master/RAW_CANON_40D_SRAW_V103.CR2"
+          
+          # 16-bit TIFF 样片
+          wget -q --tries=3 --timeout=15 -O sample.tiff "https://github.com/python-pillow/Pillow/raw/main/Tests/images/hopper.tif" || \
+          wget -q --tries=3 --timeout=15 -O sample.tiff "https://filesamples.com/samples/image/tiff/sample_640%C3%97426.tiff"
+          
+          echo "下载状态确认："
+          ls -lh sample.cr2 sample.tiff
 
       - name: Run Exhaustive Asset Extractor
         run: |
@@ -50,12 +53,10 @@ jobs:
               const page = await browser.newPage();
               await page.setViewport({ width: 1920, height: 1080 });
 
-              // 监控网络状态
               page.on('request', () => { activeRequests++; });
               page.on('requestfinished', () => { activeRequests--; });
               page.on('requestfailed', () => { activeRequests--; });
 
-              // 拦截并保存资源
               page.on('response', async (response) => {
                   const url = response.url();
                   if (url.startsWith(baseUrl)) {
@@ -74,7 +75,6 @@ jobs:
                   }
               });
 
-              // 【修正2】智能网络空闲判定：只抓网络，不等 GPU 渲染
               const waitForNetworkIdle = async (description) => {
                   console.log(`⏳ 等待 [${description}] 相关资源下载完毕...`);
                   const start = Date.now();
@@ -82,7 +82,6 @@ jobs:
                   while (Date.now() - start < 15000) {
                       if (activeRequests <= 0) {
                           idleFrames++;
-                          // 只要连续 1.5 秒网络没动静，说明资源已经下载完了，立刻去点下一个！不墨迹！
                           if (idleFrames >= 3) { 
                               console.log(`✅ [${description}] 资源已全部落地。`);
                               return;
@@ -127,7 +126,6 @@ jobs:
                   });
                   await waitForNetworkIdle('导出模块加载');
                   
-                  // 最终静默留 5 秒，彻底收尾
                   await new Promise(r => setTimeout(r, 5000));
 
               } catch (err) {
@@ -151,7 +149,6 @@ jobs:
           echo "====== 核心 WASM 引擎清单 ======"
           find web/ -name "*.wasm" -exec ls -lh {} \;
 
-      # 搭建 Android 原生宿主
       - name: Setup Java & Android SDK
         uses: actions/setup-java@v4
         with: { distribution: 'zulu', java-version: '17' }
@@ -239,11 +236,9 @@ jobs:
                       try {
                           InputStream is = getAssets().open("web" + uri);
                           String mime = getMimeTypeForFile(uri);
-                          // 确保 WebAssembly 被正确识别
                           if (uri.endsWith(".wasm")) mime = "application/wasm";
                           else if (uri.endsWith(".mjs") || uri.endsWith(".js")) mime = "application/javascript";
                           Response res = newChunkedResponse(Response.Status.OK, mime, is);
-                          // 满血多线程与 WebGPU 钥匙
                           res.addHeader("Cross-Origin-Opener-Policy", "same-origin");
                           res.addHeader("Cross-Origin-Embedder-Policy", "require-corp");
                           res.addHeader("Access-Control-Allow-Origin", "*");
