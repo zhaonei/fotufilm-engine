@@ -1,4 +1,4 @@
-name: Build 100% Offline Fotufilm APK (Ultimate 1:1)
+name: Build 100% Offline Fotufilm APK (Ultimate V5)
 on: workflow_dispatch
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
           
           ls -lh sample.cr2 sample.tiff
 
-      # 🌟 全量资源诱捕，深度遍历设置与所有二级菜单
+      # 🌟 深度遍历，全方位捕获所有资源
       - name: Run Deep Asset Extractor
         run: |
           cat << 'EOF' > extract.js
@@ -47,13 +47,12 @@ jobs:
                   headless: "new" 
               });
               const page = await browser.newPage();
-              await page.setViewport({ width: 1920, height: 1080 }); // 模拟桌面端，让所有按钮都显示
+              await page.setViewport({ width: 1920, height: 1080 });
 
               page.on('request', () => { activeRequests++; });
               page.on('requestfinished', () => { activeRequests--; });
               page.on('requestfailed', () => { activeRequests--; });
 
-              // 拦截下载并自动修复路径
               page.on('response', async (response) => {
                   const url = response.url();
                   if (url.startsWith(baseUrl)) {
@@ -89,7 +88,6 @@ jobs:
 
               try {
                   await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-                  // 激活语义树，暴露隐藏的 UI 节点
                   await page.evaluate(() => { document.querySelector('flt-semantics-placeholder')?.click(); });
                   await waitForNetworkIdle('主界面初始化');
 
@@ -107,35 +105,26 @@ jobs:
                   } catch(e) {}
                   await waitForNetworkIdle('TIFF 引擎加载');
 
-                  // 🌟 核心：深度遍历，模拟真实用户点开设置和所有菜单
                   console.log('💥 开始深度遍历所有菜单与设置面板...');
                   await page.evaluate(async () => {
                       const sleep = ms => new Promise(r => setTimeout(r, ms));
-                      
-                      // 跑 4 轮，确保能点开二级、三级菜单
                       for (let round = 0; round < 4; round++) {
-                          // 寻找所有可能的交互元素
                           const interactables = Array.from(document.querySelectorAll(
                               'flt-semantics[role="button"], flt-semantics[role="menuitem"], flt-semantics[role="option"], flt-semantics[role="switch"], flt-semantics[role="slider"], flt-semantics[role="combobox"]'
                           ));
-
                           for (const el of interactables) {
-                              if (el.offsetParent === null) continue; // 忽略隐藏元素
+                              if (el.offsetParent === null) continue;
                               try {
-                                  const label = (el.getAttribute('aria-label') || el.innerText || '').toLowerCase();
-                                  
-                                  // 如果是滑块，模拟按键
                                   if (el.getAttribute('role') === 'slider') {
                                       el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
                                       el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }));
                                   } else {
-                                      // 点击按钮、菜单、设置项
                                       el.click();
                                   }
-                                  await sleep(400); // 给网络一点时间反应
+                                  await sleep(300);
                               } catch (e) {}
                           }
-                          await sleep(1500); // 每一轮结束后等一下
+                          await sleep(1000);
                       }
                   });
                   await waitForNetworkIdle('最终设置与配置加载');
@@ -166,7 +155,6 @@ jobs:
         uses: actions/setup-java@v4
         with: { distribution: 'zulu', java-version: '17' }
 
-      # 🌟 构建安卓宿主，注入极限性能配置
       - name: Build Android WebView Shell
         run: |
           echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
@@ -180,7 +168,6 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.fotufilm.offline">
               <uses-permission android:name="android.permission.INTERNET" />
-              <!-- 开启大内存堆和硬件加速 -->
               <application android:label="Fotufilm" android:hardwareAccelerated="true" android:largeHeap="true" android:usesCleartextTraffic="true">
                   <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden" android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
                       <intent-filter>
@@ -222,7 +209,6 @@ jobs:
                   settings.setDatabaseEnabled(true);
                   settings.setAllowFileAccess(true);
                   settings.setAllowContentAccess(true);
-                  // 开启硬件加速渲染，吃满天玑 9300 GPU
                   webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null);
                   webView.setWebChromeClient(new WebChromeClient());
                   settings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
@@ -243,7 +229,6 @@ jobs:
                   super.onDestroy();
               }
 
-              // 内置满血服务器：注入 COOP/COEP 头，解开 WASM 多线程封印
               public class LocalServer extends NanoHTTPD {
                   public LocalServer(int port) { super(port); }
 
@@ -257,7 +242,6 @@ jobs:
                           if (uri.endsWith(".wasm")) mime = "application/wasm";
                           else if (uri.endsWith(".mjs") || uri.endsWith(".js")) mime = "application/javascript";
                           Response res = newChunkedResponse(Response.Status.OK, mime, is);
-                          // 解锁 WebGPU / SharedArrayBuffer 的钥匙
                           res.addHeader("Cross-Origin-Opener-Policy", "same-origin");
                           res.addHeader("Cross-Origin-Embedder-Policy", "require-corp");
                           res.addHeader("Access-Control-Allow-Origin", "*");
@@ -293,16 +277,17 @@ jobs:
           }
           EOF
 
+          # 🌟 核心修复：优化 settings.gradle 的仓库配置
           cat << 'EOF' > settings.gradle
           pluginManagement {
               repositories {
-                  gradlePluginPortal()
                   google()
                   mavenCentral()
+                  gradlePluginPortal()
               }
           }
           dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
               repositories {
                   google()
                   mavenCentral()
@@ -318,6 +303,7 @@ jobs:
           }
           EOF
 
+      # 🌟 核心修复：增加 --refresh-dependencies 强制刷新缓存
       - name: Build Android APK
         run: |
           mkdir -p ~/.gradle
@@ -325,7 +311,7 @@ jobs:
           echo "systemProp.https.proxyHost=mirrors.aliyun.com" >> ~/.gradle/gradle.properties
           
           gradle wrapper --gradle-version 8.2
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon --refresh-dependencies --stacktrace
 
       - name: Upload Fully Offline APK
         uses: actions/upload-artifact@v4
