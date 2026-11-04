@@ -1,4 +1,4 @@
-name: Build 100% Offline Fotufilm APK (Ultimate V7)
+name: Build 100% Offline Fotufilm APK (Absolute Final)
 on: workflow_dispatch
 
 jobs:
@@ -63,15 +63,11 @@ jobs:
                       try {
                           const buffer = await response.buffer();
                           fs.writeFileSync(filePath, buffer);
-                          if (buffer.length > 50 * 1024) { 
-                              console.log(`📦 截获资源: ${relPath} (${(buffer.length/1024).toFixed(1)} KB)`);
-                          }
                       } catch (e) {}
                   }
               });
 
               const waitForNetworkIdle = async (description) => {
-                  console.log(`⏳ 等待 [${description}] 加载完成...`);
                   const start = Date.now();
                   let idleFrames = 0;
                   while (Date.now() - start < 20000) {
@@ -90,21 +86,18 @@ jobs:
                   await page.evaluate(() => { document.querySelector('flt-semantics-placeholder')?.click(); });
                   await waitForNetworkIdle('主界面初始化');
 
-                  console.log('📸 加载 RAW 触发核心解码...');
                   try {
                       const input = await page.$('input[type="file"]');
                       if (input) await input.uploadFile('./sample.cr2');
                   } catch(e) {}
                   await waitForNetworkIdle('RAW 引擎加载');
 
-                  console.log('📸 加载 TIFF 触发高阶处理...');
                   try {
                       const inputs = await page.$$('input[type="file"]');
                       if (inputs.length > 0) await inputs[inputs.length - 1].uploadFile('./sample.tiff');
                   } catch(e) {}
                   await waitForNetworkIdle('TIFF 引擎加载');
 
-                  console.log('💥 开始深度遍历所有菜单与设置面板 (共5轮)...');
                   await page.evaluate(async () => {
                       const sleep = ms => new Promise(r => setTimeout(r, ms));
                       for (let round = 0; round < 5; round++) {
@@ -120,21 +113,17 @@ jobs:
                                   } else {
                                       el.click();
                                   }
-                                  await sleep(250);
+                                  await sleep(200);
                               } catch (e) {}
                           }
                           await sleep(1000);
                       }
                   });
-                  await waitForNetworkIdle('最终设置与配置加载');
-                  await new Promise(r => setTimeout(r, 5000));
-
+                  await waitForNetworkIdle('配置加载');
               } catch (err) {
                   console.log('⚠️ 抓取异常:', err.message);
               }
-
               await browser.close();
-              console.log('🎉 全量 1:1 资源抓取完毕！');
           })();
           EOF
           node extract.js
@@ -145,17 +134,24 @@ jobs:
             sed -i 's|src="/|src="./|g' web/index.html
             sed -i 's|href="/|href="./|g' web/index.html
           fi
-          echo "====== 最终抓取总大小 ======"
           du -sh web/
-          echo "====== 核心引擎清单 ======"
-          find web/ -name "*.wasm" -exec ls -lh {} \;
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with: { distribution: 'zulu', java-version: '17' }
 
-      - name: Build Android WebView Shell (V7 Fixed)
+      # 🌟 核心绝杀 1：手动下载 Gradle 8.6 压缩包
+      - name: Download and Setup Gradle 8.6
         run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.6-bin.zip
+          unzip -q gradle-8.6-bin.zip
+          echo "$PWD/gradle-8.6/bin" >> $GITHUB_PATH
+
+      - name: Build Android WebView Shell
+        run: |
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+
           mkdir -p android-app/app/src/main/java/com/fotufilm/offline
           mkdir -p android-app/app/src/main/assets
           cp -r web/* android-app/app/src/main/assets/
@@ -275,6 +271,7 @@ jobs:
           }
           EOF
 
+          # 极度干净的仓库配置
           cat << 'EOF' > settings.gradle
           pluginManagement {
               repositories {
@@ -294,7 +291,6 @@ jobs:
           include ':app'
           EOF
 
-          # 🌟 核心修复：将 AGP 版本升级到 8.4.0，以兼容 Gradle 8.5
           cat << 'EOF' > build.gradle
           plugins {
               id 'com.android.application' version '8.4.0' apply false
@@ -308,28 +304,14 @@ jobs:
           systemProp.https.proxyHost=mirrors.aliyun.com
           EOF
 
-          # 🌟 核心修复：强制指定 Gradle Wrapper 版本为 8.5
-          mkdir -p gradle/wrapper
-          cat << 'EOF' > gradle/wrapper/gradle-wrapper.properties
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip
-          networkTimeout=10000
-          validateDistributionUrl=true
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          EOF
-
-          gradle wrapper --gradle-version 8.5
-
+      # 🌟 核心绝杀 2：使用刚才下载的 Gradle 8.6 直接构建，彻底踢开系统和 Wrapper
       - name: Build Android APK
         run: |
           cd android-app
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --refresh-dependencies --stacktrace
+          gradle assembleDebug --no-daemon --refresh-dependencies --stacktrace
 
       - name: Upload Fully Offline APK
         uses: actions/upload-artifact@v4
         with:
-          name: Fotufilm-Offline-1to1
+          name: Fotufilm-Offline-Final
           path: android-app/app/build/outputs/apk/debug/app-debug.apk
