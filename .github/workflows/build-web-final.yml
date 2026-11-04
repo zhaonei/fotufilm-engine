@@ -1,38 +1,82 @@
-name: Mirror Official Web App
+name: Mirror Official Web App (Headless Chrome)
 on: workflow_dispatch
 jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
-      - name: Download Official Web App
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Puppeteer & Dependencies
         run: |
-          # 🌟 使用伪装浏览器UA进行全站深度镜像
-          wget --mirror \
-               --convert-links \
-               --adjust-extension \
-               --page-requisites \
-               --no-parent \
-               --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-               -e robots=off \
-               https://fotufilm.com/demo/
+          npm init -y
+          npm install puppeteer
+
+      - name: Run Headless Mirror Script
+        run: |
+          cat << 'EOF' > mirror.js
+          const puppeteer = require('puppeteer');
+          const fs = require('fs');
+          const path = require('path');
+
+          (async () => {
+              const baseUrl = 'https://fotufilm.com/demo/';
+              const baseDir = './web';
+              
+              console.log('启动无头 Chrome 浏览器...');
+              const browser = await puppeteer.launch({
+                  args: ['--no-sandbox', '--disable-setuid-sandbox']
+              });
+              const page = await browser.newPage();
+
+              // 拦截所有网络请求和响应
+              page.on('response', async (response) => {
+                  const url = response.url();
+                  // 只抓取 demo 目录下的资源
+                  if (url.startsWith(baseUrl)) {
+                      const relativePath = url.replace(baseUrl, '');
+                      // 如果路径为空，默认为 index.html
+                      const filePath = path.join(baseDir, relativePath || 'index.html');
+                      
+                      // 只抓取有用的文件类型（特别是 .wasm 和 .js）
+                      if (url.match(/\.(js|wasm|json|html|css|png|jpg|jpeg|svg|ttf|otf|woff|woff2)$/) || relativePath === '') {
+                          fs.mkdirSync(path.dirname(filePath), { recursive: true });
+                          try {
+                              const buffer = await response.buffer();
+                              fs.writeFileSync(filePath, buffer);
+                              console.log(`✅ 成功抓取: ${relativePath || 'index.html'} (${(buffer.length/1024/1024).toFixed(2)} MB)`);
+                          } catch (e) {
+                              console.log(`❌ 抓取失败: ${relativePath}`);
+                          }
+                      }
+                  }
+              });
+
+              console.log('正在访问网页并等待其加载完毕（包括后台加载大文件）...');
+              // 等待网络空闲，确保所有大文件都下载完毕
+              await page.goto(baseUrl, { waitUntil: 'networkidle0', timeout: 90000 });
+              
+              // 额外等待几秒，确保可能有延迟加载的引擎文件被捕获
+              await new Promise(r => setTimeout(r, 5000));
+
+              await browser.close();
+              console.log('🎉 全量镜像抓取完毕！');
+          })();
+          EOF
           
-          # 把下载下来的文件夹重命名为 web，方便后面打包
-          if [ -d "fotufilm.com" ]; then
-            mv fotufilm.com web
-          fi
-          
-          # 🌟 全盘兜底：确保所有隐藏的 .wasm 和 .json 资源都被抓下来了
-          # 有时候 wget 会漏掉动态加载的文件，我们把所有能找到的资源强行整合
-          mkdir -p final_output
-          cp -r web/* final_output/ 2>/dev/null || true
-          
-          echo "====================================="
-          echo "打包完成，请检查文件列表，确认是否包含巨大的 .wasm 文件："
-          find final_output -name "*.wasm" -exec ls -lh {} \;
-          echo "====================================="
+          node mirror.js
+
+      - name: Verify Mirror Size
+        run: |
+          echo "====== 抓取结果统计 ======"
+          du -sh web/ || true
+          echo "====== 检查核心 WASM 引擎 ======"
+          find web/ -name "*.wasm" -exec ls -lh {} \;
 
       - name: Upload Fully Offline Web Folder
         uses: actions/upload-artifact@v4
         with:
           name: fotufilm-web-full-mirror
-          path: final_output/
+          path: web/
