@@ -1,4 +1,4 @@
-name: Build 100% Offline Fotufilm APK (Capacitor Release Final)
+name: Build 100% Offline Fotufilm APK (Capacitor Release Final V2)
 on: workflow_dispatch
 
 jobs:
@@ -13,31 +13,22 @@ jobs:
         with:
           node-version: '20'
 
+      # 🌟 核心修复：将 Java 升级到 21，满足最新版 Capacitor 的编译要求
       - name: Setup Java
         uses: actions/setup-java@v4
-        with: { distribution: 'zulu', java-version: '17' }
+        with: { distribution: 'zulu', java-version: '21' }
 
-      # 🌟 核心：从你刚发布的 Release 下载 5 个核心文件，放到正确的位置
       - name: Download Full Engine from Release
         run: |
           mkdir -p web-export/engine
           
-          echo "正在下载 index.html..."
+          echo "正在下载核心文件..."
           wget -q https://github.com/zhaonei/fotufilm-engine/releases/download/v1.0/index.html -O web-export/index.html
-          
-          echo "正在下载 bridge.js..."
           wget -q https://github.com/zhaonei/fotufilm-engine/releases/download/v1.0/bridge.js -O web-export/engine/bridge.js
-          
-          echo "正在下载 builder.wasm..."
           wget -q https://github.com/zhaonei/fotufilm-engine/releases/download/v1.0/builder.wasm -O web-export/engine/builder.wasm
-          
-          echo "正在下载 decoder.wasm..."
           wget -q https://github.com/zhaonei/fotufilm-engine/releases/download/v1.0/decoder.wasm -O web-export/engine/decoder.wasm
-          
-          echo "正在下载 fotufilm.wasm..."
           wget -q https://github.com/zhaonei/fotufilm-engine/releases/download/v1.0/fotufilm.wasm -O web-export/engine/fotufilm.wasm
           
-          echo "检查文件是否到位："
           ls -lh web-export/engine/
 
       - name: Build APK via Capacitor
@@ -49,10 +40,8 @@ jobs:
           npx cap add android
           npx cap sync android
           
-          # 开启硬件加速大内存
           sed -i 's|<application|<application android:hardwareAccelerated="true" android:largeHeap="true" android:usesCleartextTraffic="true"|' android/app/src/main/AndroidManifest.xml
           
-          # 强制注入跨域头（为了 WASM 多线程满血运行）
           mkdir -p android/app/src/main/java/com/fotufilm/offline
           cat << 'EOF' > android/app/src/main/java/com/fotufilm/offline/MainActivity.java
           package com.fotufilm.offline;
