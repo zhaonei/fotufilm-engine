@@ -1,9 +1,11 @@
-name: Build Fotufilm Android (Official Patched Vulkan)
+name: Build Fotufilm Android (Halide v21 Matched)
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
 
 env:
   NDK_VERSION: 'r27d'
+  HALIDE_VERSION: 'v21.0.0'
 
 jobs:
   build:
@@ -34,6 +36,7 @@ jobs:
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
           sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main"
           sudo apt-get update
+          # Halide v21 要求 LLVM 21.1.1 或更高版本
           sudo apt-get install -y llvm-21-dev clang-21 lld-21 libclang-21-dev liblld-21-dev
           
           sudo ln -sf /usr/bin/llvm-config-21 /usr/local/bin/llvm-config
@@ -50,7 +53,6 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
-      # 下载和缓存工具链（带重试和缓存）
       - name: Cache Swift Host
         uses: actions/cache@v4
         id: cache-swift-host
@@ -101,13 +103,13 @@ jobs:
           mkdir -p $HOME/.swiftpm/swift-sdks
           cp -r swift-sdks/* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
 
-      # 🚀 官方最优解：克隆 Halide 并强制应用三个 Vulkan 补丁
-      - name: Build Halide (Official Patched Vulkan)
+      # 🚀 核心修复：使用与补丁匹配的 Halide v21，并强制应用三个官方补丁
+      - name: Build Halide (Official Patched Vulkan - v21)
         run: |
-          git clone https://github.com/halide/Halide.git -b v17.0.1 --depth 1
+          git clone https://github.com/halide/Halide.git -b ${{ env.HALIDE_VERSION }} --depth 1
           cd Halide
           
-          echo "=== 强制应用官方 Vulkan 补丁 ==="
+          echo "=== 强制应用官方 Vulkan 补丁 (v21) ==="
           git apply ../tools/halide-vulkan-strict-float.patch
           git apply ../tools/halide-vulkan-bool-uniforms.patch
           git apply ../tools/halide-vulkan-allocation-padding.patch
@@ -125,7 +127,6 @@ jobs:
             -DClang_DIR=/usr/lib/llvm-21/lib/cmake/clang \
             -DLLD_DIR=/usr/lib/llvm-21/lib/cmake/lld \
             -DHalide_SHARED_LLVM=YES \
-            -DHalide_BUNDLE_STATIC=ON \
             -DCMAKE_CXX_FLAGS="-DHALIDE_RUNTIME_BUFFER_USE_ALIGNED_ALLOC=0" \
             -DTARGET_WEBASSEMBLY=OFF \
             -DTARGET_VULKAN=ON \
@@ -147,7 +148,7 @@ jobs:
         run: |
           sed -i 's/sdk: .\+/sdk: ">=3.0.0 <4.0.0"/g' flutter/pubspec.yaml || true
 
-      # 保留防死锁的 C 守护代码（官方补丁无法覆盖的运行时安全网）
+      # 保留防死锁的 C 守护代码（运行时最后的安全网）
       - name: Install Swift Drain & Vulkan Guard Hooks
         run: |
           CPP_DIR="flutter/android/app/src/main/cpp"
@@ -244,5 +245,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Fotufilm-Official-Patched-APK
+          name: Fotufilm-Halide-v21-APK
           path: build/flutter-host/Fotufilm.apk
