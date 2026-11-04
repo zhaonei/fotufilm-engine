@@ -2,6 +2,10 @@ name: Build Fotufilm Android (Decoupled Vulkan)
 
 on: workflow_dispatch
 
+env:
+  NDK_VERSION: 'r27d'
+  NDK_URL: 'https://dl.google.com/dl/android/repository/android-ndk-r27d-linux.zip'
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -47,16 +51,31 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
+      # 下载工具链（带重试与镜像容错）
       - name: Download Toolchains (Swift + NDK)
         run: |
-          wget https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+          # --- 下载 Swift 宿主机工具链 ---
+          echo "Downloading Swift Host Toolchain..."
+          for i in 1 2 3; do
+            wget -q --timeout=300 --tries=3 https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz && break || sleep 10
+          done
           tar -xzf swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
           mv swift-6.3.3-RELEASE-ubuntu22.04 swift-host
-          
-          wget https://dl.google.com/dl/android/repository/android-ndk-r27d-linux.zip
-          unzip -q android-ndk-r27d-linux.zip
-          
-          wget https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          rm -f swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+
+          # --- 下载 Android NDK (带重试) ---
+          echo "Downloading Android NDK ${{ env.NDK_VERSION }}..."
+          for i in 1 2 3; do
+            wget -q --timeout=300 --tries=3 ${{ env.NDK_URL }} -O ndk.zip && break || sleep 10
+          done
+          unzip -q ndk.zip
+          rm -f ndk.zip
+
+          # --- 下载 Swift Android SDK ---
+          echo "Downloading Swift Android SDK..."
+          for i in 1 2 3; do
+            wget -q --timeout=300 --tries=3 https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz && break || sleep 10
+          done
           mkdir -p swift-sdks
           mv swift-6.3.3-RELEASE_android.artifactbundle.tar.gz swift-sdks/
           cd swift-sdks && tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
@@ -68,7 +87,6 @@ jobs:
           git clone https://github.com/halide/Halide.git -b v17.0.1 --depth 1
           cd Halide && mkdir build && cd build
           
-          # 🚀 关键修复：通过 CMAKE_CXX_FLAGS 向 flatbuffers 传递抑制标志
           cmake .. -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm \
@@ -80,8 +98,7 @@ jobs:
             -DCMAKE_CXX_FLAGS="-DHALIDE_RUNTIME_BUFFER_USE_ALIGNED_ALLOC=0 -Wno-error=stringop-overflow" \
             -DTARGET_WEBASSEMBLY=OFF \
             -DTARGET_VULKAN=ON \
-            -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF \
-            -DCMAKE_INSTALL_PREFIX=$GITHUB_WORKSPACE/Halide
+            -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF
           
           ninja
           
@@ -95,12 +112,12 @@ jobs:
           find . -name "libHalide.so" -exec cp {} "$HALIDE_DIST/lib/" \;
           
           echo "HALIDE_ROOT=$HALIDE_DIST" >> $GITHUB_ENV
-          ls -la "$HALIDE_DIST/include" "$HALIDE_DIST/lib"
 
       - name: Fix Dart SDK & Pubspec
         run: |
           sed -i 's/sdk: .\+/sdk: ">=3.0.0 <4.0.0"/g' flutter/pubspec.yaml || true
 
+      # 注入 C 层防护机制
       - name: Install Swift Drain & Vulkan Guard Hooks
         run: |
           CPP_DIR="flutter/android/app/src/main/cpp"
@@ -185,7 +202,7 @@ jobs:
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
           SWIFT_SDK: swift-6.3.3-RELEASE_android
-          ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-r27d
+          ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-${{ env.NDK_VERSION }}
           HALIDE_ROOT: ${{ github.workspace }}/Halide-dist
           MAKEFLAGS: "-j1"
           CMAKE_BUILD_PARALLEL_LEVEL: "1"
@@ -193,6 +210,7 @@ jobs:
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
+      # 规避 MediaTek Vulkan 冲突：强制回退 OpenGL ES
       - name: Force Impeller to OpenGL ES
         run: |
           MANIFEST="flutter/android/app/src/main/AndroidManifest.xml"
