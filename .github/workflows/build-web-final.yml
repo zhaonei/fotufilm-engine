@@ -1,4 +1,4 @@
-name: Build 100% Offline Fotufilm APK (Bulletproof Edition V2)
+name: Build 100% Offline Fotufilm APK (Bulletproof Edition V3)
 on: workflow_dispatch
 
 jobs:
@@ -139,12 +139,11 @@ jobs:
         uses: actions/setup-java@v4
         with: { distribution: 'zulu', java-version: '17' }
 
-      # 🌟 核心修复：跳过 setup-android 插件，直接使用系统默认的 SDK
       - name: Build Android WebView Shell
         run: |
           echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
-          # 接受所有的 SDK 协议，防止构建卡住
+          # 消除 Broken pipe 警告，静默接受协议
           yes | sdkmanager --licenses > /dev/null 2>&1 || true
 
           mkdir -p app/src/main/java/com/fotufilm/offline
@@ -264,8 +263,32 @@ jobs:
           }
           EOF
 
-          echo 'rootProject.name = "FotufilmOffline"' > settings.gradle
-          echo "plugins { id 'com.android.application' version '8.2.0' apply false }" > build.gradle
+          # 🌟 核心修复：在 settings.gradle 中注入谷歌 Maven 仓库
+          cat << 'EOF' > settings.gradle
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "FotufilmOffline"
+          include ':app'
+          EOF
+
+          # 设置顶层 build.gradle
+          cat << 'EOF' > build.gradle
+          plugins {
+              id 'com.android.application' version '8.2.0' apply false
+          }
+          EOF
 
       - name: Build Android APK
         run: |
@@ -277,5 +300,5 @@ jobs:
       - name: Upload Fully Offline APK
         uses: actions/upload-artifact@v4
         with:
-          name: Fotufilm-Offline-Bulletproof-V2
+          name: Fotufilm-Offline-Bulletproof-V3
           path: app/build/outputs/apk/debug/app-debug.apk
