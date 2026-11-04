@@ -10,26 +10,21 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          # 🌟 核心修复 1：使用 master 分支，获取最高版本的 Dart SDK，彻底秒杀任何 pubspec.yaml 版本冲突
           channel: 'master'
 
       - name: Build Web with Full Assets
         run: |
-          # 🌟 核心修复 2：必须进入子目录，否则找不到 pubspec.yaml
           cd flutter
           
-          # 还原可能被之前改坏的配置文件
           git checkout pubspec.yaml || true
-          
-          # 清理旧缓存，防止依赖解析报错
           flutter clean
           
-          # 执行全量离线 Web 构建（包含 WASM 高性能引擎）
-          flutter build web --wasm --release --pwa-strategy offline-first --no-web-resources-cdn
+          # 🌟 核心修复：删除了被废弃的 --pwa-strategy 参数
+          # 保留 --wasm (极致性能) 和 --no-web-resources-cdn (强制本地化所有字体和资源)
+          flutter build web --wasm --release --no-web-resources-cdn
 
       - name: Upload Fully Offline Web Folder
         uses: actions/upload-artifact@v4
         with:
           name: fotufilm-web-fully-offline
-          # 🌟 核心修复 3：精准定位子目录里的构建产物
           path: flutter/build/web/
