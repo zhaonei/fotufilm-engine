@@ -1,4 +1,4 @@
-name: Build 100% Offline Fotufilm APK (Absolute Final)
+name: Build 100% Offline Fotufilm APK (Absolute Final V2)
 on: workflow_dispatch
 
 jobs:
@@ -140,7 +140,7 @@ jobs:
         uses: actions/setup-java@v4
         with: { distribution: 'zulu', java-version: '17' }
 
-      # 🌟 核心绝杀 1：手动下载 Gradle 8.6 压缩包
+      # 🌟 核心修复：下载 Gradle 8.6
       - name: Download and Setup Gradle 8.6
         run: |
           wget -q https://services.gradle.org/distributions/gradle-8.6-bin.zip
@@ -271,7 +271,6 @@ jobs:
           }
           EOF
 
-          # 极度干净的仓库配置
           cat << 'EOF' > settings.gradle
           pluginManagement {
               repositories {
@@ -297,17 +296,25 @@ jobs:
           }
           EOF
 
+          # 🌟 核心修复：给 Gradle 分配 4GB 内存，防止守护进程崩溃
           cat << 'EOF' > gradle.properties
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8
           android.useAndroidX=true
           systemProp.http.proxyHost=mirrors.aliyun.com
           systemProp.https.proxyHost=mirrors.aliyun.com
           EOF
 
-      # 🌟 核心绝杀 2：使用刚才下载的 Gradle 8.6 直接构建，彻底踢开系统和 Wrapper
       - name: Build Android APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+          # 双重保险：强行注入环境变量，分配 4GB 内存
+          GRADLE_OPTS: "-Xmx4096m -Dorg.gradle.daemon=false"
         run: |
           cd android-app
+          # 确保许可协议通过，防止卡死
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          # 使用物理下载的 gradle 8.6 进行编译
           gradle assembleDebug --no-daemon --refresh-dependencies --stacktrace
 
       - name: Upload Fully Offline APK
