@@ -1,4 +1,4 @@
-name: Build Fotufilm Android (Smart Patch & Fallback)
+name: Build Fotufilm Android (Halide v21 + LD_LIBRARY_PATH Fix)
 
 on:
   workflow_dispatch:
@@ -102,14 +102,12 @@ jobs:
           mkdir -p $HOME/.swiftpm/swift-sdks
           cp -r swift-sdks/* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
 
-      # 🚀 核心修复：智能容错打补丁
       - name: Build Halide (Smart Patch - v21)
         run: |
           git clone https://github.com/halide/Halide.git -b ${{ env.HALIDE_VERSION }} --depth 1
           cd Halide
           
           echo "=== 尝试智能应用官方 Vulkan 补丁 ==="
-          # 使用 --3way 让 Git 自动匹配上下文，打不上也绝不中断构建
           git apply --3way ../tools/halide-vulkan-strict-float.patch || echo "⚠️ Patch 1 failed, skipping."
           git apply --3way ../tools/halide-vulkan-bool-uniforms.patch || echo "⚠️ Patch 2 failed, skipping."
           git apply --3way ../tools/halide-vulkan-allocation-padding.patch || echo "⚠️ Patch 3 failed, skipping."
@@ -140,7 +138,11 @@ jobs:
           
           find . -name "Halide.h" -exec cp {} "$HALIDE_DIST/include/" \;
           find . -name "HalideRuntime.h" -exec cp {} "$HALIDE_DIST/include/" \;
-          find . -name "libHalide.so" -exec cp {} "$HALIDE_DIST/lib/" \;
+          # 确保 libHalide.so 及其带版本号的软链接都被复制
+          find . -name "libHalide.so*" -exec cp -P {} "$HALIDE_DIST/lib/" \;
+          
+          echo "=== Halide-dist/lib 内容 ==="
+          ls -la "$HALIDE_DIST/lib"
           
           echo "HALIDE_ROOT=$HALIDE_DIST" >> $GITHUB_ENV
 
@@ -148,7 +150,6 @@ jobs:
         run: |
           sed -i 's/sdk: .\+/sdk: ">=3.0.0 <4.0.0"/g' flutter/pubspec.yaml || true
 
-      # 终极兜底：即便补丁全没打上，这段 C 代码也能阻止黑屏死锁
       - name: Install Swift Drain & Vulkan Guard Hooks
         run: |
           CPP_DIR="flutter/android/app/src/main/cpp"
@@ -229,12 +230,14 @@ jobs:
           EOF
           fi
 
+      # 🚀 核心修复：设置 LD_LIBRARY_PATH，让 generate-halide-aot 能找到 libHalide.so.21
       - name: Build Native Engine (Swift + Halide)
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
           SWIFT_SDK: swift-6.3.3-RELEASE_android
           ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-${{ env.NDK_VERSION }}
           HALIDE_ROOT: ${{ github.workspace }}/Halide-dist
+          LD_LIBRARY_PATH: ${{ github.workspace }}/Halide-dist/lib:${{ env.LD_LIBRARY_PATH }}
           MAKEFLAGS: "-j1"
           CMAKE_BUILD_PARALLEL_LEVEL: "1"
         run: |
@@ -245,5 +248,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Fotufilm-Smart-Patch-APK
+          name: Fotufilm-Halide-v21-APK
           path: build/flutter-host/Fotufilm.apk
