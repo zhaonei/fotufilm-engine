@@ -1,4 +1,4 @@
-name: Build APK (Pure CPU Ultimate V2)
+name: Build APK (Pure CPU Ultimate V3)
 on: workflow_dispatch
 jobs:
   build:
@@ -40,7 +40,7 @@ jobs:
             android-ndk-r27d
             swift-sdks
             build/halide-host
-          key: fotufilm-env-v20
+          key: fotufilm-env-v21
 
       - name: Setup Swap
         if: steps.cache-env.outputs.cache-hit != 'true'
@@ -108,8 +108,8 @@ jobs:
           mkdir -p $HOME/.swiftpm/swift-sdks
           cp -r ./swift-sdks/* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
 
-      # 🌟 核心修复：构建 Halide 后，手动补全缺失的运行时头文件
-      - name: Build Halide (Pure CPU) & Fix Missing Headers
+      # 🌟 核心修复：构建后全量搜索并复制所有 HalideRuntime*.h 头文件
+      - name: Build Halide (Pure CPU) & Fix All Runtime Headers
         if: steps.cache-env.outputs.cache-hit != 'true'
         run: |
           chmod +x tools/build-halide-linux.sh
@@ -127,28 +127,31 @@ jobs:
           mkdir -p build
           cp -r $REAL_HALIDE_ROOT build/halide-host
           
-          # 手动补全 HalideBuffer.h 和 HalideRuntime.h
-          echo "正在补全运行时头文件..."
-          HALIDE_SRC_INC="$GITHUB_WORKSPACE/third_party/Halide/src/runtime"
           DEST_INC="$GITHUB_WORKSPACE/build/halide-host/include"
+          HALIDE_SRC_RUNTIME="$GITHUB_WORKSPACE/third_party/Halide/src/runtime"
           
-          for header in HalideBuffer.h HalideRuntime.h; do
-            if [ -f "$DEST_INC/$header" ]; then
-              echo "✅ $header 已存在"
-            elif [ -f "$HALIDE_SRC_INC/$header" ]; then
-              cp "$HALIDE_SRC_INC/$header" "$DEST_INC/"
-              echo "✅ 已复制 $header"
-            else
-              FOUND=$(find $GITHUB_WORKSPACE -name "$header" -type f | head -n 1)
-              if [ -n "$FOUND" ]; then
-                cp "$FOUND" "$DEST_INC/"
-                echo "✅ 已从 $FOUND 复制 $header"
-              else
-                echo "❌ 找不到 $header"
-                exit 1
-              fi
+          echo "正在补全所有 HalideRuntime 头文件..."
+          # 遍历源码目录下所有的 HalideRuntime*.h 文件
+          find "$HALIDE_SRC_RUNTIME" -maxdepth 1 -name "HalideRuntime*.h" | while read -r header; do
+            filename=$(basename "$header")
+            if [ ! -f "$DEST_INC/$filename" ]; then
+              cp "$header" "$DEST_INC/"
+              echo "✅ 已复制 $filename"
             fi
           done
+          
+          # 兜底：全盘搜索并复制可能遗漏的 HalideRuntime*.h
+          find $GITHUB_WORKSPACE -name "HalideRuntime*.h" -type f | while read -r header; do
+            filename=$(basename "$header")
+            if [ ! -f "$DEST_INC/$filename" ]; then
+              cp "$header" "$DEST_INC/"
+              echo "✅ 兜底复制 $filename"
+            fi
+          done
+          
+          # 验证关键文件
+          ls -la "$DEST_INC/HalideRuntimeVulkan.h" || echo "⚠️ 未找到 HalideRuntimeVulkan.h"
+          ls -la "$DEST_INC/HalideRuntime.h" || echo "⚠️ 未找到 HalideRuntime.h"
           
           # 导出库路径
           HALIDE_LIB_PATH=$(find $GITHUB_WORKSPACE -name "libHalide.*" -type f | head -n 1)
