@@ -9,28 +9,22 @@ jobs:
         with:
           submodules: recursive
 
+      # 🌟 核心修复：系统提示需要 Dart 3.11.5，我们就用能提供它的最高稳定版 Flutter 3.47.9
       - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # 1. 指定包含天玑芯片修复的稳定版本
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.3'
+          flutter-version: '3.47.9'
 
-      # 🌟 核心修复：安全地移除所有测试依赖，而不是暴力修改 SDK 版本
-      - name: Remove test dependencies
+      # 🌟 核心修复：一键还原被破坏的配置文件，绝对不瞎改
+      - name: Restore pubspec.yaml
         run: |
-          echo "正在清理测试依赖..."
-          # 删除 pubspec.yaml 中所有以 flutter_test 开头的行，以及 dev_dependencies 下的测试相关行
-          sed -i '/flutter_test/d' pubspec.yaml || true
-          sed -i '/integration_test/d' pubspec.yaml || true
-          sed -i '/test:/d' pubspec.yaml || true
-          # 如果 flutter 目录下有独立的 pubspec.yaml，也一起清理
-          sed -i '/flutter_test/d' flutter/pubspec.yaml || true
-          sed -i '/integration_test/d' flutter/pubspec.yaml || true
-          sed -i '/test:/d' flutter/pubspec.yaml || true
+          echo "正在还原损坏的配置文件..."
+          git checkout flutter/pubspec.yaml || true
+          git checkout pubspec.yaml || true
 
       - name: Cache Toolchains & Halide
         id: cache-env
@@ -41,7 +35,7 @@ jobs:
             android-ndk-r27d
             swift-sdks
             build/halide-host
-          key: fotufilm-env-v11
+          key: fotufilm-env-v12
 
       - name: Install Dependencies & LLVM 21
         if: steps.cache-env.outputs.cache-hit != 'true'
