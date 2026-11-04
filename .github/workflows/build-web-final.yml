@@ -21,10 +21,16 @@ jobs:
         uses: actions/setup-java@v4
         with: { distribution: 'zulu', java-version: '21' }
 
-      - name: Install System Dependencies
+      - name: Install System Dependencies (含 Halide)
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake ninja-build pkg-config git libedit-dev libz3-dev libffi-dev libncurses5-dev zlib1g-dev
+          # 安装 Halide 及其依赖（LLVM, lld, wabt 等）
+          sudo apt-get install -y llvm lld wabt
+          # 从官方 GitHub Releases 下载 Halide 预编译包
+          wget https://github.com/halide/Halide/releases/download/v21.0.0/halide-linux-x86-64-gcc-21.0.0.tar.gz
+          tar -xzf halide-linux-x86-64-gcc-21.0.0.tar.gz
+          sudo cp -r halide /usr/local/
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -59,8 +65,8 @@ jobs:
           mkdir -p final_web
           cp -r flutter/build/web/* final_web/
           mkdir -p final_web/engine
-          # ⚠️ 下面这一行的 tools/dist 需要你根据实际输出路径确认
-          cp -r tools/dist/* final_web/engine/ 2>/dev/null || true
+          # ✅ 根据脚本截图，引擎产物输出在 web/public 目录
+          cp -r web/public/* final_web/engine/ 2>/dev/null || true
 
       - name: Capacitor Setup & WebKit 1.18.0
         run: |
