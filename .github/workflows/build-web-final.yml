@@ -1,91 +1,38 @@
-name: Build Fully Offline Web (Full Engine)
+name: Mirror Official Web App
 on: workflow_dispatch
 jobs:
-  build:
-    runs-on: ubuntu-22.04
+  mirror:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'master'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install System Dependencies
+      - name: Download Official Web App
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config git libedit-dev libz3-dev libffi-dev libncurses5-dev zlib1g-dev libzstd-dev liblz4-dev libbz2-dev liblzma-dev libjpeg-dev libpng-dev libtiff-dev libwebp-dev libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev libpython3-dev python3-dev swig automake autoconf libtool
-
-      - name: Install Emscripten
-        run: |
-          git clone https://github.com/emscripten-core/emsdk.git
-          cd emsdk
-          ./emsdk install latest
-          ./emsdk activate latest
-          source ./emsdk_env.sh
-
-      # 1. 编译 WebGPU 版 Halide
-      - name: Build Halide with WebGPU Support
-        run: |
-          source emsdk/emsdk_env.sh
-          chmod +x tools/build-halide.sh
-          ./tools/build-halide.sh --webgpu
-          # 设置 HALIDE_ROOT 指向编译产物
-          HALIDE_ROOT=$(find $PWD -name "Halide.h" -path "*include*" -exec dirname {} \; | head -n 1 | xargs dirname)
-          echo "HALIDE_ROOT=$HALIDE_ROOT" >> $GITHUB_ENV
-
-      # 2. 编译 Web 引擎 (WebGPU)
-      - name: Build WebGPU Engine WASM & Bridge
-        run: |
-          source emsdk/emsdk_env.sh
-          chmod +x tools/build-webgpu-wasm.sh
-          ./tools/build-webgpu-wasm.sh
-
-      # 3. 编译 Flutter UI
-      - name: Build Flutter Web UI
-        run: |
-          cd flutter
-          git checkout pubspec.yaml || true
-          flutter build web --wasm --release --no-web-resources-cdn
-
-      # 4. 全量合并：将引擎、UI、资源、胶片预设全部打包
-      - name: Merge All Assets & Engines
-        run: |
-          # 创建最终输出目录
+          # 🌟 使用伪装浏览器UA进行全站深度镜像
+          wget --mirror \
+               --convert-links \
+               --adjust-extension \
+               --page-requisites \
+               --no-parent \
+               --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+               -e robots=off \
+               https://fotufilm.com/demo/
+          
+          # 把下载下来的文件夹重命名为 web，方便后面打包
+          if [ -d "fotufilm.com" ]; then
+            mv fotufilm.com web
+          fi
+          
+          # 🌟 全盘兜底：确保所有隐藏的 .wasm 和 .json 资源都被抓下来了
+          # 有时候 wget 会漏掉动态加载的文件，我们把所有能找到的资源强行整合
           mkdir -p final_output
+          cp -r web/* final_output/ 2>/dev/null || true
           
-          # 复制 Flutter 编译产物
-          cp -r flutter/build/web/* final_output/
-          
-          # 复制底层引擎文件 (bridge.js, *.wasm)
-          # 官方脚本通常会将引擎输出到 web/dist 或 build 目录，这里进行全局搜索
-          find . -name "bridge.js" -exec cp {} final_output/engine/ \; 2>/dev/null || true
-          find . -name "*.wasm" -not -path "*/flutter/build/web/*" -exec cp {} final_output/ \; 2>/dev/null || true
-          
-          # 复制胶片预设、配置文件 (film packs, JSON)
-          find . -name "*.json" -path "*film*" -exec cp {} final_output/ \; 2>/dev/null || true
-          find . -name "*.json" -path "*generated*" -exec cp {} final_output/ \; 2>/dev/null || true
-          find web/public -type f -exec cp {} final_output/ \; 2>/dev/null || true
-          
-          # 确保引擎目录存在
-          mkdir -p final_output/engine
+          echo "====================================="
+          echo "打包完成，请检查文件列表，确认是否包含巨大的 .wasm 文件："
+          find final_output -name "*.wasm" -exec ls -lh {} \;
+          echo "====================================="
 
       - name: Upload Fully Offline Web Folder
         uses: actions/upload-artifact@v4
         with:
-          name: fotufilm-web-full-engine
+          name: fotufilm-web-full-mirror
           path: final_output/
