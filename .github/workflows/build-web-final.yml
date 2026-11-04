@@ -6,22 +6,55 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'master'
 
-      - name: Build Web with Full Assets
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Emscripten
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git
+          cd emsdk
+          ./emsdk install latest
+          ./emsdk activate latest
+          source ./emsdk_env.sh
+
+      - name: Build Engine WASM & Bridge
+        run: |
+          source emsdk/emsdk_env.sh
+          chmod +x tools/build-wasm.sh
+          ./tools/build-wasm.sh
+
+      - name: Setup Web Node Modules
+        run: |
+          cd web
+          npm ci
+
+      - name: Build Flutter Web UI
         run: |
           cd flutter
-          
           git checkout pubspec.yaml || true
-          flutter clean
-          
-          # 🌟 核心修复：删除了被废弃的 --pwa-strategy 参数
-          # 保留 --wasm (极致性能) 和 --no-web-resources-cdn (强制本地化所有字体和资源)
-          flutter build web --wasm --release --no-web-resources-cdn
+          chmod +x tool/build-web.sh
+          tool/build-web.sh --assets ../web/public
 
       - name: Upload Fully Offline Web Folder
         uses: actions/upload-artifact@v4
