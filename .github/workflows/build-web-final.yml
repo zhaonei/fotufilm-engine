@@ -1,0 +1,27 @@
+name: Build Fully Offline Web
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.0'
+
+      - name: Build Web with Full Assets
+        run: |
+          # 核心构建命令：
+          # --wasm：编译为 WebAssembly，榨干CPU/GPU性能
+          # --pwa-strategy offline-first：强制生成离线优先的 Service Worker，把所有资源缓存到本地
+          # --no-web-resources-cdn：禁止从外部 CDN 拉取字体等资源，全部打包进本地文件夹，彻底解决资源下不全的问题
+          flutter build web --wasm --release --pwa-strategy offline-first --no-web-resources-cdn
+
+      - name: Upload Fully Offline Web Folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: fotufilm-web-fully-offline
+          path: build/web/
