@@ -1,4 +1,4 @@
-name: Build 100% Offline Fotufilm APK (Bulletproof Edition)
+name: Build 100% Offline Fotufilm APK (Bulletproof Edition V2)
 on: workflow_dispatch
 
 jobs:
@@ -20,17 +20,12 @@ jobs:
           npm install puppeteer
           
           echo "正在下载真实测试样片..."
-          
-          # 【修复】给包含特殊字符(如括号)的 URL 加双引号，并加入错误重试
-          # RAW 样片
           wget -q --tries=3 --timeout=15 -O sample.cr2 "https://raw.pixls.us/getfile.php/1425/nice/Canon%20-%20EOS%205D%20Mark%20III%20-%2012bit%20%283%3A2%29.CR2" || \
           wget -q --tries=3 --timeout=15 -O sample.cr2 "https://github.com/letmaik/rawpy-test-data/raw/master/RAW_CANON_40D_SRAW_V103.CR2"
           
-          # 16-bit TIFF 样片
           wget -q --tries=3 --timeout=15 -O sample.tiff "https://github.com/python-pillow/Pillow/raw/main/Tests/images/hopper.tif" || \
           wget -q --tries=3 --timeout=15 -O sample.tiff "https://filesamples.com/samples/image/tiff/sample_640%C3%97426.tiff"
           
-          echo "下载状态确认："
           ls -lh sample.cr2 sample.tiff
 
       - name: Run Exhaustive Asset Extractor
@@ -82,10 +77,7 @@ jobs:
                   while (Date.now() - start < 15000) {
                       if (activeRequests <= 0) {
                           idleFrames++;
-                          if (idleFrames >= 3) { 
-                              console.log(`✅ [${description}] 资源已全部落地。`);
-                              return;
-                          }
+                          if (idleFrames >= 3) return;
                       } else {
                           idleFrames = 0;
                       }
@@ -94,46 +86,42 @@ jobs:
               };
 
               try {
-                  console.log('🌐 加载网页...');
                   await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
                   await page.evaluate(() => { document.querySelector('flt-semantics-placeholder')?.click(); });
                   await waitForNetworkIdle('UI 初始化');
 
-                  console.log('📸 上传真实 RAW 样片...');
+                  console.log('📸 上传 RAW 样片...');
                   try {
                       const input = await page.$('input[type="file"]');
                       if (input) await input.uploadFile('./sample.cr2');
-                  } catch(e) { console.log('RAW 上传组件未找到'); }
+                  } catch(e) {}
                   await waitForNetworkIdle('RAW 底层解码引擎加载');
 
-                  console.log('📸 上传真实 TIFF 样片...');
+                  console.log('📸 上传 TIFF 样片...');
                   try {
                       const inputs = await page.$$('input[type="file"]');
                       if (inputs.length > 0) await inputs[inputs.length - 1].uploadFile('./sample.tiff');
-                  } catch(e) { console.log('TIFF 上传组件未找到'); }
+                  } catch(e) {}
                   await waitForNetworkIdle('TIFF 解析引擎加载');
 
-                  console.log('💥 深度触发所有配置菜单与导出模块...');
+                  console.log('💥 触发导出模块...');
                   await page.evaluate(async () => {
                       const sleep = ms => new Promise(r => setTimeout(r, ms));
                       const allNodes = Array.from(document.querySelectorAll('flt-semantics'));
                       for (const node of allNodes) {
                           const label = (node.getAttribute('aria-label') || '').toLowerCase();
-                          if (label.includes('export') || label.includes('save') || label.includes('tiff') || label.includes('jpeg') || label.includes('png')) {
+                          if (label.includes('export') || label.includes('save') || label.includes('tiff') || label.includes('png')) {
                               try { node.click(); await sleep(300); } catch(e){}
                           }
                       }
                   });
                   await waitForNetworkIdle('导出模块加载');
-                  
                   await new Promise(r => setTimeout(r, 5000));
-
               } catch (err) {
-                  console.log('⚠️ 抓取过程中出现报错，已抓取文件不受影响:', err.message);
+                  console.log('⚠️ 抓取警告:', err.message);
               }
 
               await browser.close();
-              console.log('🎉 抓取流程结束！');
           })();
           EOF
           node extract.js
@@ -144,18 +132,21 @@ jobs:
             sed -i 's|src="/|src="./|g' web/index.html
             sed -i 's|href="/|href="./|g' web/index.html
           fi
-          echo "====== 最终抓取总大小 ======"
           du -sh web/
-          echo "====== 核心 WASM 引擎清单 ======"
           find web/ -name "*.wasm" -exec ls -lh {} \;
 
-      - name: Setup Java & Android SDK
+      - name: Setup Java
         uses: actions/setup-java@v4
         with: { distribution: 'zulu', java-version: '17' }
-      - uses: android-actions/setup-android@v3
 
-      - name: Create Android WebView Shell
+      # 🌟 核心修复：跳过 setup-android 插件，直接使用系统默认的 SDK
+      - name: Build Android WebView Shell
         run: |
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> $GITHUB_ENV
+          # 接受所有的 SDK 协议，防止构建卡住
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
           mkdir -p app/src/main/java/com/fotufilm/offline
           mkdir -p app/src/main/assets
           cp -r web/* app/src/main/assets/
@@ -215,7 +206,6 @@ jobs:
                   } catch (IOException e) {
                       e.printStackTrace();
                   }
-
                   webView.loadUrl("http://127.0.0.1:8080/index.html");
               }
 
@@ -287,5 +277,5 @@ jobs:
       - name: Upload Fully Offline APK
         uses: actions/upload-artifact@v4
         with:
-          name: Fotufilm-Offline-Bulletproof
+          name: Fotufilm-Offline-Bulletproof-V2
           path: app/build/outputs/apk/debug/app-debug.apk
