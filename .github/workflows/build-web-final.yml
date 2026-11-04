@@ -1,4 +1,4 @@
-name: Build Fotufilm Android (Halide v21 + LD_LIBRARY_PATH Fix)
+name: Build Fotufilm Android (Halide v21 + Cached)
 
 on:
   workflow_dispatch:
@@ -102,7 +102,17 @@ jobs:
           mkdir -p $HOME/.swiftpm/swift-sdks
           cp -r swift-sdks/* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
 
+      # 🚀 核心增加：缓存 Halide 编译产物
+      - name: Cache Halide Dist
+        uses: actions/cache@v4
+        id: cache-halide
+        with:
+          path: Halide-dist
+          # 缓存 Key 包含了版本号，如果你以后想强制重新编译 Halide，只需把 v1 改成 v2 即可
+          key: ${{ runner.os }}-halide-${{ env.HALIDE_VERSION }}-patched-v1
+
       - name: Build Halide (Smart Patch - v21)
+        if: steps.cache-halide.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/halide/Halide.git -b ${{ env.HALIDE_VERSION }} --depth 1
           cd Halide
@@ -136,11 +146,14 @@ jobs:
           rm -rf "$HALIDE_DIST"
           mkdir -p "$HALIDE_DIST/include" "$HALIDE_DIST/lib"
           
-          find . -name "Halide.h" -exec cp {} "$HALIDE_DIST/include/" \;
-          find . -name "HalideRuntime.h" -exec cp {} "$HALIDE_DIST/include/" \;
-          # 确保 libHalide.so 及其带版本号的软链接都被复制
+          # 🚀 核心修复：精确拷贝所有所需的头文件（解决 previous crash）
+          find . \( -name "Halide.h" -o -name "HalideBuffer.h" -o -name "HalideRuntime*.h" \) -exec cp {} "$HALIDE_DIST/include/" \;
+          
+          # 拷贝带版本号的动态库
           find . -name "libHalide.so*" -exec cp -P {} "$HALIDE_DIST/lib/" \;
           
+          echo "=== Halide-dist/include 内容 ==="
+          ls -la "$HALIDE_DIST/include"
           echo "=== Halide-dist/lib 内容 ==="
           ls -la "$HALIDE_DIST/lib"
           
@@ -230,7 +243,6 @@ jobs:
           EOF
           fi
 
-      # 🚀 核心修复：设置 LD_LIBRARY_PATH，让 generate-halide-aot 能找到 libHalide.so.21
       - name: Build Native Engine (Swift + Halide)
         env:
           SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
@@ -248,5 +260,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Fotufilm-Halide-v21-APK
+          name: Fotufilm-Halide-v21-Cached-APK
           path: build/flutter-host/Fotufilm.apk
