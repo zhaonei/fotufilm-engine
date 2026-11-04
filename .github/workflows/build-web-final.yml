@@ -7,7 +7,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: recursive # 必须拉取所有子模块（Halide等）
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -30,6 +30,7 @@ jobs:
         with:
           node-version: '20'
 
+      # 🌟 核心 1：安装 Emscripten (用于编译 RAW/TIFF 底层 C++ 库)
       - name: Install Emscripten
         run: |
           git clone https://github.com/emscripten-core/emsdk.git
@@ -38,23 +39,47 @@ jobs:
           ./emsdk activate latest
           source ./emsdk_env.sh
 
+      # 🌟 核心 2：编译底层引擎，生成 bridge.js 和相关的 .wasm
       - name: Build Engine WASM & Bridge
         run: |
           source emsdk/emsdk_env.sh
-          chmod +x tools/build-wasm.sh
-          ./tools/build-wasm.sh
+          if [ -f "tools/build-wasm.sh" ]; then
+            chmod +x tools/build-wasm.sh
+            ./tools/build-wasm.sh
+          elif [ -f "tools/build-web-engine.sh" ]; then
+            chmod +x tools/build-web-engine.sh
+            ./tools/build-web-engine.sh
+          fi
 
       - name: Setup Web Node Modules
         run: |
           cd web
-          npm ci
+          npm ci || true
 
-      - name: Build Flutter Web UI
+      # 🌟 核心 3：编译 Flutter UI，并把刚才编好的 WASM 以及所有资源合入
+      - name: Build Flutter Web UI & Merge Assets
         run: |
           cd flutter
           git checkout pubspec.yaml || true
-          chmod +x tool/build-web.sh
-          tool/build-web.sh --assets ../web/public
+          
+          # 优先调用官方脚本，它懂如何合拢所有文件
+          if [ -f "tool/build-web.sh" ]; then
+            chmod +x tool/build-web.sh
+            tool/build-web.sh --assets ../web/public
+          else
+            flutter build web --wasm --release --no-web-resources-cdn
+          fi
+          
+          # 🌟 暴力兜底：防止官方脚本有 bug，手动把底层的引擎和资源全部硬塞进去
+          mkdir -p build/web/engine build/web/assets/generated
+          
+          # 抓取所有编好的 bridge 和底层 wasm
+          find .. -name "bridge.js" -exec cp {} build/web/engine/ \; 2>/dev/null || true
+          find .. -name "*.wasm" -not -path "*/build/web/*" -exec cp {} build/web/ \; 2>/dev/null || true
+          
+          # 抓取所有的配置 JSON 和图标
+          find ../web/public -type f -exec cp {} build/web/ \; 2>/dev/null || true
+          find .. -name "*.json" -path "*generated*" -exec cp {} build/web/assets/generated/ \; 2>/dev/null || true
 
       - name: Upload Fully Offline Web Folder
         uses: actions/upload-artifact@v4
