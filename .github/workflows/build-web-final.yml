@@ -1,4 +1,4 @@
-name: Build 100% Offline Fotufilm APK (Absolute Final V2)
+name: Build 100% Offline Fotufilm APK (Ultimate V10)
 on: workflow_dispatch
 
 jobs:
@@ -296,9 +296,10 @@ jobs:
           }
           EOF
 
-          # 🌟 核心修复：给 Gradle 分配 4GB 内存，防止守护进程崩溃
+          # 🌟 核心修复 1：彻底禁用守护进程 + 提升元空间内存
           cat << 'EOF' > gradle.properties
-          org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8
+          org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8
+          org.gradle.daemon=false
           android.useAndroidX=true
           systemProp.http.proxyHost=mirrors.aliyun.com
           systemProp.https.proxyHost=mirrors.aliyun.com
@@ -308,13 +309,11 @@ jobs:
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-          # 双重保险：强行注入环境变量，分配 4GB 内存
-          GRADLE_OPTS: "-Xmx4096m -Dorg.gradle.daemon=false"
+          # 双重保险：环境变量级别强制禁用守护进程
+          GRADLE_OPTS: "-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dorg.gradle.daemon=false"
         run: |
           cd android-app
-          # 确保许可协议通过，防止卡死
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
-          # 使用物理下载的 gradle 8.6 进行编译
+          # 使用物理下载的 gradle 8.6 进行编译，彻底绕开系统版本
           gradle assembleDebug --no-daemon --refresh-dependencies --stacktrace
 
       - name: Upload Fully Offline APK
