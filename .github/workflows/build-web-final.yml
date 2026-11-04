@@ -1,22 +1,38 @@
-name: Mirror Official Web App (Headless Chrome)
+name: Build 100% Offline Fotufilm APK (Bulletproof Edition)
 on: workflow_dispatch
+
 jobs:
-  mirror:
+  build:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install Puppeteer & Dependencies
+      - name: Install Puppeteer & Prepare Real Samples
         run: |
           npm init -y
           npm install puppeteer
+          
+          # 【修正1】放弃伪造，从 GitHub 开源测试库下载真实的、微小的 RAW 和 TIFF
+          echo "下载真实测试样片..."
+          wget -q https://raw.pixls.us/getfile.php/1425/nice/Canon%20-%20EOS%205D%20Mark%20III%20-%2012bit%20(3:2).CR2 -O sample.cr2 || \
+          wget -q https://github.com/letmaik/rawpy-test-data/raw/master/RAW_CANON_40D_SRAW_V103.CR2 -O sample.cr2
+          
+          # 使用一张极小的真实 16-bit TIFF
+          wget -q https://github.com/python-pillow/Pillow/raw/main/Tests/images/hopper.tif -O sample.tiff || \
+          wget -q https://filesamples.com/samples/image/tiff/sample_640%C3%97426.tiff -O sample.tiff
 
-      - name: Run Headless Mirror Script
+          echo "文件下载完成："
+          ls -lh sample.*
+
+      - name: Run Exhaustive Asset Extractor
         run: |
-          cat << 'EOF' > mirror.js
+          cat << 'EOF' > extract.js
           const puppeteer = require('puppeteer');
           const fs = require('fs');
           const path = require('path');
@@ -24,59 +40,257 @@ jobs:
           (async () => {
               const baseUrl = 'https://fotufilm.com/demo/';
               const baseDir = './web';
-              
-              console.log('启动无头 Chrome 浏览器...');
-              const browser = await puppeteer.launch({
-                  args: ['--no-sandbox', '--disable-setuid-sandbox']
+              let activeRequests = 0;
+
+              console.log('🚀 启动全量资源抓取引擎...');
+              const browser = await puppeteer.launch({ 
+                  args: ['--no-sandbox', '--disable-setuid-sandbox'],
+                  headless: "new" 
               });
               const page = await browser.newPage();
+              await page.setViewport({ width: 1920, height: 1080 });
 
-              // 拦截所有网络请求和响应
+              // 监控网络状态
+              page.on('request', () => { activeRequests++; });
+              page.on('requestfinished', () => { activeRequests--; });
+              page.on('requestfailed', () => { activeRequests--; });
+
+              // 拦截并保存资源
               page.on('response', async (response) => {
                   const url = response.url();
-                  // 只抓取 demo 目录下的资源
                   if (url.startsWith(baseUrl)) {
-                      const relativePath = url.replace(baseUrl, '');
-                      // 如果路径为空，默认为 index.html
-                      const filePath = path.join(baseDir, relativePath || 'index.html');
-                      
-                      // 只抓取有用的文件类型（特别是 .wasm 和 .js）
-                      if (url.match(/\.(js|wasm|json|html|css|png|jpg|jpeg|svg|ttf|otf|woff|woff2)$/) || relativePath === '') {
-                          fs.mkdirSync(path.dirname(filePath), { recursive: true });
-                          try {
-                              const buffer = await response.buffer();
-                              fs.writeFileSync(filePath, buffer);
-                              console.log(`✅ 成功抓取: ${relativePath || 'index.html'} (${(buffer.length/1024/1024).toFixed(2)} MB)`);
-                          } catch (e) {
-                              console.log(`❌ 抓取失败: ${relativePath}`);
+                      let relPath = url.replace(baseUrl, '').split('?')[0];
+                      if (!relPath) relPath = 'index.html';
+                      if (relPath.startsWith('assets/assets/')) relPath = relPath.replace('assets/assets/', 'assets/');
+                      const filePath = path.join(baseDir, relPath);
+                      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+                      try {
+                          const buffer = await response.buffer();
+                          fs.writeFileSync(filePath, buffer);
+                          if (buffer.length > 100 * 1024) { 
+                              console.log(`📦 截获: ${relPath} (${(buffer.length/1024/1024).toFixed(2)} MB)`);
                           }
-                      }
+                      } catch (e) {}
                   }
               });
 
-              console.log('正在访问网页并等待其加载完毕（包括后台加载大文件）...');
-              // 等待网络空闲，确保所有大文件都下载完毕
-              await page.goto(baseUrl, { waitUntil: 'networkidle0', timeout: 90000 });
-              
-              // 额外等待几秒，确保可能有延迟加载的引擎文件被捕获
-              await new Promise(r => setTimeout(r, 5000));
+              // 【修正2】智能网络空闲判定：只抓网络，不等 GPU 渲染
+              const waitForNetworkIdle = async (description) => {
+                  console.log(`⏳ 等待 [${description}] 相关资源下载完毕...`);
+                  const start = Date.now();
+                  let idleFrames = 0;
+                  while (Date.now() - start < 15000) {
+                      if (activeRequests <= 0) {
+                          idleFrames++;
+                          // 只要连续 1.5 秒网络没动静，说明资源已经下载完了，立刻去点下一个！不墨迹！
+                          if (idleFrames >= 3) { 
+                              console.log(`✅ [${description}] 资源已全部落地。`);
+                              return;
+                          }
+                      } else {
+                          idleFrames = 0;
+                      }
+                      await new Promise(r => setTimeout(r, 500));
+                  }
+              };
+
+              try {
+                  console.log('🌐 加载网页...');
+                  await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                  await page.evaluate(() => { document.querySelector('flt-semantics-placeholder')?.click(); });
+                  await waitForNetworkIdle('UI 初始化');
+
+                  console.log('📸 上传真实 RAW 样片...');
+                  try {
+                      const input = await page.$('input[type="file"]');
+                      if (input) await input.uploadFile('./sample.cr2');
+                  } catch(e) { console.log('RAW 上传组件未找到'); }
+                  await waitForNetworkIdle('RAW 底层解码引擎加载');
+
+                  console.log('📸 上传真实 TIFF 样片...');
+                  try {
+                      const inputs = await page.$$('input[type="file"]');
+                      if (inputs.length > 0) await inputs[inputs.length - 1].uploadFile('./sample.tiff');
+                  } catch(e) { console.log('TIFF 上传组件未找到'); }
+                  await waitForNetworkIdle('TIFF 解析引擎加载');
+
+                  console.log('💥 深度触发所有配置菜单与导出模块...');
+                  await page.evaluate(async () => {
+                      const sleep = ms => new Promise(r => setTimeout(r, ms));
+                      const allNodes = Array.from(document.querySelectorAll('flt-semantics'));
+                      for (const node of allNodes) {
+                          const label = (node.getAttribute('aria-label') || '').toLowerCase();
+                          if (label.includes('export') || label.includes('save') || label.includes('tiff') || label.includes('jpeg') || label.includes('png')) {
+                              try { node.click(); await sleep(300); } catch(e){}
+                          }
+                      }
+                  });
+                  await waitForNetworkIdle('导出模块加载');
+                  
+                  // 最终静默留 5 秒，彻底收尾
+                  await new Promise(r => setTimeout(r, 5000));
+
+              } catch (err) {
+                  console.log('⚠️ 抓取过程中出现报错，已抓取文件不受影响:', err.message);
+              }
 
               await browser.close();
-              console.log('🎉 全量镜像抓取完毕！');
+              console.log('🎉 抓取流程结束！');
           })();
           EOF
-          
-          node mirror.js
+          node extract.js
 
-      - name: Verify Mirror Size
+      - name: Fix Absolute Paths in HTML
         run: |
-          echo "====== 抓取结果统计 ======"
-          du -sh web/ || true
-          echo "====== 检查核心 WASM 引擎 ======"
+          if [ -f web/index.html ]; then
+            sed -i 's|src="/|src="./|g' web/index.html
+            sed -i 's|href="/|href="./|g' web/index.html
+          fi
+          echo "====== 最终抓取总大小 ======"
+          du -sh web/
+          echo "====== 核心 WASM 引擎清单 ======"
           find web/ -name "*.wasm" -exec ls -lh {} \;
 
-      - name: Upload Fully Offline Web Folder
+      # 搭建 Android 原生宿主
+      - name: Setup Java & Android SDK
+        uses: actions/setup-java@v4
+        with: { distribution: 'zulu', java-version: '17' }
+      - uses: android-actions/setup-android@v3
+
+      - name: Create Android WebView Shell
+        run: |
+          mkdir -p app/src/main/java/com/fotufilm/offline
+          mkdir -p app/src/main/assets
+          cp -r web/* app/src/main/assets/
+
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.fotufilm.offline">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <application android:label="Fotufilm" android:hardwareAccelerated="true" android:largeHeap="true" android:usesCleartextTraffic="true">
+                  <activity android:name=".MainActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden" android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/fotufilm/offline/MainActivity.java
+          package com.fotufilm.offline;
+
+          import android.annotation.SuppressLint;
+          import android.os.Bundle;
+          import android.webkit.WebView;
+          import android.webkit.WebSettings;
+          import android.webkit.WebChromeClient;
+          import androidx.appcompat.app.AppCompatActivity;
+          import java.io.IOException;
+          import java.io.InputStream;
+          import fi.iki.elonen.NanoHTTPD;
+
+          public class MainActivity extends AppCompatActivity {
+              private WebView webView;
+              private LocalServer server;
+
+              @SuppressLint("SetJavaScriptEnabled")
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  webView = new WebView(this);
+                  setContentView(webView);
+
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setAllowFileAccess(true);
+                  settings.setAllowContentAccess(true);
+                  webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null);
+                  webView.setWebChromeClient(new WebChromeClient());
+                  settings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+
+                  try {
+                      server = new LocalServer(8080);
+                      server.start();
+                  } catch (IOException e) {
+                      e.printStackTrace();
+                  }
+
+                  webView.loadUrl("http://127.0.0.1:8080/index.html");
+              }
+
+              @Override
+              protected void onDestroy() {
+                  if (server != null) server.stop();
+                  if (webView != null) webView.destroy();
+                  super.onDestroy();
+              }
+
+              public class LocalServer extends NanoHTTPD {
+                  public LocalServer(int port) { super(port); }
+
+                  @Override
+                  public Response serve(IHTTPSession session) {
+                      String uri = session.getUri();
+                      if (uri.equals("/")) uri = "/index.html";
+                      try {
+                          InputStream is = getAssets().open("web" + uri);
+                          String mime = getMimeTypeForFile(uri);
+                          // 确保 WebAssembly 被正确识别
+                          if (uri.endsWith(".wasm")) mime = "application/wasm";
+                          else if (uri.endsWith(".mjs") || uri.endsWith(".js")) mime = "application/javascript";
+                          Response res = newChunkedResponse(Response.Status.OK, mime, is);
+                          // 满血多线程与 WebGPU 钥匙
+                          res.addHeader("Cross-Origin-Opener-Policy", "same-origin");
+                          res.addHeader("Cross-Origin-Embedder-Policy", "require-corp");
+                          res.addHeader("Access-Control-Allow-Origin", "*");
+                          return res;
+                      } catch (IOException e) {
+                          return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not Found");
+                      }
+                  }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/build.gradle
+          plugins { id 'com.android.application' }
+          android {
+              namespace 'com.fotufilm.offline'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.fotufilm.offline"
+                  minSdk 28
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_1_8
+                  targetCompatibility JavaVersion.VERSION_1_8
+              }
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'org.nanohttpd:nanohttpd:2.3.1'
+          }
+          EOF
+
+          echo 'rootProject.name = "FotufilmOffline"' > settings.gradle
+          echo "plugins { id 'com.android.application' version '8.2.0' apply false }" > build.gradle
+
+      - name: Build Android APK
+        run: |
+          mkdir -p ~/.gradle
+          echo "systemProp.http.proxyHost=mirrors.aliyun.com" > ~/.gradle/gradle.properties
+          gradle wrapper --gradle-version 8.2
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload Fully Offline APK
         uses: actions/upload-artifact@v4
         with:
-          name: fotufilm-web-full-mirror
-          path: web/
+          name: Fotufilm-Offline-Bulletproof
+          path: app/build/outputs/apk/debug/app-debug.apk
