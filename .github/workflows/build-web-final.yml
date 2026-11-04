@@ -4,7 +4,6 @@ on: workflow_dispatch
 
 env:
   NDK_VERSION: 'r27d'
-  NDK_URL: 'https://dl.google.com/dl/android/repository/android-ndk-r27d-linux.zip'
 
 jobs:
   build:
@@ -51,36 +50,62 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
-      # 下载工具链（带重试与镜像容错）
-      - name: Download Toolchains (Swift + NDK)
+      # 🚀 1. 缓存 Swift 宿主机工具链
+      - name: Cache Swift Host
+        uses: actions/cache@v4
+        id: cache-swift-host
+        with:
+          path: swift-host
+          key: ${{ runner.os }}-swift-6.3.3-host
+
+      - name: Download Swift Host
+        if: steps.cache-swift-host.outputs.cache-hit != 'true'
         run: |
-          # --- 下载 Swift 宿主机工具链 ---
-          echo "Downloading Swift Host Toolchain..."
-          for i in 1 2 3; do
-            wget -q --timeout=300 --tries=3 https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz && break || sleep 10
-          done
-          tar -xzf swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+          echo "Downloading Swift Host..."
+          # 使用 curl 显示进度条，-C - 支持断点续传，-L 跟随重定向
+          curl -L -C - -o swift.tar.gz https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+          tar -xzf swift.tar.gz
           mv swift-6.3.3-RELEASE-ubuntu22.04 swift-host
-          rm -f swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
+          rm swift.tar.gz
 
-          # --- 下载 Android NDK (带重试) ---
-          echo "Downloading Android NDK ${{ env.NDK_VERSION }}..."
-          for i in 1 2 3; do
-            wget -q --timeout=300 --tries=3 ${{ env.NDK_URL }} -O ndk.zip && break || sleep 10
-          done
+      # 🚀 2. 缓存 Android NDK
+      - name: Cache Android NDK
+        uses: actions/cache@v4
+        id: cache-ndk
+        with:
+          path: android-ndk-r27d
+          key: ${{ runner.os }}-ndk-r27d
+
+      - name: Download Android NDK
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: |
+          echo "Downloading NDK..."
+          curl -L -C - -o ndk.zip https://dl.google.com/dl/android/repository/android-ndk-r27d-linux.zip
           unzip -q ndk.zip
-          rm -f ndk.zip
+          rm ndk.zip
 
-          # --- 下载 Swift Android SDK ---
+      # 🚀 3. 缓存 Swift Android SDK 并配置
+      - name: Cache Swift Android SDK
+        uses: actions/cache@v4
+        id: cache-swift-sdk
+        with:
+          path: swift-sdks
+          key: ${{ runner.os }}-swift-6.3.3-android
+
+      - name: Download Swift Android SDK
+        if: steps.cache-swift-sdk.outputs.cache-hit != 'true'
+        run: |
           echo "Downloading Swift Android SDK..."
-          for i in 1 2 3; do
-            wget -q --timeout=300 --tries=3 https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz && break || sleep 10
-          done
+          curl -L -C - -o swift-android.tar.gz https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
           mkdir -p swift-sdks
-          mv swift-6.3.3-RELEASE_android.artifactbundle.tar.gz swift-sdks/
-          cd swift-sdks && tar -xzf swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
+          mv swift-android.tar.gz swift-sdks/
+          cd swift-sdks && tar -xzf swift-android.tar.gz
+          rm swift-android.tar.gz
+
+      - name: Setup Swift SDK Path
+        run: |
           mkdir -p $HOME/.swiftpm/swift-sdks
-          cp -r ./* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
+          cp -r swift-sdks/* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
 
       - name: Build Halide (Vulkan AOT - Static Runtime)
         run: |
@@ -102,7 +127,6 @@ jobs:
           
           ninja
           
-          echo "=== Manually creating a Halide distribution directory ==="
           HALIDE_DIST="$GITHUB_WORKSPACE/Halide-dist"
           rm -rf "$HALIDE_DIST"
           mkdir -p "$HALIDE_DIST/include" "$HALIDE_DIST/lib"
@@ -117,7 +141,6 @@ jobs:
         run: |
           sed -i 's/sdk: .\+/sdk: ">=3.0.0 <4.0.0"/g' flutter/pubspec.yaml || true
 
-      # 注入 C 层防护机制
       - name: Install Swift Drain & Vulkan Guard Hooks
         run: |
           CPP_DIR="flutter/android/app/src/main/cpp"
@@ -210,7 +233,6 @@ jobs:
           chmod +x flutter/build-android.sh
           ./flutter/build-android.sh
 
-      # 规避 MediaTek Vulkan 冲突：强制回退 OpenGL ES
       - name: Force Impeller to OpenGL ES
         run: |
           MANIFEST="flutter/android/app/src/main/AndroidManifest.xml"
