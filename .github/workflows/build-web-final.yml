@@ -1,4 +1,4 @@
-name: Deploy Fotufilm Web (Official Build)
+name: Deploy Fotufilm Web (Final Fixed Assets Path)
 
 on:
   workflow_dispatch:
@@ -20,13 +20,11 @@ jobs:
         uses: actions/checkout@v4
         with: { submodules: recursive }
 
-      # 1. 官方构建依赖：Node.js 22
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      # 2. 官方构建依赖：Flutter 3.41.9
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -34,13 +32,12 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 3. 官方构建依赖：安装 web 目录下的 Vite 依赖
       - name: Install Web Dependencies
         run: |
           cd web
           npm ci
 
-      # 4. 直接调用官方的构建脚本！传入子目录前缀
+      # 1. 调用官方脚本编译（内部已处理 base-href 和 Vite 打包）
       - name: Build Web using Official Script
         run: |
           export FOTUFILM_BASE=/fotufilm-engine/
@@ -48,24 +45,37 @@ jobs:
           chmod +x tool/build-web.sh
           ./tool/build-web.sh
 
-      # 5. 整理部署目录
+      # 2. 核心修复：将 assets/assets/ 下的内容移动到 assets/，解决 404
+      - name: Fix Assets Nested Path
+        run: |
+          ASSETS_DIR="flutter/build/web/assets"
+          if [ -d "$ASSETS_DIR/assets" ]; then
+            echo "🔧 检测到 assets/assets 嵌套，正在移动文件..."
+            # 将内层 assets 的内容移动到外层 assets 根目录
+            cp -rf "$ASSETS_DIR/assets/"* "$ASSETS_DIR/"
+            # 删除空的嵌套文件夹
+            rm -rf "$ASSETS_DIR/assets"
+            echo "✅ 嵌套路径修复完成"
+          else
+            echo "✅ 未检测到嵌套路径"
+          fi
+          
+          # 验证文件是否已在正确位置
+          echo "=== 检查 controls.json 位置 ==="
+          find "$ASSETS_DIR" -name "controls.json"
+
       - name: Prepare deployment directory
         run: |
           mkdir -p deploy
-          # 官方脚本编译出来的产物都在 flutter/build/web 里
           cp -r flutter/build/web/* deploy/
-          
-          # 把跨源隔离脚本复制进根目录
           if [ -f "coi-serviceworker.js" ]; then cp coi-serviceworker.js deploy/; fi
 
-      # 6. 注入隔离脚本（官方 HTML 默认没有，我们需要加上）
+      # 3. 注入跨源隔离脚本（用于 WASM 多线程）
       - name: Inject Cross-Origin Isolation Script
         run: |
           INDEX="deploy/index.html"
-          # 官方脚本已经把路径处理得非常完美了，我们只需要在 head 中插入隔离脚本
           sed -i 's|<head>|<head>\n    <script src="coi-serviceworker.js"></script>|' "$INDEX"
-          
-          echo "=== 检查 index.html ==="
+          echo "=== 注入后检查 ==="
           head -n 15 "$INDEX"
 
       - name: Upload Pages artifact
