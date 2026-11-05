@@ -185,6 +185,15 @@ public struct FotufilmEngine {
         /// Softens print highlight contrast and brings delicate highlights onto the paper curve
         /// without fogging maximum black (D-max). Applies only to optical prints.
         public var printerPreflash: Float = 0
+        /// Shadow Detail, 0...1: how much the print holds back the printing light in its shadows,
+        /// bringing crushed shadows back with their colour while black stays black
+        /// (`PrintDetail`). Read for negatives, slides and black-and-white on every output except
+        /// the Cineon Log scan and the viewed negative; 0 is off.
+        public var shadowDetail: Float = 0
+        /// Highlight Detail, 0...1: how much the print burns in its highlights, rolling
+        /// them into the paper's white with their colour instead of clipping (`PrintDetail`).
+        /// Read where Shadow Detail is; 0 is off.
+        public var highlightDetail: Float = 0
         /// Where the developed image is finished. `nil` — the default — takes the medium the
         /// loaded stock was designed for, so a motion-picture camera negative reaches its release
         /// print stock and a still negative reaches the measured sheet, without the caller naming
@@ -248,9 +257,10 @@ public struct FotufilmEngine {
         public var unexposedEdge: UnexposedEdge.Develop? = nil
         /// The contrast of the graded paper curve Digital Reference's graded styles print a
         /// negative through, as a variable-contrast paper grade 0…5. Grade 2 is the calibrated
-        /// curve; softer grades roll highlights off earlier, harder grades later, each holding
-        /// mid-grey at 18% and the film base at display black. Reference Exposure, positives and
-        /// other media ignore it.
+        /// curve; softer grades lower the contrast on both sides of mid-grey, rolling highlights
+        /// off earlier and opening the shadows, and harder grades raise it, each holding mid-grey
+        /// at 18% and the film base at display black. Reference Exposure, positives and other
+        /// media ignore it.
         public var screenGrade: Float = 2
         /// The peaks of the three bands Digital Reference reads a colour negative's dyes through,
         /// in nanometres. The paper's own measured bands by default; each placed elsewhere slides

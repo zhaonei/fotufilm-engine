@@ -183,7 +183,7 @@ public enum EditorControlCatalogue {
 
     public static let retiredFxplugIDs: [Int] = [33]
     public static let fxplugTextureStageIDs: ClosedRange<Int> = 40...71
-    public static let bridgeSlotCount = 72
+    public static let bridgeSlotCount = 74
 
     static let hostOnly: [EditorSurface: String] = [
         .app: "a plugin host's own setting, with no meaning on a photograph",
@@ -1256,6 +1256,16 @@ public enum EditorControlCatalogue {
                                          generic: false)),
 
         EditorControl(
+            .rawCorrections, title: "RAW Corrections",
+            detail: "Apply the camera's lens and sensor-edge corrections to a RAW photograph.",
+            section: .lensCorrection, kind: .toggle(restingOn: true),
+            surfaces: [.app, .desktop],
+            omitted: hostsOwnIt.filter { $0.key != .web }.merging([
+                .android: "Android decodes RAW with LibRaw, which applies no lens correction.",
+                .web: "The browser decodes RAW with LibRaw, which applies no lens correction and shows the whole sensor area.",
+            ]) { $1 },
+            documentation: "On, a camera RAW decodes as the camera's maker intends: Apple's decoder corrects the lens's distortion and vignetting where it knows the lens, and the picture is the camera's default crop. Off shows the capture as the sensor recorded it — the lens's own distortion and dark corners, and on Linux the whole sensor area with its edges — so the true flaws of the capture print. Choosing Film Border or Film Border Positive turns it off. On the Mac and iPhone Core Image always delivers the camera's crop. Lens Correction's own correction still applies when it is on. Included in saved edits and exports."),
+        EditorControl(
             .lensCorrection, title: "Lens Correction",
             detail: "Correct lens distortion, dark corners, and color fringing.",
             section: .lensCorrection, kind: .toggle(restingOn: false),
@@ -1523,7 +1533,7 @@ public enum EditorControlCatalogue {
             surfaces: [.app, .desktop, .android],
             omitted: hostsOwnIt,
             documentation: "Grades the sRGB-encoded signal, where a grading suite's corrector works, instead of display-linear light."),
-    ] + gradeBands + [
+    ] + gradeBands + outputLevels + [
         EditorControl(
             .hdrRange, title: "Range",
             detail: "Choose how much of an HDR photo's range above white reaches the film. The rest is compressed smoothly into it.",
@@ -1571,7 +1581,7 @@ public enum EditorControlCatalogue {
                       .finalcut: "The host owns output framing.",
                       .cli: "Frame finishing is offered in the iPhone, iPad and Mac photo editors."],
             web: .runtime,
-            documentation: "Choose Film Border for the selected film gauge, Slide Mount for a transparency in a 2 × 2 inch card mount, a Paper Border cut at 4 × 6, 5 × 7, 8 × 10 or 5 × 5 inches, Carrier Border for a negative's rebate printed through a filed-out carrier, Emulsion Border for the film's unexposed edge outside the camera gate — the stock's own tone, halation glow and grain — printed with the photograph inside a paper margin, a plain White or Black Mount, or a Square, Portrait or Story posting canvas with the photograph inside a white margin. Film perforations follow physical geometry; verified sheet-notch codes follow the stock. Included in saved edits and exports."),
+            documentation: "Choose Film Border for the selected film gauge, Film Border Positive for a negative's film border scanned and inverted around the positive photograph — a dark rebate, light edge printing and black perforations — Slide Mount for a transparency in a 2 × 2 inch card mount, a Paper Border cut at 4 × 6, 5 × 7, 8 × 10 or 5 × 5 inches, Carrier Border for a negative's rebate printed through a filed-out carrier, Emulsion Border for the film's unexposed edge outside the camera gate — the stock's own tone, halation glow and grain — printed with the photograph inside a paper margin, a plain White or Black Mount, or a Square, Portrait or Story posting canvas with the photograph inside a white margin. Film perforations follow physical geometry; documented edge printing and verified sheet-notch codes follow the stock. Included in saved edits and exports."),
         EditorControl(
             .printFrameMargin, title: "Border Width",
             detail: "Widen or narrow the margin around the photograph.",
@@ -1583,7 +1593,61 @@ public enum EditorControlCatalogue {
                       .finalcut: "The host owns output framing.",
                       .cli: "Frame finishing is offered in the iPhone, iPad and Mac photo editors."],
             web: .runtime,
-            documentation: "Scales the margin of a Paper Border, Carrier Border, White or Black Mount, or posting canvas, from none at 0% to three times the preset at 300%. A paper sheet keeps its size, so a wider easel margin prints a smaller picture; a mount or canvas grows around the photograph. Film Border and Slide Mount follow physical dimensions and have no Border Width. Included in saved edits and exports."),
+            documentation: "Scales the margin of a Paper Border, Carrier Border, White or Black Mount, or posting canvas, from none at 0% to three times the preset at 300%. A paper sheet keeps its size, so a wider easel margin prints a smaller picture; a mount or canvas grows around the photograph. Film Border, Film Border Positive and Slide Mount follow physical dimensions and have no Border Width. Included in saved edits and exports."),
+        EditorControl(
+            .printFrameEdgePrinting, title: "Edge Printing",
+            detail: "Show the film's lettering, frame numbers and barcode along a Film Border.",
+            section: .printPaper, kind: .toggle(restingOn: true),
+            surfaces: [.app, .desktop, .web],
+            omitted: [.android: "Frame finishing is offered in the iPhone, iPad and Mac photo editors.",
+                      .resolve: "The host owns output framing.",
+                      .finalcut: "The host owns output framing.",
+                      .cli: "Frame finishing is offered in the iPhone, iPad and Mac photo editors."],
+            web: .runtime,
+            documentation: "On, a Film Border or Film Border Positive carries the stock's documented edge printing for the gauge — its name and codes, the frame numbers and, on 135 negatives with a DX number, the DX barcode. Off leaves the rebate blank, as on film sold without edge printing; the developed rebate keeps its fog, grain and glow either way. Offered only for stocks with documented edge printing. Included in saved edits and exports."),
+        EditorControl(
+            .printFrameNumber, title: "Frame Number",
+            detail: "Choose the frame number printed along a Film Border.",
+            section: .printPaper,
+            kind: .menu(.fixed(FilmEdgePrinting.frameNumberRange.map {
+                EditorMenuChoice(Double($0), String($0), id: String($0))
+            })),
+            surfaces: [.app, .desktop, .web],
+            omitted: [.android: "Frame finishing is offered in the iPhone, iPad and Mac photo editors.",
+                      .resolve: "The host owns output framing.",
+                      .finalcut: "The host owns output framing.",
+                      .cli: "Frame finishing is offered in the iPhone, iPad and Mac photo editors."],
+            web: .runtime,
+            documentation: "Sets which frame of the roll a Film Border or Film Border Positive is cut from, 0 to 38: the printed frame number and half-frame number (12 and 12A) and the frame encoded in a 135 negative's DX barcode follow it. The stock's name and codes stay. Offered for stocks whose edge printing numbers its frames; the default is frame 1. Included in saved edits and exports."),
+        EditorControl(
+            .printFrameCount, title: "Frames",
+            detail: "Expose the photograph across several frames' length of a Film Border, as a panorama.",
+            section: .printPaper,
+            kind: .menu(.fixed(FilmBorderGeometry.frameCountRange.map {
+                EditorMenuChoice(Double($0), $0 == 1 ? "1 frame" : "\($0) frames", id: String($0))
+            })),
+            surfaces: [.app, .desktop, .web],
+            omitted: [.android: "Frame finishing is offered in the iPhone, iPad and Mac photo editors.",
+                      .resolve: "The host owns output framing.",
+                      .finalcut: "The host owns output framing.",
+                      .cli: "Frame finishing is offered in the iPhone, iPad and Mac photo editors."],
+            web: .runtime,
+            documentation: "Exposes one photograph across up to four frames' length of a 135 or 120 Film Border or Film Border Positive, as a panoramic camera or 135 in a medium-format camera does: one unbroken picture, its aperture running on by the gauge's frame advance for each frame. The photograph is cropped to that long aperture and placed by Framing. The roll's edge printing runs along with it, each frame's length carrying its own numbers and DX code, counting on from Frame Number. Motion-picture gauges, sheet film and instant film keep one frame. Included in saved edits and exports."),
+        EditorControl(
+            .printFrameCamera, title: "Camera",
+            detail: "Choose the camera a 135 Film Border's picture was exposed in.",
+            section: .printPaper,
+            kind: .menu(.fixed(FilmBorderCamera.allCases.enumerated().map {
+                EditorMenuChoice(Double($0.offset), $0.element.name,
+                                 detail: $0.element.detail, id: $0.element.id)
+            })),
+            surfaces: [.app, .desktop, .web],
+            omitted: [.android: "Frame finishing is offered in the iPhone, iPad and Mac photo editors.",
+                      .resolve: "The host owns output framing.",
+                      .finalcut: "The host owns output framing.",
+                      .cli: "Frame finishing is offered in the iPhone, iPad and Mac photo editors."],
+            web: .runtime,
+            documentation: "Sets the camera a 135 Film Border or Film Border Positive was exposed in. 35mm or Panoramic Camera, the default, keeps the picture between the perforation rows, as a 35mm camera's gate or a panoramic camera's wider one does. Medium-Format Back runs it across the whole width of the film, as 135 loaded in a medium-format camera is exposed: the perforations are punched through the picture and the edge printing lies over it, the denser of the two showing. With Frames, the picture is as long as that many frames of the roll. Included in saved edits and exports."),
         EditorControl(
             .paper, title: "Output Medium",
             detail: "Choose how the film is printed, scanned, or viewed.",
@@ -1596,16 +1660,19 @@ public enum EditorControlCatalogue {
                 hint: "Choose where the finished image lives. Match Film uses RA-4 paper for a still "
                     + "negative, the stock's native release print for a motion negative, and the "
                     + "direct positive for reversal film. Digital Reference is the HDR path; paper, "
-                    + "projection, Lab Scan, Telecine and Negative are SDR. Slide film also supports Ilfochrome/Cibachrome positive paper. Negative is available "
-                    + "only for negative film.",
+                    + "projection, Lab Scan, Telecine and Negative are SDR. Cineon Log is a flat "
+                    + "scan of the negative for grading, delivered as Cineon code values rather than "
+                    + "a picture. Slide film also supports Ilfochrome/Cibachrome positive paper. Negative "
+                    + "and Cineon Log are available only for negative film.",
                 kind: .choice(.dynamic(.papers), value: -1), order: 10),
             commandLine: CommandLineFlag("--paper", placeholder: "<name>",
                                          help: "Output medium: ektacolor-edge (default), endura-premier, "
                                              + "crystal-archive, vision-2383, vision-2393, eterna-cp, "
-                                             + "eterna-cp-3521xd, exr-5386, agfa-cp30, lab-scan, telecine, screen, negative or ilfochrome-cps-1k/ilfochrome-clm-1k (cibachrome alias). Photo and "
+                                             + "eterna-cp-3521xd, exr-5386, agfa-cp30, lab-scan, telecine, cineon-log, screen, negative or ilfochrome-cps-1k/ilfochrome-clm-1k (cibachrome alias). Photo and "
                                              + "projection variants are digitised from the manufacturers' "
                                              + "published datasheets; Ilfochrome uses published tone specifications with approximate color. Reversal stocks support "
-                                             + "screen and Ilfochrome; instant sheets use screen.",
+                                             + "screen and Ilfochrome; instant sheets use screen. cineon-log "
+                                             + "writes a 10-bit Cineon DPX of the negative's printing density.",
                                          generic: false),
             documentation: "Selects the print paper, projection print, scan, display reference or the negative itself."),
         EditorControl(
@@ -1621,7 +1688,8 @@ public enum EditorControlCatalogue {
                 hint: "Choose the light used to judge a physical print. Medium Reference means D50 "
                     + "for photo paper or calibrated 5400 K xenon for a projected release print. "
                     + "Only the viewing light changes; the developed print is not re-timed. "
-                    + "Digital Reference, Lab Scan, Telecine and Negative ignore this control.",
+                    + "Digital Reference, Lab Scan, Telecine, Cineon Log and Negative ignore this "
+                    + "control.",
                 kind: .choice(.fixed(printLights), value: 0), order: 20),
             web: .profile,
             commandLine: CommandLineFlag("--print-light", placeholder: "<k>",
@@ -1790,8 +1858,9 @@ public enum EditorControlCatalogue {
                 slot: 54, slotSymbol: "SCREEN_GRADE", ofxName: "screenGrade",
                 fxplugID: 96, group: .output, label: "Paper Grade",
                 hint: "Variable-contrast paper grade 0–5 for Graded Print and Auto Levels on Digital "
-                    + "Reference: grade 2 is the calibrated curve, softer grades roll highlights off "
-                    + "earlier, harder grades later. Mid-grey and film-base black hold. Negatives only.",
+                    + "Reference: grade 2 is the calibrated curve, softer grades lower contrast in the "
+                    + "highlights and shadows, harder grades raise it. Mid-grey and film-base black hold. "
+                    + "Negatives only.",
                 kind: .double(min: 0, max: 5, value: 2), clamp: 0...5, order: 27),
             web: .profile,
             commandLine: CommandLineFlag("--screen-grade", placeholder: "<g>",
@@ -1967,6 +2036,40 @@ public enum EditorControlCatalogue {
                 + "turned toward cyan, and reds and oranges turned slightly toward yellow. 0 "
                 + "delivers the neutral characterized scan."),
         EditorControl(
+            .highlightDetail, title: "Highlight Detail",
+            detail: "Print the highlights darker, keeping their detail and colour.",
+            section: .printPaper,
+            kind: .slider(EditorControlScale(0...1, neutral: 0, unit: .percent)),
+            availability: .printStage,
+            binding: .highlightDetail,
+            surfaces: [.app, .desktop, .android, .resolve, .finalcut, .web, .cli],
+            host: HostParameter(
+                slot: 72, slotSymbol: "HIGHLIGHT_DETAIL", ofxName: "highlightDetail",
+                fxplugID: 108, group: .output, label: "Highlight Detail",
+                hint: "Print the highlights darker, keeping their detail and colour: 0 off, 1 full. Not applied to the viewed negative or Cineon Log.",
+                kind: .double(min: 0, max: 1, value: 0), clamp: 0...1, order: 37),
+            web: .profile,
+            commandLine: CommandLineFlag("--highlight-detail", placeholder: "<f>",
+                                         help: "Print the highlights darker, keeping their detail and colour (0...1, default: 0)"),
+            documentation: "Gives more printing light where the film would print near white, the same amount on every colour record, so highlights roll toward the white with their own separation and colour instead of clipping. Negatives, slides and black-and-white alike; not applied to the viewed negative or the Cineon Log scan."),
+        EditorControl(
+            .shadowDetail, title: "Shadow Detail",
+            detail: "Print the shadows lighter, keeping their detail and colour.",
+            section: .printPaper,
+            kind: .slider(EditorControlScale(0...1, neutral: 0, unit: .percent)),
+            availability: .printStage,
+            binding: .shadowDetail,
+            surfaces: [.app, .desktop, .android, .resolve, .finalcut, .web, .cli],
+            host: HostParameter(
+                slot: 73, slotSymbol: "SHADOW_DETAIL", ofxName: "shadowDetail",
+                fxplugID: 109, group: .output, label: "Shadow Detail",
+                hint: "Print the shadows lighter, keeping their detail and colour: 0 off, 1 full. Not applied to the viewed negative or Cineon Log.",
+                kind: .double(min: 0, max: 1, value: 0), clamp: 0...1, order: 38),
+            web: .profile,
+            commandLine: CommandLineFlag("--shadow-detail", placeholder: "<f>",
+                                         help: "Print the shadows lighter, keeping their detail and colour (0...1, default: 0)"),
+            documentation: "Holds back the printing light where the film would print dark, the same amount on every colour record, so crushed shadows return with their own separation and colour while black stays black. Negatives, slides and black-and-white alike; not applied to the viewed negative or the Cineon Log scan."),
+        EditorControl(
             .enlarger, title: "Enlarger",
             detail: "Choose the enlarger lighting used to make the print.",
             section: .printLamp,
@@ -2128,6 +2231,43 @@ public enum EditorControlCatalogue {
                           omitted: hostsOwnIt),
         ]
     }
+
+    private static let outputLevelsOmissions = hostsOwnIt.filter { $0.key != .cli }.merging([
+        .app: "the iPhone and iPad grade deck does not yet place the output levels",
+        .android: "the Android editor does not yet offer the output levels",
+    ]) { $1 }
+
+    /// The finished print's output levels, after the three-way grade, on every output medium.
+    private static let outputLevels: [EditorControl] = [
+        EditorControl(
+            .blackPoint, title: "Black Point",
+            detail: "Lift the print's black toward grey, for a faded, matte finish.",
+            section: .lightGrade,
+            kind: .slider(EditorControlScale(Double(ColorGrade.blackPointRange.lowerBound)
+                                                 ... Double(ColorGrade.blackPointRange.upperBound),
+                                             neutral: 0, unit: .percent)),
+            binding: .gradeBlackPoint,
+            surfaces: [.desktop, .cli],
+            omitted: outputLevelsOmissions,
+            commandLine: CommandLineFlag("--black-point", placeholder: "<f>",
+                help: "Output black level, 0...0.5 of the encoded signal (default: 0)"),
+            documentation: "Output black level, 0–50% of the encoded signal: where the print's black "
+                + "lands after the grade, on every output medium. Nothing clips."),
+        EditorControl(
+            .whitePoint, title: "White Point",
+            detail: "Dim the print's white toward grey.",
+            section: .lightGrade,
+            kind: .slider(EditorControlScale(Double(ColorGrade.whitePointRange.lowerBound)
+                                                 ... Double(ColorGrade.whitePointRange.upperBound),
+                                             neutral: 1, unit: .percent)),
+            binding: .gradeWhitePoint,
+            surfaces: [.desktop, .cli],
+            omitted: outputLevelsOmissions,
+            commandLine: CommandLineFlag("--white-point", placeholder: "<f>",
+                help: "Output white level, 0.5...1 of the encoded signal (default: 1)"),
+            documentation: "Output white level, 50–100% of the encoded signal: where the print's white "
+                + "lands after the grade, on every output medium. Nothing clips."),
+    ]
 
     private static let frame: [EditorControl] = [
         EditorControl(

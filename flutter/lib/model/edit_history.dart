@@ -25,7 +25,8 @@ bool _profileChanged(Json? before, Json? after, bool Function(String field) test
       .any((field) => test(field) && !_same(a[field], b[field]));
 }
 
-final _grade = RegExp(r'^grade(Shadows|Midtones|Highlights)(Warmth|Tint|Level)$');
+final _grade =
+    RegExp(r'^(grade(Shadows|Midtones|Highlights)(Warmth|Tint|Level)|blackPoint|whitePoint)$');
 final _filmGrain = RegExp(
     r'^(grainMottle|grainModel|film(GrainSize|ColourGrain|RedLayer|GreenLayer|BlueLayer|ScanSoftness))$');
 final _bands = RegExp(r'^screen(Red|Green|Blue)Band$');
@@ -113,7 +114,13 @@ _Kind _stepKind(Json? before, Json? after) {
       return 'Channel Contrast Match';
     }
     if (_profileChanged(before, after, (f) => f == 'negativeViewing')) return 'Negative Viewing';
+    if (_changed(before, after, const ['rawCorrections'])) return 'RAW Corrections';
     if (_changed(before, after, const ['printFrame'])) return 'Print Frame';
+    if (_changed(before, after, const ['printFrameEdgePrinting'])) return 'Edge Printing';
+    if (_changed(before, after, const ['printFrameNumber'])) return 'Frame Number';
+    if (_changed(before, after, const ['printFrameFraming'])) return 'Framing';
+    if (_changed(before, after, const ['printFrameCount'])) return 'Frames';
+    if (_changed(before, after, const ['printFrameCamera'])) return 'Camera';
     if (_changed(before, after, const ['selective'])) return 'Selective';
     if (_changed(before, after, const ['video'])) return 'Video';
     return null;

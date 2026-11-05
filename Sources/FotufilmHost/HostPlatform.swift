@@ -66,7 +66,10 @@ struct HostPlatform {
 
     /// What the editor may offer with these services.
     var capabilities: [String: Any] {
-        [
+        // Typed beforehand: inside the heterogeneous literal, the optional chain and `??` are
+        // past what Swift 6.2's type checker solves on Linux.
+        let imageExportTypes: [String] = encoder.map { $0.types.sorted() + [CineonDPX.mimeType] } ?? []
+        return [
             "importPath": decoder != nil,
             "thumbnails": thumbnails != nil,
             // Scanned negatives open as documents, read as the edit's film and printed.
@@ -77,7 +80,8 @@ struct HostPlatform {
             "subjectSelection": subjects != nil,
             "copyImage": clipboard != nil,
             "printFrames": frames != nil,
-            "imageExportTypes": encoder?.types.sorted() ?? [],
+            // A Cineon Log scan's DPX is written in Swift, beside whatever the encoder writes.
+            "imageExportTypes": imageExportTypes,
             "hdrExport": encoder?.writesHDR ?? false,
             // Export All: the open photographs into one folder, pipelined (`exportBatch`).
             "batchExport": decoder != nil && encoder != nil,
@@ -139,8 +143,8 @@ protocol HostSubjectDetector {
 /// Draws a print frame around a developed picture.
 protocol HostFrameCompositor {
     /// The framed picture from 8-bit Display P3 pixels, in the same form.
-    func frame(_ pixels: [UInt8], width: Int, height: Int,
-               configuration: PrintFrameConfiguration) -> (pixels: [UInt8], width: Int, height: Int)?
+    func frame(_ pixels: [UInt8], width: Int, height: Int, configuration: PrintFrameConfiguration,
+               edge: UnexposedEdge.Margins?) -> (pixels: [UInt8], width: Int, height: Int)?
 }
 
 extension HostImage {

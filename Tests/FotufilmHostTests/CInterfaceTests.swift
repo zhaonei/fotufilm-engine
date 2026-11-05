@@ -4,6 +4,7 @@ import AppKit
 #endif
 import CFotufilmHost
 @testable import FotufilmHost
+import FotufilmCore
 #if canImport(ImageIO)
 import ImageIO
 import UniformTypeIdentifiers
@@ -46,8 +47,9 @@ final class CInterfaceTests: XCTestCase {
         let platform = HostPlatform.current
         XCTAssertEqual(capabilities["subjectSelection"] as? Bool, platform.subjects != nil)
         XCTAssertEqual(capabilities["copyImage"] as? Bool, platform.clipboard != nil)
+        // A Cineon Log scan's DPX is written in Swift, beside whatever the encoder writes.
         XCTAssertEqual(capabilities["imageExportTypes"] as? [String],
-                       platform.encoder?.types.sorted() ?? [])
+                       platform.encoder.map { $0.types.sorted() + [CineonDPX.mimeType] } ?? [])
         #if canImport(ImageIO)
         XCTAssertEqual(capabilities["hdrExport"] as? Bool, true)
         #endif
@@ -306,6 +308,64 @@ extension CInterfaceTests {
         XCTAssertEqual(make(properties(hdr)), "Fotufilm Test")
     }
 
+    /// A Cineon Log edit exports as a 10-bit DPX of its code values, offered only for that medium,
+    /// and its 16-bit TIFF carries the same signal rather than a display encode of it.
+    func testCineonLogExportsAsDPX() throws {
+        let engine = try makeEngine()
+        defer { fotufilm_engine_destroy(engine) }
+        let service = Unmanaged<HostEngine>.fromOpaque(UnsafeRawPointer(engine))
+            .takeUnretainedValue().service
+        func call(_ method: String, _ params: String) throws -> [String: Any] {
+            let answer = try service.call(method, params: Data(params.utf8), payload: nil)
+            return try JSONSerialization.jsonObject(with: answer.json) as? [String: Any] ?? [:]
+        }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fotufilm-cineon-\(UUID().uuidString).png")
+        try writeRamp(to: url, width: 96, height: 64)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let handle = try XCTUnwrap(call("importPath", #"{"path": "\#(url.path)"}"#)["handle"])
+        func request(_ medium: String) -> String {
+            #""handle": \#(handle), "edit": {"stock": "vision250d", "params": {}}, "# +
+                #""profileRequest": {"controls": {}, "medium": "\#(medium)"}"#
+        }
+        let types = try XCTUnwrap(HostPlatform.current.capabilities["imageExportTypes"] as? [String])
+        XCTAssertTrue(types.contains(CineonDPX.mimeType))
+        XCTAssertEqual(try call("exportOptions", "{\(request("cineon-log")), \"maxEdge\": 256}")["dpx"]
+                       as? Bool, true)
+        XCTAssertEqual(try call("exportOptions", "{\(request("vision-2383")), \"maxEdge\": 256}")["dpx"]
+                       as? Bool, false)
+
+        let target = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fotufilm-cineon-\(UUID().uuidString).dpx")
+        defer { try? FileManager.default.removeItem(at: target) }
+        let answer = try call("export", """
+        {\(request("cineon-log")), "maxEdge": null, "type": "\(CineonDPX.mimeType)",
+         "path": "\(target.path)"}
+        """)
+        let (width, height) = (try XCTUnwrap(answer["width"] as? Int),
+                               try XCTUnwrap(answer["height"] as? Int))
+        let bytes = [UInt8](try Data(contentsOf: target))
+        XCTAssertEqual(bytes.count, 2048 + width * height * 4)
+        XCTAssertEqual(Array(bytes[0..<4]), Array("SDPX".utf8))
+        XCTAssertEqual(bytes[801], 1, "printing density")
+        // The ramp climbs left to right: so do the code values, from shadows below the grey the
+        // scan was set up on.
+        func code(_ x: Int, _ channel: Int) -> Int {
+            let i = 2048 + ((height / 2) * width + x) * 4
+            let word = bytes[i..<i + 4].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+            return Int((word >> UInt32(22 - channel * 10)) & 0x3FF)
+        }
+        for channel in 0..<3 {
+            XCTAssertGreaterThan(code(width - 2, channel), code(1, channel) + 50, "channel \(channel)")
+            XCTAssertLessThan(code(1, channel), 445, "channel \(channel)")
+        }
+        // Another medium has no code values for a DPX to carry.
+        XCTAssertThrowsError(try call("export", """
+        {\(request("vision-2383")), "maxEdge": null, "type": "\(CineonDPX.mimeType)",
+         "path": "\(target.path)"}
+        """))
+    }
+
     /// Choose Film Per Photo: every film ranked for the photograph, the choice learned, and
     /// forgotten on request.
     func testFilmSuggestionRanksRecordsAndForgets() throws {
@@ -436,6 +496,54 @@ extension CInterfaceTests {
         XCTAssertNotEqual(try render(nil), try render("35mm"))
     }
 
+    /// The Output panel's chart: the edit's grey ramp through its film and medium, rising from
+    /// black to white, landing on the output levels, over the photograph's own tones.
+    func testToneCurveFollowsTheEditsOutput() throws {
+        let engine = try makeEngine()
+        defer { fotufilm_engine_destroy(engine) }
+        let service = Unmanaged<HostEngine>.fromOpaque(UnsafeRawPointer(engine))
+            .takeUnretainedValue().service
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fotufilm-curve-\(UUID().uuidString).jpg")
+        try writeRamp(to: url, width: 240, height: 180, type: .jpeg)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let opened = try service.call("importPath", params: Data(#"{"path": "\#(url.path)"}"#.utf8),
+                                      payload: nil)
+        let descriptor = try XCTUnwrap(JSONSerialization.jsonObject(with: opened.json) as? [String: Any])
+        let handle = try XCTUnwrap(descriptor["handle"] as? Int)
+
+        func curve(stock: String?, params: [String: Any] = [:]) throws -> [String: Any]? {
+            let render: [String: Any] = [
+                "handle": handle, "maxEdge": 256,
+                "edit": ["stock": stock.map { $0 as Any } ?? NSNull(), "params": params],
+                "profileRequest": ["controls": [String: Any](), "medium": "screen"],
+            ]
+            let answer = try service.call("toneCurve", params: JSONSerialization.data(
+                withJSONObject: ["render": render]), payload: nil)
+            return try JSONSerialization.jsonObject(with: answer.json, options: [.fragmentsAllowed])
+                as? [String: Any]
+        }
+        XCTAssertNil(try curve(stock: nil), "Normal has no output medium to chart")
+
+        let plain = try XCTUnwrap(try curve(stock: "portra400"))
+        for channel in ["red", "green", "blue"] {
+            let values = try XCTUnwrap(plain[channel] as? [Double], channel)
+            XCTAssertEqual(values.count, 256)
+            XCTAssertLessThan(values[0], 0.05, channel)
+            XCTAssertGreaterThan(values[255], 0.8, channel)
+            for i in 1..<values.count { XCTAssertGreaterThan(values[i] + 0.01, values[i - 1]) }
+        }
+        let histogram = try XCTUnwrap(plain["histogram"] as? [Int])
+        XCTAssertEqual(histogram.count, 256)
+        XCTAssertGreaterThan(histogram.reduce(0, +), 1000)
+
+        let levelled = try XCTUnwrap(try curve(stock: "portra400",
+                                               params: ["blackPoint": 0.2, "whitePoint": 0.8]))
+        let green = try XCTUnwrap(levelled["green"] as? [Double])
+        XCTAssertEqual(green[0], 0.2, accuracy: 0.03, "black lands on the black point")
+        XCTAssertLessThan(green[255], 0.8)
+    }
+
     /// The editor's own calls: import a photograph's bytes, develop a cropped render of it.
     func testHostCallsImportAndRender() throws {
         let engine = try makeEngine()
@@ -534,6 +642,61 @@ extension CInterfaceTests {
             as? [String: Any])
         XCTAssertGreaterThan(framed.json["width"] as? Int ?? 0, 120)
         XCTAssertEqual(((placement["size"] as? [String: Any])?["width"] as? Int), framed.json["width"] as? Int)
+        // Its strip is developed with the photograph: the rail outside the perforations carries
+        // the film's grain, where a drawn rebate would be one colour.
+        let railRange = try XCTUnwrap((framed.json["payloads"] as? [String: [Int]])?["preview"])
+        let railImage = try XCTUnwrap(CGImageSourceCreateWithData(
+            framed.payload.subdata(in: railRange[0]..<(railRange[0] + railRange[1])) as CFData, nil)
+            .flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) })
+        let railData = try XCTUnwrap(railImage.dataProvider?.data as Data?)
+        let perMM = Double(railImage.width) / (4.75 * 8)
+        var rail = Set<[UInt8]>()
+        for y in (railImage.height - Int(1.8 * perMM))..<railImage.height {
+            for x in 0..<Int(8 * perMM) {
+                let i = y * railImage.bytesPerRow + x * (railImage.bitsPerPixel / 8)
+                rail.insert([railData[i], railData[i + 1], railData[i + 2]])
+            }
+        }
+        XCTAssertGreaterThan(rail.count, 3)
+
+        // On a square crop it shows the part its aperture fills, where the framing puts it.
+        func cut(_ framing: [Double]) throws -> (json: [String: Any], payload: Data) {
+            try call("render", """
+            {"handle": \(handle), "maxEdge": null,
+             "printFrame": {"kind": "print-frame", "stock": "gold200", "frame": "film", "width": 1, "height": 1,
+                            "framing": \(framing)},
+             "edit": {"stock": "gold200", "params": {}, "crop": [[0, 0], [0.5, 0], [0.5, 1], [0, 1]]},
+             "profileRequest": {"controls": {}}}
+            """)
+        }
+        let left = try cut([-1, 0]), right = try cut([1, 0])
+        let leftCrop = try XCTUnwrap((left.json["framePlan"] as? [String: Any])?["crop"] as? [String: Any])
+        let rightCrop = try XCTUnwrap((right.json["framePlan"] as? [String: Any])?["crop"] as? [String: Any])
+        XCTAssertEqual(leftCrop["x"] as? Double, 0)
+        XCTAssertGreaterThan(rightCrop["x"] as? Double ?? 0, 0)
+        XCTAssertEqual(leftCrop["width"] as? Double, rightCrop["width"] as? Double)
+        XCTAssertEqual(left.json["width"] as? Int, right.json["width"] as? Int)
+        let leftPreview = try XCTUnwrap((left.json["payloads"] as? [String: [Int]])?["preview"])
+        let rightPreview = try XCTUnwrap((right.json["payloads"] as? [String: [Int]])?["preview"])
+        XCTAssertNotEqual(left.payload.subdata(in: leftPreview[0]..<(leftPreview[0] + leftPreview[1])),
+                          right.payload.subdata(in: rightPreview[0]..<(rightPreview[0] + rightPreview[1])))
+
+        // A panorama across three frames' length is one long exposure: the whole photograph's
+        // width in the aperture, cropped to 112 by 24 mm, in a strip 114 mm long at the scale the
+        // crop's 26 rows set.
+        let panorama = try call("render", """
+        {"handle": \(handle), "maxEdge": null,
+         "printFrame": {"kind": "print-frame", "stock": "gold200", "frame": "film", "width": 1, "height": 1,
+                        "frames": 3},
+         "edit": {"stock": "gold200", "params": {}}, "profileRequest": {"controls": {}}}
+        """)
+        let run = try XCTUnwrap(panorama.json["framePlan"] as? [String: Any])
+        let runCrop = try XCTUnwrap(run["crop"] as? [String: Any])
+        XCTAssertEqual(runCrop["width"] as? Double, 120)
+        XCTAssertEqual(runCrop["height"] as? Double, 26)
+        let runSize = try XCTUnwrap((run["placement"] as? [String: Any])?["size"] as? [String: Any])
+        XCTAssertEqual(panorama.json["width"] as? Int, runSize["width"] as? Int)
+        XCTAssertEqual(runSize["width"] as? Int, 124)
 
         // Lens sliders plan a correction without a profile, and it reaches the develop.
         let lens = #""lens": {"enabled": true, "amount": 1, "profileID": null, "distortion": -0.5, "vignetting": 0.5, "redCyan": 0, "blueYellow": 0}"#

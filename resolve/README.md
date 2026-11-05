@@ -135,7 +135,7 @@ starts closed. Start with these settings:
   <tr><td>Viewing Illuminant</td><td>Output</td><td>Choose the light used to judge a physical print.</td></tr>
   <tr><td>Enlarger</td><td>Output</td><td>The lamp house a reflection print is enlarged under.</td></tr>
   <tr><td>Screen Conversion</td><td>Output</td><td>Reference Exposure holds calibrated exposure; Graded Print softens highlights; Auto Levels meters frame highlights.</td></tr>
-  <tr><td>Paper Grade</td><td>Output</td><td>Variable-contrast paper grade 0–5 for Graded Print and Auto Levels on Digital Reference: grade 2 is the calibrated curve, softer grades roll highlights off earlier, harder grades later.</td></tr>
+  <tr><td>Paper Grade</td><td>Output</td><td>Variable-contrast paper grade 0–5 for Graded Print and Auto Levels on Digital Reference: grade 2 is the calibrated curve, softer grades lower contrast in the highlights and shadows, harder grades raise it.</td></tr>
   <tr><td>Scan Exposure</td><td>Output</td><td>Exposure of the Digital Reference conversion in stops on top of the chosen style, or of a Lab Scan at mid-grey; positive lightens.</td></tr>
   <tr><td>Cyan / Red</td><td>Output</td><td>Digital Reference and Lab Scan colour negatives: positive adds cyan, negative adds red.</td></tr>
   <tr><td>Channel Contrast Match</td><td>Output</td><td>Digital correction of channel-contrast mismatch, not physical printer timing.</td></tr>
@@ -147,6 +147,8 @@ starts closed. Start with these settings:
   <tr><td>Green Light</td><td>Output</td><td>Cinema print film only: the release printer's green light in printer points, 25 at the stock's aim.</td></tr>
   <tr><td>Printer Preflash</td><td>Output</td><td>Pre-exposure of the print paper in relative log exposure units, softening highlights without lifting maximum density.</td></tr>
   <tr><td>Blue Light</td><td>Output</td><td>Cinema print film only: the release printer's blue light in printer points, 25 at the stock's aim.</td></tr>
+  <tr><td>Highlight Detail</td><td>Output</td><td>Print the highlights darker, keeping their detail and colour: 0 off, 1 full.</td></tr>
+  <tr><td>Shadow Detail</td><td>Output</td><td>Print the shadows lighter, keeping their detail and colour: 0 off, 1 full.</td></tr>
   <tr><td>Negative Viewing</td><td>Output</td><td>How the developed negative is read when Output Medium is Negative.</td></tr>
   <tr><td>Stage</td><td>Pipeline</td><td>Which span of the pipeline this node performs.</td></tr>
   <tr><td>Texture Stages</td><td>Pipeline</td><td>Whether Texture Only carries this stage.</td></tr>
@@ -194,6 +196,32 @@ The film model always works in scene-linear Rec.2020. Full and Print Only delive
 already finished print; disable additional output tone mapping and OOTFs after them,
 even when the selected output encoding is log. Finished prints are fitted to narrower
 output primaries without changing in-gamut colors or adding another tone curve.
+
+### Cineon Log
+
+**Output Medium → Cineon Log** delivers the developed negative as a flat film scan for
+grading, the way a scanner hands film to a grading suite. Each channel holds printing density
+as Cineon code values (code value / 1023), 0.002 D a code value, read through the SMPTE RP 180
+printing-density bands. Like a scanner set up on the stock's laboratory aim density, a
+normally exposed grey reads 445 in every channel, so it comes out grey; the film base lands
+near 95. The film's own contrast stays in the scan. No print, timing, grade, finish or
+display transform is applied.
+
+A Cineon scan has no output color space of its own: its channels are the negative's printing
+densities, not light in any set of primaries. So Output Color Space does not apply. The menu
+is dimmed, the status line reads **… -> Cineon log**, and the node declares its output Raw so
+Resolve does not convert the code values. The input side still applies: Timeline Color
+Space, or Input Color Space in Fotufilm mode, still decodes the clip arriving at the node.
+Treat what follows the node as Cineon log:
+
+- Resolve's Kodak 2383 and Fujifilm 3513 film-look LUTs expect Cineon log. Apply one after
+  the node to print the scan.
+- A Color Space Transform node can also read the scan with input gamma **Cineon Film Log**.
+
+The scan looks flat and pale until it is printed; that is expected. For a still, export
+**DPX · Cineon 10-bit** from the Fotufilm editor, or run
+`fotufilm in.dng out.dpx --paper cineon-log` on the command line. Resolve reads either as
+a Cineon scan.
 
 Negative Only ignores Output Color Space and writes density data. Print Only ignores
 Input Color Space and reads density directly. Texture Only converts scene light into

@@ -45,10 +45,26 @@ public final class HostImage {
     /// Decodes the file again no larger than needed for a long edge (twice it, for a RAW's
     /// demosaic), as the Mac app decodes an uncropped preview; nil where it reduces the full decode.
     var decodeReduced: ((_ longEdge: Int) throws -> (rgba: [Float], width: Int, height: Int))?
+    /// Decodes a camera RAW again with none of the camera's corrections (RAW Corrections off):
+    /// no lens distortion or vignetting correction, and where the decoder can, the whole sensor
+    /// area instead of the camera's crop. Made on first use and kept with this one.
+    var decodeUncorrected: (() throws -> HostImage)?
+    private var uncorrectedImage: HostImage?
     private let lock = NSLock()
     /// The most recent reductions, least recently used first: the settled preview, a moving
     /// edit's drafts and the film strip's thumbnails. A draft was made from another reduction.
     private var reductions: [(width: Int, height: Int, rgba: [Float], draft: Bool)] = []
+
+    /// The photograph without the camera's corrections, or nil where it has none to leave out.
+    func uncorrected() throws -> HostImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let uncorrectedImage { return uncorrectedImage }
+        guard let decodeUncorrected else { return nil }
+        let made = try decodeUncorrected()
+        uncorrectedImage = made
+        return made
+    }
 
     /// What the editor's image descriptor says about the source.
     var descriptor: [String: Any] {
@@ -375,10 +391,12 @@ public final class HostEngine {
 
     /// Develops a scene already cut to the delivered size: scene-linear Rec.2020 RGBA. A video
     /// frame names its `frameIndex`, which moves the grain from frame to frame, and interactive
-    /// playback may ask for the engine's `realtime` schedule.
+    /// playback may ask for the engine's `realtime` schedule. `unexposedEdge` develops a piece of
+    /// film larger than the aperture, the scene continued over it (`UnexposedEdge`).
     public func develop(_ scene: [Float], width: Int, height: Int, contentHeadroom: Float,
                         edit: WebNativeEdit, frameIndex: UInt64 = 0, realtime: Bool = false,
-                        exactMath: Bool = false, into target: Target) throws {
+                        exactMath: Bool = false, unexposedEdge: UnexposedEdge.Develop? = nil,
+                        into target: Target) throws {
         if let reading = edit.negativeReading {
             return try printNegative(scene, width: width, height: height, reading: reading,
                                      edit: edit, into: target)
@@ -392,8 +410,9 @@ public final class HostEngine {
         } else {
             film = nil
         }
-        try develop(scene, width: width, height: height, film: film,
-                    options: options(edit, stock: film ?? .noFilm, contentHeadroom: contentHeadroom),
+        var options = try options(edit, stock: film ?? .noFilm, contentHeadroom: contentHeadroom)
+        if film != nil { options.unexposedEdge = unexposedEdge }
+        try develop(scene, width: width, height: height, film: film, options: options,
                     frameIndex: frameIndex, realtime: realtime, exactMath: exactMath,
                     into: target)
     }
@@ -406,7 +425,8 @@ public final class HostEngine {
                          keepsCodes: Bool) throws -> (developed: [UInt8], original: [UInt8]?)? {
         guard let film = stock(edit.edit.stock) else { return nil }
         let options = try options(edit, stock: film, contentHeadroom: contentHeadroom)
-        guard options.transportConstruction(for: film) == nil else { return nil }
+        guard options.transportConstruction(for: film) == nil,
+              !options.paper(for: film).deliversCodeValues else { return nil }
         let shouldContinue = continuation()
         takeRenderLock()
         defer { renderLock.unlock() }
@@ -429,6 +449,20 @@ public final class HostEngine {
     }
 
     public func stock(_ id: String?) -> FilmStock? { id.flatMap { stocks[$0] } }
+
+    /// The develop of a larger piece of film reaching `margins` beyond the photograph `scene`,
+    /// on the photograph's own Auto Levels readings (`UnexposedEdge.Develop.metering`). Nil with
+    /// no film.
+    public func unexposedEdge(_ scene: [Float], width: Int, height: Int,
+                              margins: UnexposedEdge.Margins, edit: WebNativeEdit,
+                              contentHeadroom: Float) throws -> UnexposedEdge.Develop? {
+        guard let stock = stock(edit.edit.stock) else { return nil }
+        let options = try options(edit, stock: stock, contentHeadroom: contentHeadroom)
+        return try scene.withUnsafeBufferPointer {
+            try UnexposedEdge.Develop.metering($0, width: width, height: height, margins: margins,
+                                               stock: stock, options: options)
+        }
+    }
 
     /// Whether the edit's film develops a frame this large within the developer's memory limit.
     /// No film streams in bands and has no limit.
@@ -455,15 +489,18 @@ public final class HostEngine {
 
         let knee = film.map { options.sdrShoulderKnee(for: $0) } ?? FilmSDRDelivery.boundedShoulderKnee
         let seed = UInt32(truncatingIfNeeded: options.seed)
+        // Cineon Log delivers code values, not light: they are shown as the signal they are, a
+        // flat scan, with no shoulder and no transfer, and a float target receives them verbatim.
+        let codeValues = film.map { options.paper(for: $0).deliversCodeValues } ?? false
         try developer.develop(
             scene, width: width, height: height, stock: stock, noFilm: film == nil,
             options: options, pace: HostDevelopPace(frameIndex: frameIndex, realtime: realtime,
                                                     exactMath: exactMath),
-            encode: target.format == .rgba8DisplayP3,
+            encode: target.format == .rgba8DisplayP3 && !codeValues,
             knee: film == nil ? nil : knee, shouldContinue: shouldContinue,
             deliver: { rows, range, encoded in
-                self.deliver(rows, rows: range, width: width, encoded: encoded, knee: knee,
-                             seed: seed, target: target)
+                self.deliver(rows, rows: range, width: width, encoded: encoded || codeValues,
+                             knee: knee, seed: seed, target: target)
             })
     }
 
@@ -479,6 +516,7 @@ public final class HostEngine {
                                        stock: stock)
         let knee = options.sdrShoulderKnee(for: stock)
         let seed = UInt32(truncatingIfNeeded: options.seed)
+        let codeValues = options.paper(for: stock).deliversCodeValues
         try printScan(width: width, height: height, stock: stock, options: options,
                       calibration: reading.calibration,
                       readScan: { rows, into in
@@ -488,8 +526,8 @@ public final class HostEngine {
                           }
                       },
                       writeRows: { range, rows in
-                          self.deliver(rows, rows: range, width: width, encoded: false, knee: knee,
-                                       seed: seed, target: target)
+                          self.deliver(rows, rows: range, width: width, encoded: codeValues,
+                                       knee: knee, seed: seed, target: target)
                       })
     }
 

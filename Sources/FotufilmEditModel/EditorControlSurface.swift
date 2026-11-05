@@ -198,6 +198,7 @@ public enum EngineBinding: Equatable, Sendable {
     case printViewingKelvin
     case printCorrection
     case grade(GradeBand, GradeAxis)
+    case gradeBlackPoint, gradeWhitePoint
     case gradeSpaceEncoded
     case flareScale
     case estimatedHalationProfile
@@ -224,6 +225,8 @@ public enum EngineBinding: Equatable, Sendable {
     case halationScale
     case cameraPreflash
     case printerPreflash
+    case shadowDetail
+    case highlightDetail
     case filmGrainSize
     case filmColourGrain
     /// One record's share of the film grain: 0 red, 1 green, 2 blue sensitive.
@@ -263,7 +266,7 @@ public enum EngineBinding: Equatable, Sendable {
         case .shutterSeconds: return ["shutterSeconds"]
         case .printViewingKelvin: return ["printViewingKelvin"]
         case .printCorrection: return ["printCorrection"]
-        case .grade: return ["grade"]
+        case .grade, .gradeBlackPoint, .gradeWhitePoint: return ["grade"]
         case .gradeSpaceEncoded: return ["gradeSpace"]
         case .flareScale: return ["flareScale"]
         case .estimatedHalationProfile: return ["useEstimatedHalationProfile"]
@@ -288,6 +291,8 @@ public enum EngineBinding: Equatable, Sendable {
         case .halationScale: return ["halationScale"]
         case .cameraPreflash: return ["cameraPreflash"]
         case .printerPreflash: return ["printerPreflash"]
+        case .shadowDetail: return ["shadowDetail"]
+        case .highlightDetail: return ["highlightDetail"]
         case .filmGrainSize, .filmColourGrain, .filmGrainLayer, .filmScanSoftness: return ["filmGrain"]
         case .hdrRange: return ["hdrRange"]
         case .hdrRollOff: return ["hdrRollOff"]
@@ -373,6 +378,10 @@ public enum EngineBinding: Equatable, Sendable {
             if let number = value.number {
                 options.grade[keyPath: band.keyPath][keyPath: axis.keyPath] = Float(number)
             }
+        case .gradeBlackPoint:
+            if let number = value.number { options.grade.blackPoint = Float(number) }
+        case .gradeWhitePoint:
+            if let number = value.number { options.grade.whitePoint = Float(number) }
         case .gradeSpaceEncoded:
             if let flag = value.flag { options.gradeSpace = flag ? .encoded : .linear }
         case .flareScale:
@@ -439,6 +448,10 @@ public enum EngineBinding: Equatable, Sendable {
             if let number = value.number { options.cameraPreflash = Float(number) }
         case .printerPreflash:
             if let number = value.number { options.printerPreflash = Float(number) }
+        case .shadowDetail:
+            if let number = value.number { options.shadowDetail = Float(number) }
+        case .highlightDetail:
+            if let number = value.number { options.highlightDetail = Float(number) }
         case .filmGrainSize:
             if let number = value.number { options.filmGrain.size = Float(number) }
         case .filmColourGrain:

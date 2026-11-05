@@ -77,6 +77,8 @@ The **Status** line explains input color handling, unavailable controls, and ren
 errors. The plugin includes all 47 film profiles and needs no activation.
 A saved project retains its menu choices and texture-stage controls when reopened.
 A smaller film gauge makes grain and other spatial effects larger in the image.
+Final Cut may request output tiles extending beyond the image bounds; the plugin
+preserves the picture and fills the outside area with transparent black.
 
 **Source Illuminant** defaults to **Stock Native**, following the selected film's
 reference light. Choose a preset or **Custom** and set **Source Illuminant (K)**
@@ -86,6 +88,15 @@ Final Cut supplies linear-light images. The color-space choices therefore select
 color primaries, without applying a second gamma or log conversion. Auto reads the
 image's color information. An unnamed color space falls back to linear Rec.709,
 and the status line reports that choice.
+
+**Output Medium → Cineon Log** is a flat scan of the negative for grading: each channel
+is Cineon code value / 1023, 0.002 D a code value, with a normally exposed grey at 445 in
+every channel. The plugin passes those numbers out unchanged, whatever the color-space
+choice. Final Cut treats
+them as linear light, so the clip looks flat and dark until it is printed. A LUT that
+prints the scan must read its input as Cineon log, as code value / 1023 with no transfer.
+For grading with film-print LUTs, the DaVinci Resolve plugin, or a DPX exported from the
+Fotufilm editor, is the more direct route.
 
 ## Pipeline stages
 

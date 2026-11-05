@@ -66,7 +66,9 @@ Json parseEdit(String text, Catalogue catalogue, Iterable<String?> stocks) {
   if (params is! Map ||
       !catalogue.sliders.every((s) {
         final value = params[s.key] ??
-            (const ['cameraPreflash', 'sceneLightKelvin'].contains(s.key) ? s.def : null);
+            (const ['cameraPreflash', 'sceneLightKelvin', 'blackPoint', 'whitePoint'].contains(s.key)
+                ? s.def
+                : null);
         return _finite(value) && value >= s.min && value <= s.max;
       })) {
     throw const EditProblem('Invalid adjustment values.');
@@ -93,6 +95,28 @@ Json parseEdit(String text, Catalogue catalogue, Iterable<String?> stocks) {
   }
   if (edit['mediumFollowsFilm'] != null && edit['mediumFollowsFilm'] is! bool) {
     throw const EditProblem('Invalid output medium.');
+  }
+  final frameNumbers = (catalogue.control('printFrameNumber')['choices'] as List).cast<Json>();
+  final frameCounts = (catalogue.control('printFrameCount')['choices'] as List).cast<Json>();
+  if ((edit['printFrameEdgePrinting'] != null && edit['printFrameEdgePrinting'] is! bool) ||
+      (edit['printFrameNumber'] != null &&
+          !frameNumbers.any((c) => c['value'] == edit['printFrameNumber'])) ||
+      (edit['printFrameCount'] != null &&
+          !frameCounts.any((c) => c['value'] == edit['printFrameCount'])) ||
+      (edit['printFrameCamera'] != null &&
+          !(catalogue.control('printFrameCamera')['choices'] as List)
+              .any((c) => (c as Json)['id'] == edit['printFrameCamera']))) {
+    throw const EditProblem('Invalid film border settings.');
+  }
+  if (edit['rawCorrections'] != null && edit['rawCorrections'] is! bool) {
+    throw const EditProblem('Invalid RAW corrections.');
+  }
+  final framing = edit['printFrameFraming'];
+  if (framing != null &&
+      (framing is! List ||
+          framing.length != 2 ||
+          !framing.every((v) => _finite(v) && (v as num).abs() <= 1))) {
+    throw const EditProblem('Invalid film border framing.');
   }
   if (edit['halationModel'] != null && !const ['legacy', 'layered'].contains(edit['halationModel'])) {
     throw const EditProblem('Invalid halation model.');

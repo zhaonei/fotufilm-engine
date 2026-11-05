@@ -69,10 +69,12 @@ public struct FilmOutputColorSpace: RawRepresentable, Hashable, Identifiable, Se
     public static let rec709 = Self(rawValue: "rec709")
     public static let linearRec2020 = Self(rawValue: "linearRec2020")
     public static let rec2020HLG = Self(rawValue: "rec2020HLG")
+    /// Cineon code values over 1023 (`CineonLog`): printing density, not a colour space.
+    public static let cineonLog = Self(rawValue: "cineonLog")
 
     public static let builtIn: [Self] = [
         .linearDisplayP3, .displayP3, .linearSRGB, .sRGB, .rec709,
-        .linearRec2020, .rec2020HLG,
+        .linearRec2020, .rec2020HLG, .cineonLog,
     ]
 }
 
@@ -95,6 +97,9 @@ public enum FilmOutputConversion: String, CaseIterable, Identifiable, FilmOutput
     case linearRec2020
     /// Relight HDR alpha, roll the print and encode BT.2100 HLG in Rec. 2020 primaries.
     case rec2020HLG
+    /// Cineon Log's code values exactly as the medium wrote them: no primaries, shoulder or
+    /// transfer, and nothing clipped (`PrintPaper.deliversCodeValues`).
+    case cineonLog
 
     public var id: String { rawValue }
 
@@ -107,6 +112,7 @@ public enum FilmOutputConversion: String, CaseIterable, Identifiable, FilmOutput
         case .rec709SDR: return .rec709
         case .linearRec2020: return .linearRec2020
         case .rec2020HLG: return .rec2020HLG
+        case .cineonLog: return .cineonLog
         }
     }
 
@@ -146,6 +152,8 @@ public enum FilmOutputConversion: String, CaseIterable, Identifiable, FilmOutput
                 converted = displayP3ToRec2020(rgb)
             case .rec2020HLG:
                 converted = encodeHLG(rgb * max(developed[source + 3], 1))
+            case .cineonLog:
+                converted = rgb
             }
             destination[output] = converted.x
             destination[output + 1] = converted.y
@@ -258,6 +266,32 @@ extension FilmOutputTransform {
                             coefficients: srgbCoefficients,
                             premultiplied: false,
                             shoulderKnee: shoulderKnee)
+    }
+
+    /// Cineon code values as they leave the paper table: no matrix, no shoulder, no transfer.
+    /// They are a signal already (`FilmOutputConversion.cineonLog`), not light to encode.
+    public static let cineonLog = FilmOutputTransform(
+        matrix: identityMatrix, transfer: .linear, coefficients: [1, 0, 0, 0, 0, 0],
+        premultiplied: false)
+
+    /// A still's delivery for `stock` under `options`: Display P3 over the material's SDR
+    /// shoulder, or the code values themselves for a medium that delivers them.
+    public static func still(_ options: FotufilmEngine.Options,
+                             stock: FilmStock) -> FilmOutputTransform {
+        options.paper(for: stock).deliversCodeValues ? .cineonLog
+            : .displayP3(shoulderKnee: options.sdrShoulderKnee(for: stock))
+    }
+}
+
+extension AnyFilmOutputConverter {
+    /// The host-side counterpart of `FilmOutputTransform.still`, for rows the kernel handed
+    /// back as display-linear light.
+    public static func still(_ options: FotufilmEngine.Options,
+                             stock: FilmStock) -> AnyFilmOutputConverter {
+        options.paper(for: stock).deliversCodeValues
+            ? AnyFilmOutputConverter(FilmOutputConversion.cineonLog)
+            : AnyFilmOutputConverter(FilmDisplayP3SDRConversion(
+                shoulderKnee: options.sdrShoulderKnee(for: stock)))
     }
 }
 

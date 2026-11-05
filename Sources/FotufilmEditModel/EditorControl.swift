@@ -22,19 +22,21 @@ public enum EditorControlField: String, CaseIterable, Sendable, Codable {
 
     case lensFilterStack, lensFilter1, lensFilter2, lensFilter3, metering, diffusion, diffusionGrade
     case focalLength, flare, filterCoating
-    case lensCorrection, lensProfile, lensAmount
+    case rawCorrections, lensCorrection, lensProfile, lensAmount
     case lensDistortion, lensVignetting, lensRedCyan, lensBlueYellow
 
     case screenCyan, screenMagenta, screenYellow
     case screenRedBand, screenGreenBand, screenBlueBand
     case labScanDodging, labScanLook
-    case paper, digitalReference, screenGrade, screenExposure, printFrame, printFrameMargin, printLight, enlarger, printCorrection,
+    case paper, digitalReference, screenGrade, screenExposure, printFrame, printFrameMargin, printFrameEdgePrinting, printFrameNumber, printFrameCount, printFrameCamera, printLight, enlarger, printCorrection,
          negativeViewing, gradeSpace
     case printerEnabled, printerLamp, printerExposure, printerMagenta, printerYellow, printerPreflash
+    case shadowDetail, highlightDetail
     case printerRed, printerGreen, printerBlue
     case gradeShadowsWarmth, gradeShadowsTint, gradeShadowsLevel
     case gradeMidtonesWarmth, gradeMidtonesTint, gradeMidtonesLevel
     case gradeHighlightsWarmth, gradeHighlightsTint, gradeHighlightsLevel
+    case blackPoint, whitePoint
 
     case crop, straighten, perspectiveVertical, perspectiveHorizontal
     case rotation, flip

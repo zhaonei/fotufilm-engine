@@ -103,6 +103,7 @@ extension EditorControlField {
             return .unstored("a photograph already carries its own lens's glare")
         case .filterCoating:
             return .unstored("the app's filters are multi-coated")
+        case .rawCorrections: return .flag(\.rawCorrections)
         case .lensCorrection: return .flag(\.lensCorrectionEnabled)
         case .lensProfile:
             return .bespoke { $0.lensProfileID != nil }
@@ -117,6 +118,11 @@ extension EditorControlField {
         case .printFrame:
             return .bespoke { $0.printFrame != .none }
         case .printFrameMargin: return .number(\.printFrameMargin)
+        case .printFrameEdgePrinting: return .flag(\.printFrameEdgePrinting)
+        case .printFrameNumber:
+            return .bespoke { $0.printFrameNumber != FilmEdgePrinting.recordedFrameNumber }
+        case .printFrameCount: return .bespoke { $0.printFrameCount != 1 }
+        case .printFrameCamera: return .bespoke { $0.printFrameCamera != .panoramic }
         case .printLight:
             return .bespoke { $0.printLightKelvin != nil }
         case .digitalReference:
@@ -148,6 +154,8 @@ extension EditorControlField {
                             write: { $0.printerProfile.yellow = Float($1) })
         case .printCorrection: return .number(\.printCorrection)
         case .printerPreflash: return .number(\.printerPreflash)
+        case .shadowDetail: return .number(\.shadowDetail)
+        case .highlightDetail: return .number(\.highlightDetail)
         case .printerRed: return .number(\.printerRed)
         case .printerGreen: return .number(\.printerGreen)
         case .printerBlue: return .number(\.printerBlue)
@@ -164,6 +172,12 @@ extension EditorControlField {
         case .gradeHighlightsWarmth: return Self.grade(.highlights, .warmth)
         case .gradeHighlightsTint: return Self.grade(.highlights, .tint)
         case .gradeHighlightsLevel: return Self.grade(.highlights, .level)
+        case .blackPoint:
+            return .derived(read: { Double($0.grade.blackPoint) },
+                            write: { $0.grade.blackPoint = Float($1) })
+        case .whitePoint:
+            return .derived(read: { Double($0.grade.whitePoint) },
+                            write: { $0.grade.whitePoint = Float($1) })
 
         case .crop:
             return .bespoke { $0.crop != nil || $0.cornerCrop != nil }
@@ -289,6 +303,9 @@ extension EditState {
     mutating func reset(_ field: EditorControlField) {
         if field == .digitalReference { digitalReference = EditState.defaultDigitalReference; return }
         if field == .printFrame { printFrame = .none; return }
+        if field == .printFrameNumber { printFrameNumber = FilmEdgePrinting.recordedFrameNumber; return }
+        if field == .printFrameCount { printFrameCount = 1; return }
+        if field == .printFrameCamera { printFrameCamera = .panoramic; return }
         if field == .negativeViewing { negativeViewing = .lightBox; return }
         if field == .halationReturn { halationReturnRatio = nil; return }
         if field == .grainModel { grainModel = .clumpField; return }

@@ -279,17 +279,23 @@ public:
         RDom inside(0, chunk, "decode_inside" + suffix);
         Halide::Expr scan_x = Halide::min(span * chunk + inside, width_ - 1);
 
-        Func chunk_peak("decode_chunk_peak" + suffix);
-        chunk_peak(span, y) = Halide::maximum(peak_of(scan_x, y), "decode_peak" + suffix);
-
-        Func chunk_repaired("decode_chunk_repaired" + suffix);
-        chunk_repaired(span, y) = Halide::maximum(
-            Halide::select(decode(scan_x, y).repaired, 1.0f, 0.0f), "decode_repaired" + suffix);
+        // Both lanes in one pass over the row: the repair lane reads every component the peak
+        // does, so a kernel of its own for the peak would read the frame a second time. Each lane
+        // starts where `Halide::maximum` would and takes the same values in the same order.
+        Func scan("decode_scan" + suffix);
+        const Halide::Expr lowest = Halide::Float(32).min();
+        scan(span, y) = Halide::Tuple(lowest, lowest);
+        scan(span, y) = Halide::Tuple(
+            Halide::max(scan(span, y)[0], peak_of(scan_x, y)),
+            Halide::max(scan(span, y)[1],
+                        Halide::select(decode(scan_x, y).repaired, 1.0f, 0.0f)));
+        Func chunk_lanes("decode_chunk" + suffix);
+        chunk_lanes(span, y) = Halide::Tuple(scan(span, y)[0], scan(span, y)[1]);
 
         Func report("decode_report" + suffix);
         RDom spans(0, (width_ + chunk - 1) / chunk, "decode_spans" + suffix);
         report(lane, y) = Halide::maximum(
-            Halide::select(lane == 0, chunk_peak(spans, y), chunk_repaired(spans, y)),
+            Halide::select(lane == 0, chunk_lanes(spans, y)[0], chunk_lanes(spans, y)[1]),
             "decode_fold" + suffix);
         report.bound(lane, 0, 2);
 
@@ -300,10 +306,9 @@ public:
                                       Halide::TailStrategy::GuardWithIf, gpu_device_api());
         // A thread per chunk of a row, so the transfer curve is spread across the whole device
         // rather than down one lane per row.
-        for (Func stage : {chunk_peak, chunk_repaired}) {
-            stage.compute_root().gpu_tile(span, y, xo, yo, xi, yi, 16, 16,
-                                          Halide::TailStrategy::GuardWithIf, gpu_device_api());
-        }
+        chunk_lanes.compute_root().gpu_tile(span, y, xo, yo, xi, yi, 16, 16,
+                                            Halide::TailStrategy::GuardWithIf, gpu_device_api());
+        scan.compute_at(chunk_lanes, xi);
         // One thread per row for the fold, as the measurements schedule theirs: the reduction is
         // along the row and the host combines the rows.
         report.compute_root()
@@ -391,9 +396,12 @@ private:
 
 class GpuFramePipeline : public GpuSchedule, FrameParams {
 public:
+    /// `exact_stages` compiles the stages in `feature_mask` with no run-time gate: the variant
+    /// serves only requests for exactly those stages, and runs every one of them.
     GpuFramePipeline(int32_t feature_mask, const std::string &suffix,
                        bool windowed = false,
-                       GpuConfiguration configuration = default_gpu_configuration())
+                       GpuConfiguration configuration = default_gpu_configuration(),
+                       bool exact_stages = false)
         : GpuSchedule(configuration, windowed), FrameParams("frame_", suffix),
           float_io_((feature_mask & FOTUFILM_FRAME_FLOAT_IO) != 0),
           realtime_(!float_io_
@@ -437,6 +445,7 @@ public:
         const bool use_grain = feature_mask & FOTUFILM_FRAME_GRAIN;
         const bool use_mottle = use_grain && (feature_mask & FOTUFILM_FRAME_GRAIN_MOTTLE);
         const bool monochrome = feature_mask & FOTUFILM_FRAME_MONOCHROME;
+        const bool print_detail = feature_mask & FOTUFILM_FRAME_PRINT_DETAIL;
 
         Var x("x"), y("y"), channel("channel");
         input_.dim(0).set_stride(4);
@@ -566,7 +575,7 @@ public:
             [&](Expr index) { return decoded(x, y, index); },
             Expr(monochrome ? 1 : 0),
             Halide::cast<int32_t>(configuration_(FOTUFILM_CONFIG_GRAIN_MODE) + 0.5f),
-            texture_, density_in_, false, light_out_, true, "frame_", suffix};
+            texture_, density_in_, false, light_out_, !exact_stages, "frame_", suffix};
         // The film grain model's tiles are a buffer of their own. Only the film grain kernel binds
         // them, beside the configuration and the stored density, so WebGPU has the room too.
         inputs.film_tiles = &film_tiles_;
@@ -616,7 +625,7 @@ public:
             // codes in DenseRampTests. The 2048-sample curve table avoids per-pixel
             // transcendental functions.
             graph::PrintInputs print{configuration_, Expr(reversal_), monochrome, density_in_,
-                                     "frame_", suffix};
+                                     print_detail, "frame_", suffix};
             Func printed = graph::build_print(backend, print, developed, x, y, channel);
             // What a scan's reading could not place, often the holder, prints black.
             display_linear(x, y, channel) = Halide::select(
@@ -641,7 +650,13 @@ public:
         Func delivered("frame_delivered" + suffix);
         if (encodes) {
             delivered(x, y, channel) = final_linear(x, y, channel);
-            gpu_pointwise(delivered, x, y, channel, 3);
+            if (windowed && gpu_device_api() == DeviceAPI::Metal) {
+                // The output thread develops its own pixel's three channels once, in registers,
+                // rather than reading them back from a frame-sized store.
+                register_stage(delivered);
+            } else {
+                gpu_pointwise(delivered, x, y, channel, 3);
+            }
         }
         Func linear_delivery = windowed ? delivered : final_linear;
 
@@ -765,7 +780,8 @@ public:
             // circular store cannot follow a stage the frame gates off at run time: its
             // unused region does not advance with the windows, so the fold's order check
             // failed on every frame past the second window with a stage off (issue #268).
-            Var window, row, block_x, block_y, thread_x, thread_y;
+            Var window, row, block_x, block_y, thread_x("frame_output_window_thread_x"), thread_y;
+            note_root(output, thread_x);
             output.compute_root().bound(channel, 0, 4)
                 .reorder(channel, x, y).unroll(channel)
                 .split(y, window, row, kWindowRows, Halide::TailStrategy::GuardWithIf)
@@ -790,6 +806,7 @@ public:
         } else if (!float_io_ && !density_out_ && !windowed) {
             output.specialize((byte_basis_ & 2) != 0);
         }
+        place_register_stages();
         pipeline_ = Pipeline(output);
 #if !defined(FOTUFILM_HALIDE_AOT_GENERATOR)
         if (!cached_.prepare(pipeline_,
