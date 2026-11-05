@@ -1,0 +1,282 @@
+name: Build Fotufilm APK (real engine)
+
+# Cross-compiles the engine on an Ubuntu x86-64 runner and packs the JNI shell with it.
+#
+# The chain, in the order the repository's own scripts expect it:
+#   LLVM 21 → patched Halide → arm64 Vulkan AOT kernels
+#   codecs + FFmpeg for arm64
+#   Swift toolchain + Swift SDK for Android → tools/build-android-engine.sh
+#   android-shell/build.sh → signed APK
+#
+# Versions below are the ones the scripts default to and the ones this workflow was written
+# against: Swift 6.3.3 (tools/build-android-engine.sh:44), NDK r27c (the Swift SDK's
+# setup-android-sdk.sh requires NDK 27+), LLVM 21 (tools/build-halide-linux.sh: 21 or newer).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [android-jni-shell]
+    paths:
+      - 'android-shell/**'
+      - 'Sources/**'
+      - 'tools/**'
+      - 'Package.swift'
+      - '.github/workflows/build-apk.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SWIFT_VERSION: '6.3.3'
+  SWIFT_TOOLCHAIN: /opt/swift/swift-6.3.3-RELEASE-ubuntu24.04
+  SWIFT_SDK: swift-6.3.3-RELEASE_android
+  ANDROID_NDK_HOME: /opt/android-ndk/android-ndk-r27c
+  LLVM_ROOT: /usr/lib/llvm-21
+  HALIDE_ROOT: ${{ github.workspace }}/build/halide-linux-install
+  FOTUFILM_ANDROID_DEPS: ${{ github.workspace }}/build/android-deps
+  FOTUFILM_ANDROID_KERNELS: ${{ github.workspace }}/build/halide-android-arm64
+  ABI: arm64-v8a
+
+jobs:
+  apk:
+    name: arm64 APK with the Swift/Halide engine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout (with the Halide submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Free disk space
+        # Halide + LLVM headers + codec sources + Swift SDK are several gigabytes.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/system-images \
+                      /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
+      - name: Install LLVM 21 and build dependencies
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key |
+            sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" |
+            sudo tee /etc/apt/sources.list.d/llvm-21.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            llvm-21-dev libclang-21-dev lld-21 liblld-21-dev \
+            libvulkan-dev libxml2-dev libffi-dev zlib1g-dev \
+            cmake ninja-build pkg-config curl xz-utils unzip python3 \
+            libcurl4-openssl-dev libedit2 libsqlite3-0 libncurses-dev libz3-dev tzdata
+          /usr/lib/llvm-21/bin/llvm-config --version
+          /usr/lib/llvm-21/bin/llvm-config --components | tr ' ' '\n' | grep -x -E 'nvptx|nvptxcodegen' || \
+            { echo "::error::LLVM 21 has no NVPTX, and tools/build-halide-linux.sh requires it"; exit 1; }
+
+      - name: Cache the Swift toolchain
+        id: cache-swift
+        uses: actions/cache@v4
+        with:
+          path: /opt/swift
+          key: swift-${{ env.SWIFT_VERSION }}-ubuntu24.04
+
+      - name: Install the Swift toolchain
+        if: steps.cache-swift.outputs.cache-hit != 'true'
+        run: |
+          url="https://download.swift.org/swift-${SWIFT_VERSION}-release/ubuntu2404/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE-ubuntu24.04.tar.gz"
+          curl -fsSL --retry 5 --retry-delay 5 -o /tmp/swift.tar.gz "$url"
+          sudo mkdir -p /opt/swift
+          sudo tar xzf /tmp/swift.tar.gz -C /opt/swift
+          sudo chown -R "$USER" /opt/swift
+
+      - name: Check the Swift toolchain
+        run: |
+          export PATH="$SWIFT_TOOLCHAIN/usr/bin:$PATH"
+          swift --version
+          test -x "$SWIFT_TOOLCHAIN/usr/bin/swiftc" || { echo "::error::swiftc missing at $SWIFT_TOOLCHAIN"; exit 1; }
+
+      - name: Cache the Swift SDK for Android
+        id: cache-swift-sdk
+        uses: actions/cache@v4
+        with:
+          path: ~/.swiftpm/swift-sdks
+          key: swift-sdk-${{ env.SWIFT_VERSION }}-android
+
+      - name: Install the Swift SDK for Android
+        run: |
+          export PATH="$SWIFT_TOOLCHAIN/usr/bin:$PATH"
+          bundle="$HOME/.swiftpm/swift-sdks/${SWIFT_SDK}.artifactbundle"
+          if [ ! -d "$bundle/swift-android" ]; then
+            url="https://download.swift.org/swift-${SWIFT_VERSION}-release/android-sdk/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE_android.artifactbundle.tar.gz"
+            curl -fsSL --retry 5 --retry-delay 5 -o /tmp/swift-android.tar.gz "$url"
+            swift sdk install /tmp/swift-android.tar.gz || {
+              # Same result by hand: the archive holds one .artifactbundle directory.
+              mkdir -p "$HOME/.swiftpm/swift-sdks"
+              tar xzf /tmp/swift-android.tar.gz -C "$HOME/.swiftpm/swift-sdks"
+            }
+          fi
+          test -d "$bundle/swift-android" || { echo "::error::no Swift SDK for Android at $bundle"; exit 1; }
+          swift sdk list
+
+      - name: Cache the Android NDK
+        id: cache-ndk
+        uses: actions/cache@v4
+        with:
+          path: /opt/android-ndk
+          key: ndk-r27c-linux
+
+      - name: Install the Android NDK
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL --retry 5 --retry-delay 5 -o /tmp/ndk.zip \
+            https://dl.google.com/android/repository/android-ndk-r27c-linux.zip
+          sudo mkdir -p /opt/android-ndk
+          sudo unzip -q /tmp/ndk.zip -d /opt/android-ndk
+          sudo chown -R "$USER" /opt/android-ndk
+
+      - name: Point the Swift SDK's sysroot at this NDK
+        # tools/build-android-engine.sh does the same when the link is stale; done here so a
+        # failure names the step, and so the NDK and the SDK agree before anything is compiled.
+        run: |
+          grep '^Pkg.Revision' "$ANDROID_NDK_HOME/source.properties"
+          cd "$HOME/.swiftpm/swift-sdks/${SWIFT_SDK}.artifactbundle/swift-android"
+          bash scripts/setup-android-sdk.sh
+          test -f "swift-resources/usr/lib/swift-aarch64/android/aarch64/swiftrt.o" || {
+            echo "::error::the Swift SDK has no arm64 swiftrt.o"; exit 1; }
+
+      - name: Read the Halide pin
+        id: halide-pin
+        run: echo "sha=$(git ls-tree HEAD third_party/Halide | awk '{print $3}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Halide
+        id: cache-halide
+        uses: actions/cache@v4
+        with:
+          path: build/halide-linux-install
+          key: halide-${{ steps.halide-pin.outputs.sha }}-${{ hashFiles('tools/halide-vulkan-*.patch', 'tools/halide-runtime-prefix-map.patch') }}-llvm21
+
+      - name: Build Halide with the Vulkan patches
+        if: steps.cache-halide.outputs.cache-hit != 'true'
+        run: |
+          LLVM_ROOT="$LLVM_ROOT" tools/build-halide-linux.sh build/halide-linux-build "$HALIDE_ROOT"
+          test -f "$HALIDE_ROOT/include/Halide.h" || { echo "::error::Halide was not installed"; exit 1; }
+
+      - name: Generate the arm64 Vulkan AOT kernels
+        run: |
+          HALIDE_ROOT="$HALIDE_ROOT" tools/generate-halide-aot-android.sh "$FOTUFILM_ANDROID_KERNELS"
+          find "$FOTUFILM_ANDROID_KERNELS" -maxdepth 1 -name '*.a' | sort | head
+
+      - name: Cache the arm64 codecs and FFmpeg
+        id: cache-codecs
+        uses: actions/cache@v4
+        with:
+          path: build/android-deps
+          key: codecs-${{ hashFiles('tools/build-android-codecs.sh') }}-ndk-r27c
+
+      - name: Build the arm64 codecs and FFmpeg
+        if: steps.cache-codecs.outputs.cache-hit != 'true'
+        run: |
+          ANDROID_NDK_HOME="$ANDROID_NDK_HOME" FOTUFILM_ANDROID_DEPS="$FOTUFILM_ANDROID_DEPS" \
+            tools/build-android-codecs.sh
+          test -f "$FOTUFILM_ANDROID_DEPS/arm64/lib/libjpeg.a" || { echo "::error::codecs missing"; exit 1; }
+
+      - name: Build libfotufilm.so (Swift engine + Halide kernels + codecs)
+        run: |
+          ANDROID_NDK_HOME="$ANDROID_NDK_HOME" \
+          SWIFT_TOOLCHAIN="$SWIFT_TOOLCHAIN" \
+          SWIFT_SDK="$SWIFT_SDK" \
+          HALIDE_ROOT="$HALIDE_ROOT" \
+          FOTUFILM_ANDROID_DEPS="$FOTUFILM_ANDROID_DEPS" \
+          FOTUFILM_ANDROID_KERNELS="$FOTUFILM_ANDROID_KERNELS" \
+            tools/build-android-engine.sh
+          engine=flutter/build/android-engine/jniLibs/$ABI
+          test -f "$engine/libfotufilm.so" || { echo "::error::no libfotufilm.so"; exit 1; }
+          file "$engine/libfotufilm.so"
+          echo "--- libraries riding with the engine ---"
+          find "$engine" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2
+          du -sh "$engine"
+
+      - name: Put the engine into android-shell/jniLibs/arm64-v8a
+        run: |
+          mkdir -p "android-shell/jniLibs/$ABI"
+          cp -a "flutter/build/android-engine/jniLibs/$ABI/." "android-shell/jniLibs/$ABI/"
+          find "android-shell/jniLibs/$ABI" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2
+
+      - name: Build and sign the APK
+        run: |
+          sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          [ -n "$sdk" ] || { echo "::error::no Android SDK on this runner"; exit 1; }
+          BUILD_TOOLS="$(find "$sdk/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)/"
+          ANDROID_JAR="$(find "$sdk/platforms" -maxdepth 2 -name android.jar | sort -V | tail -1)"
+          # JAVA_HOME_17_X64 is exported to steps by the runner; it is not in the env context.
+          JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
+          export BUILD_TOOLS ANDROID_JAR JAVA_HOME
+          export PATH="$JAVA_HOME/bin:$PATH"
+          echo "build-tools: $BUILD_TOOLS"
+          echo "android.jar: $ANDROID_JAR"
+          echo "java: $("$JAVA_HOME/bin/java" -version 2>&1 | head -1)"
+          FOTUFILM_REAL_ENGINE="$PWD/flutter/build/android-engine/jniLibs/$ABI/libfotufilm.so" \
+          FOTUFILM_ENGINE_JNILIBS="$PWD/android-shell/jniLibs/$ABI" \
+          BUILD_TOOLS="$BUILD_TOOLS" ANDROID_JAR="$ANDROID_JAR" JAVA_HOME="$JAVA_HOME" \
+          ANDROID_NDK_HOME="$ANDROID_NDK_HOME" \
+            ./android-shell/build.sh
+          test -f android-shell/out/FotufilmShell.apk || { echo "::error::no APK"; exit 1; }
+
+      - name: Check the APK carries a working arm64 library
+        run: |
+          libs=android-shell/jniLibs/$ABI
+          lib="$libs/libfotufilm.so"
+          readelf -h "$lib" | grep -q 'Machine:.*AArch64' || { echo "::error::not arm64"; exit 1; }
+          readelf -sW "$lib" | grep -q 'fotufilm_api_version' || { echo "::error::engine symbols missing"; exit 1; }
+          # Every DT_NEEDED must ship beside it, or the loader stops at the first miss.
+          missing=0
+          for needed in $(readelf -d "$lib" | sed -n 's/.*NEEDED.*\[\(.*\)\]/\1/p'); do
+            case "$needed" in libc.so|libdl.so|libm.so|liblog.so|libz.so|libandroid.so) continue ;; esac
+            if [ ! -f "$libs/$needed" ]; then echo "::error::missing $needed beside libfotufilm.so"; missing=1; fi
+          done
+          [ "$missing" = 0 ] || exit 1
+          unzip -l android-shell/out/FotufilmShell.apk | tail -5
+          counted=$(unzip -l android-shell/out/FotufilmShell.apk | grep -c "lib/$ABI/.*\.so" || true)
+          echo "$counted shared objects for $ABI inside the APK"
+          [ "${counted:-0}" -gt 0 ] || { echo "::error::the APK carries no $ABI library"; exit 1; }
+          ls -lh android-shell/out/FotufilmShell.apk
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Fotufilm arm64 APK"
+            echo
+            echo "| item | value |"
+            echo "| --- | --- |"
+            echo "| commit | \`$GITHUB_SHA\` |"
+            echo "| engine libraries | $(find "android-shell/jniLibs/$ABI" -maxdepth 1 -type f 2>/dev/null | wc -l) |"
+            echo "| APK size | $(du -h android-shell/out/FotufilmShell.apk 2>/dev/null | cut -f1) |"
+            echo "| libfotufilm.so | $(du -h "android-shell/out/lib/$ABI/libfotufilm.so" 2>/dev/null | cut -f1) |"
+            echo
+            echo '```'
+            find "android-shell/jniLibs/$ABI" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2 2>/dev/null || echo "no engine libraries"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fotufilm-apk-arm64
+          path: |
+            android-shell/out/FotufilmShell.apk
+            android-shell/out/lib/arm64-v8a/libfotufilm.so
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the engine libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: fotufilm-engine-arm64
+          path: android-shell/jniLibs/arm64-v8a/
+          if-no-files-found: error
+          retention-days: 14
