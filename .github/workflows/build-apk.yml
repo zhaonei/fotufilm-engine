@@ -328,50 +328,85 @@ jobs:
           find "$engine" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2
           du -sh "$engine"
 
-      - name: Put the engine into android-shell/jniLibs/arm64-v8a
+      - name: Put the engine where Gradle packages it from
+        # android-shell/build.sh only fills app/src/main/jniLibs/arm64-v8a/ now; the APK is
+        # Gradle's job, so the manifest, the resources table, the dex, the alignment and the
+        # signature all come from aapt2/d8/apksigner driven by AGP rather than by hand.
         run: |
-          mkdir -p "android-shell/jniLibs/$ABI"
-          cp -a "flutter/build/android-engine/jniLibs/$ABI/." "android-shell/jniLibs/$ABI/"
-          find "android-shell/jniLibs/$ABI" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2
+          FOTUFILM_REAL_ENGINE="$PWD/flutter/build/android-engine/jniLibs/$ABI/libfotufilm.so" \
+          FOTUFILM_ENGINE_JNILIBS="$PWD/flutter/build/android-engine/jniLibs/$ABI" \
+          ANDROID_NDK_HOME="$ANDROID_NDK_HOME" \
+            ./android-shell/build.sh
+          find "android-shell/app/src/main/jniLibs/$ABI" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2
 
-      - name: Build and sign the APK
+      - name: Ensure the SDK platform Gradle compiles against
         run: |
           sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           [ -n "$sdk" ] || { echo "::error::no Android SDK on this runner"; exit 1; }
-          BUILD_TOOLS="$(find "$sdk/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)/"
-          ANDROID_JAR="$(find "$sdk/platforms" -maxdepth 2 -name android.jar | sort -V | tail -1)"
-          # JAVA_HOME_17_X64 is exported to steps by the runner; it is not in the env context.
-          JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
-          export BUILD_TOOLS ANDROID_JAR JAVA_HOME
-          export PATH="$JAVA_HOME/bin:$PATH"
-          echo "build-tools: $BUILD_TOOLS"
-          echo "android.jar: $ANDROID_JAR"
-          echo "java: $("$JAVA_HOME/bin/java" -version 2>&1 | head -1)"
-          FOTUFILM_REAL_ENGINE="$PWD/flutter/build/android-engine/jniLibs/$ABI/libfotufilm.so" \
-          FOTUFILM_ENGINE_JNILIBS="$PWD/android-shell/jniLibs/$ABI" \
-          BUILD_TOOLS="$BUILD_TOOLS" ANDROID_JAR="$ANDROID_JAR" JAVA_HOME="$JAVA_HOME" \
-          ANDROID_NDK_HOME="$ANDROID_NDK_HOME" \
-            ./android-shell/build.sh
-          test -f android-shell/out/FotufilmShell.apk || { echo "::error::no APK"; exit 1; }
+          manager="$(find "$sdk/cmdline-tools" -maxdepth 2 -name sdkmanager 2>/dev/null | head -1)"
+          need=()
+          [ -d "$sdk/platforms/android-34" ] || need+=("platforms;android-34")
+          [ -d "$sdk/build-tools/34.0.0" ] || need+=("build-tools;34.0.0")
+          if [ "${#need[@]}" -gt 0 ] && [ -n "$manager" ]; then
+            echo "installing: ${need[*]}"
+            yes | "$manager" --licenses > /dev/null 2>&1 || true
+            "$manager" "${need[@]}"
+          fi
+          find "$sdk/platforms" -maxdepth 1 -mindepth 1 -printf '%f\n' | sort | head
+          find "$sdk/build-tools" -maxdepth 1 -mindepth 1 -printf '%f\n' | sort | tail -3
 
-      - name: Check the APK carries a working arm64 library
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build the APK with Gradle
+        working-directory: android-shell
         run: |
-          libs=android-shell/jniLibs/$ABI
-          lib="$libs/libfotufilm.so"
-          readelf -h "$lib" | grep -q 'Machine:.*AArch64' || { echo "::error::not arm64"; exit 1; }
-          readelf -sW "$lib" | grep -q 'fotufilm_api_version' || { echo "::error::engine symbols missing"; exit 1; }
-          # Every DT_NEEDED must ship beside it, or the loader stops at the first miss.
+          # JAVA_HOME_17_X64 comes from the runner's environment, not the env context.
+          JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
+          export JAVA_HOME
+          export PATH="$JAVA_HOME/bin:$PATH"
+          echo "java: $("$JAVA_HOME/bin/java" -version 2>&1 | head -1)"
+          android_home="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          printf 'sdk.dir=%s\n' "$android_home" > local.properties
+          # gradle-wrapper.jar is a binary, so it is not in the tree: generate the wrapper here
+          # and then build through it, so a checkout on a desk builds the same way.
+          gradle wrapper --gradle-version 8.9 --distribution-type bin
+          ./gradlew --no-daemon --stacktrace assembleDebug
+          ls -l app/build/outputs/apk/debug/
+          mkdir -p out
+          cp app/build/outputs/apk/debug/app-debug.apk out/FotufilmShell.apk
+
+      - name: Check the APK is what an installer expects
+        run: |
+          sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          BT="$(find "$sdk/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)"
+          apk=android-shell/out/FotufilmShell.apk
+          libs=android-shell/app/src/main/jniLibs/$ABI
+
+          # aapt2 reads the binary manifest and the resources table the way the installer does.
+          "$BT/aapt2" dump badging "$apk" | head -8
+          "$BT/aapt2" dump badging "$apk" | grep -q "native-code: 'arm64-v8a'" ||
+            { echo "::error::the APK declares no arm64-v8a native code"; exit 1; }
+          unzip -l "$apk" | grep -q 'resources.arsc' ||
+            { echo "::error::the APK carries no resources.arsc, which aapt2 always writes"; exit 1; }
+
+          JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
+          "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" verify --verbose "$apk" | head -6
+
+          readelf -h "$libs/libfotufilm.so" | grep -q 'Machine:.*AArch64' ||
+            { echo "::error::not arm64"; exit 1; }
+          readelf -sW "$libs/libfotufilm.so" | grep -q 'fotufilm_api_version' ||
+            { echo "::error::engine symbols missing"; exit 1; }
           missing=0
-          for needed in $(readelf -d "$lib" | sed -n 's/.*NEEDED.*\[\(.*\)\]/\1/p'); do
+          for needed in $(readelf -d "$libs/libfotufilm.so" | sed -n 's/.*NEEDED.*\[\(.*\)\]/\1/p'); do
             case "$needed" in libc.so|libdl.so|libm.so|liblog.so|libz.so|libandroid.so) continue ;; esac
-            if [ ! -f "$libs/$needed" ]; then echo "::error::missing $needed beside libfotufilm.so"; missing=1; fi
+            if [ ! -f "$libs/$needed" ]; then echo "::error::missing $needed"; missing=1; fi
           done
           [ "$missing" = 0 ] || exit 1
-          unzip -l android-shell/out/FotufilmShell.apk | tail -5
-          counted=$(unzip -l android-shell/out/FotufilmShell.apk | grep -c "lib/$ABI/.*\.so" || true)
-          echo "$counted shared objects for $ABI inside the APK"
-          [ "${counted:-0}" -gt 0 ] || { echo "::error::the APK carries no $ABI library"; exit 1; }
-          ls -lh android-shell/out/FotufilmShell.apk
+          unzip -l "$apk" | grep -c "lib/$ABI/.*\.so" || true
+          ls -lh "$apk"
 
       - name: Diagnostics on failure
         if: failure()
@@ -393,12 +428,12 @@ jobs:
             echo "| item | value |"
             echo "| --- | --- |"
             echo "| commit | \`$GITHUB_SHA\` |"
-            echo "| engine libraries | $(find "android-shell/jniLibs/$ABI" -maxdepth 1 -type f 2>/dev/null | wc -l) |"
+            echo "| engine libraries | $(find "android-shell/app/src/main/jniLibs/$ABI" -maxdepth 1 -type f 2>/dev/null | wc -l) |"
             echo "| APK size | $(du -h android-shell/out/FotufilmShell.apk 2>/dev/null | cut -f1) |"
-            echo "| libfotufilm.so | $(du -h "android-shell/out/lib/$ABI/libfotufilm.so" 2>/dev/null | cut -f1) |"
+            echo "| libfotufilm.so | $(du -h "android-shell/app/src/main/jniLibs/$ABI/libfotufilm.so" 2>/dev/null | cut -f1) |"
             echo
             echo '```'
-            find "android-shell/jniLibs/$ABI" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2 2>/dev/null || echo "no engine libraries"
+            find "android-shell/app/src/main/jniLibs/$ABI" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2 2>/dev/null || echo "no engine libraries"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -408,7 +443,7 @@ jobs:
           name: fotufilm-apk-arm64
           path: |
             android-shell/out/FotufilmShell.apk
-            android-shell/out/lib/arm64-v8a/libfotufilm.so
+            android-shell/app/src/main/jniLibs/arm64-v8a/libfotufilm.so
           if-no-files-found: error
           retention-days: 14
 
@@ -416,6 +451,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fotufilm-engine-arm64
-          path: android-shell/jniLibs/arm64-v8a/
+          path: android-shell/app/src/main/jniLibs/arm64-v8a/
           if-no-files-found: error
           retention-days: 14

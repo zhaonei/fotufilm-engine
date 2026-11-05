@@ -1,4 +1,7 @@
 out/
 build/
-jniLibs/
+.gradle/
+local.properties
+app/build/
+app/src/main/jniLibs/
 debug.keystore

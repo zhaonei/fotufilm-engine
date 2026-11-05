@@ -1,18 +1,22 @@
 # android-shell
 
-The smallest Android app that loads the engine through JNI: a `libfotufilm.so` for arm64, a Java
-activity that calls it, and a build that needs neither Gradle nor aapt2 nor an x86-64 compiler.
+The smallest Android app that loads the engine through JNI: a standard Gradle project whose
+`arm64-v8a` libraries are `libfotufilm.so` plus whatever rides beside it.
 
 ```
 android-shell/
-├── CMakeLists.txt                 libfotufilm.so (CMake drives either toolchain below)
-├── build.sh                       → out/FotufilmShell.apk
+├── settings.gradle.kts, build.gradle.kts, gradle.properties    AGP 8.7.3 / Gradle 8.9
+├── app/build.gradle.kts                                        namespace, sdk levels, jniLibs
+├── app/src/main/
+│   ├── AndroidManifest.xml                                     aapt2 turns this into the binary one
+│   ├── java/com/fotufilm/shell/{MainActivity,Shell}.java        the activity and the native calls
+│   └── jniLibs/arm64-v8a/                                      written by ./build.sh, not committed
+├── build.sh                    builds or copies the native libraries into jniLibs
+├── CMakeLists.txt              libfotufilm.so from jni/ (placeholder engine, real ABI)
 ├── cmake/host-aarch64-android28.cmake   toolchain for hosts the NDK ships no compiler for
 ├── toolchain/aarch64-linux-android28-clang{,++}
-├── jni/fotufilm_jni.cpp           the JNI bridge: only ever calls fotufilm.h
-├── jni/fotufilm_engine_stub.cpp   placeholder engine, same ABI (see below)
-├── app/                           AndroidManifest.xml + the activity
-└── tools/mkaxml.py                binary XML manifest writer
+├── jni/fotufilm_jni.cpp        the JNI bridge: only ever calls fotufilm.h
+└── jni/fotufilm_engine_stub.cpp   placeholder engine, same ABI (see below)
 ```
 
 ## What it talks to
@@ -29,19 +33,21 @@ nothing else, so the shell keeps working when the library behind it changes:
 
 ## Building
 
-Needs: clang + lld, cmake + ninja (or `FOTUFILM_DIRECT_CLANG=1`), JDK 17, python3, zip, an
-unpacked NDK (r26+), and the SDK's `build-tools` (`d8.jar`, `apksigner.jar`) plus a platform
-`android.jar`.
+Two steps: the native libraries, then Gradle.
 
 ```sh
 export ANDROID_NDK_HOME=~/Android/Sdk/ndk/27.2.12479018
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
-export BUILD_TOOLS=~/Android/Sdk/build-tools/35.0.0
-export ANDROID_JAR=~/Android/Sdk/platforms/android-35/android.jar
-./android-shell/build.sh
+./android-shell/build.sh                 # → app/src/main/jniLibs/arm64-v8a/libfotufilm.so
+
+cd android-shell
+./gradlew assembleDebug                  # → app/build/outputs/apk/debug/app-debug.apk
 ```
 
-`FOTUFILM_PLACEHOLDER_ENGINE` chooses what is inside the library:
+`gradle-wrapper.jar` is a binary and is not in the tree; run `gradle wrapper --gradle-version 8.9`
+once to generate the wrapper (the workflow does exactly that), or use `gradle assembleDebug`
+directly.
+
+`FOTUFILM_PLACEHOLDER_ENGINE` in `CMakeLists.txt` chooses what is inside the library:
 
 * **on** (default) — `jni/fotufilm_engine_stub.cpp`, which implements every symbol of the real ABI
   and answers `FOTUFILM_ERROR` with an explaining string. The shell, the loader path, the JNI
@@ -51,7 +57,7 @@ export ANDROID_JAR=~/Android/Sdk/platforms/android-35/android.jar
 ### The genuine engine
 
 `tools/build-android-engine.sh` produces `flutter/build/android-engine/jniLibs/arm64-v8a/` — that
-library plus the Swift runtime and FFmpeg beside it. Point the shell at it and rebuild:
+library plus the Swift runtime and FFmpeg beside it. `build.sh` copies them in, shebang-style:
 
 ```sh
 FOTUFILM_REAL_ENGINE=flutter/build/android-engine/jniLibs/arm64-v8a/libfotufilm.so \
@@ -60,6 +66,18 @@ FOTUFILM_ENGINE_JNILIBS=flutter/build/android-engine/jniLibs/arm64-v8a \
 ```
 
 No Java or JNI change is involved: same symbols, same semantics.
+
+## Why Gradle rather than d8 + apksigner by hand
+
+The manifest, the resources table (`resources.arsc`), the dex, the zip alignment and the signature
+all come from aapt2/d8/apksigner driven by AGP, which is the combination every installer is tested
+against. An earlier version of this directory assembled those by hand — including a Python writer
+for the binary manifest, because the SDK's aapt2 is an x86-64 binary — and an OEM installer
+refused the result with "解析软件包时出现问题". Gradle removes that variable.
+
+`packaging { jniLibs { useLegacyPackaging = true } }` sets `extractNativeLibs="true"`: the
+libraries are extracted at install time instead of being mapped out of the APK, which needs no
+page alignment and is the safer of the two for an app carrying a Swift runtime and FFmpeg.
 
 ## Notes on hosts
 
@@ -73,10 +91,8 @@ The NDK ships compilers for x86-64 and Apple hosts only, so `build.sh` picks its
   `-lssp_nonshared` (an empty archive answers it) and clang++'s default `-lc++`, which would
   otherwise resolve to a `libc++_shared.so` no device ships.
 
-The manifest is written as binary XML by `tools/mkaxml.py`: aapt2 is an x86-64 binary, and the
-manifest declares no resources, so no `resources.arsc` is needed. `d8` and `apksigner` are pure
-Java and run anywhere a JDK does. The APK is signed with a throwaway `debug.keystore`
-(`storepass`/`keypass` = `android`) that `build.sh` creates — replace it for anything you ship.
+Gradle itself needs an x86-64 host (AGP's aapt2 and its other tools are x86-64 binaries), so the
+APK is built in CI or on a desktop, not on the phone.
 
 See `BUILD-REPORT.md` for what was measured while getting this to build, including the error
 messages the official pipeline gives on an aarch64/musl host.

@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.fotufilm.shell"
-    android:versionCode="1"
-    android:versionName="1.0">
+<!--
+  The manifest aapt2 turns into the binary one Android reads. Neither the package name nor the
+  version live here: Gradle 8 takes the namespace from app/build.gradle.kts and writes
+  versionCode/versionName itself.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />
 

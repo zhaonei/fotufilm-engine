@@ -10,8 +10,8 @@
 | --- | --- |
 | 1. 克隆仓库 | ✅ 完成（`git clone` 被网络重置，改用 codeload tarball） |
 | 2. 定位 Android 交叉编译脚本 | ✅ `tools/build-android-engine.sh`（+ `build-android-codecs.sh`、`generate-halide-aot-android.sh`） |
-| 3. 交叉编译出 arm64 `libfotufilm.so` | ⚠️ **产出了** `android-shell/out/lib/arm64-v8a/libfotufilm.so`（真实 arm64 ELF、JNI 导出、只依赖 libc/libdl），但**里面是占位引擎，不是 Swift+Halide 真引擎** |
-| 4. JNI 壳 + 打包 APK | ✅ `android-shell/out/FotufilmShell.apk`（已签名、清单经独立解析器验证正确） |
+| 3. 交叉编译出 arm64 `libfotufilm.so` | ⚠️ **产出了** `android-shell/app/src/main/jniLibs/arm64-v8a/libfotufilm.so`（真实 arm64 ELF、JNI 导出、只依赖 libc/libdl），但**里面是占位引擎，不是 Swift+Halide 真引擎** |
+| 4. JNI 壳 + 打包 APK | ✅ 标准 Gradle 工程，`./gradlew assembleDebug` 出 APK（aapt2 清单、resources.arsc、zipalign、AGP 签名齐备） |
 
 **为什么真引擎没编出来**：不是脚本写错，而是这台机器缺两样东西，且都不是 `apk add` 能补的：
 
@@ -99,18 +99,22 @@ clang --target=aarch64-linux-android28 \
 - `jni/fotufilm_engine_stub.cpp`：按 **真实的 `fotufilm.h` ABI** 实现全部导出符号（占位语义，见文件头注释）。
 - `jni/fotufilm_jni.cpp`：`Java_com_fotufilm_shell_Shell_*` 四个 JNI 入口，只走公开 C API。
 - `app/src/…`：Java 壳，`System.loadLibrary("fotufilm")` → 调 API → 结果贴到界面 + logcat。
-- `tools/mkaxml.py`：**手写二进制 XML（AXML）**（string pool / resource map / 元素树），
-  因为 aapt2 只有 x86-64 版；清单不引用任何资源，所以不需要 `resources.arsc`。
-- dex 与签名：`build-tools` 里的 `d8.jar`、`apksigner.jar` 是纯 Java，在 arm64 的 JDK 17 上正常跑。
+- ~~`tools/mkaxml.py`：手写二进制 XML（AXML）~~ + `d8` + `apksigner` 手动打包——**已废弃**。
+  这条路能得到结构正确的 APK（pyaxmlparser、apksigner 都认），但 VIVO 真机安装时报
+  “解析软件包时出现问题”，而这些恰好是整套流程里唯一非标准的一环（没有 aapt2 生成的
+  `resources.arsc`、没有 zipalign）。现在改为标准 Gradle 工程：清单、资源表、dex、对齐、
+  签名全部由 AGP 驱动 aapt2/d8/apksigner 产出。
 
-一键：`./android-shell/build.sh` → `android-shell/out/FotufilmShell.apk`（环境变量见 `android-shell/README.md`）。
+两步：`./android-shell/build.sh` 产出原生库到 `app/src/main/jniLibs/arm64-v8a/`，
+再 `cd android-shell && ./gradlew assembleDebug` 出 `app/build/outputs/apk/debug/app-debug.apk`（见 `android-shell/README.md`）。
 `.so` 的编译走 `android-shell/CMakeLists.txt`：x86-64/macOS 宿主用 NDK 自带的
 `android.toolchain.cmake`，aarch64 Linux 宿主用 `cmake/host-aarch64-android28.cmake` 驱动本机 clang；
 `FOTUFILM_DIRECT_CLANG=1` 则跳过 CMake 直接调 `toolchain/` 里的包装器（三条路径都实测过）。
 
 ### 4) 验证做到了哪一步
 
-- `apksigner verify` 通过（v1 + v2 scheme）。
+- CI 里改用 `aapt2 dump badging` 校验清单（package / sdk / native-code ABI），并要求 APK 内含
+  `resources.arsc`——这两项正是安装器最先读的东西；`apksigner verify` 同时跑。
 - 用**独立实现** pyaxmlparser 解析 APK（不是我自己的编码器，避免自证）：
   ```
   package   : com.fotufilm.shell
@@ -150,12 +154,14 @@ tools/build-android-engine.sh        # → flutter/build/android-engine/jniLibs/
 拿到真 `libfotufilm.so` 后，一条命令重打包（Java/JNI 侧一行都不用改，JNI 只调 `fotufilm.h` 的公开符号）：
 
 ```sh
-FOTUFILM_REAL_ENGINE=/path/to/flutter/build/android-engine/jniLibs/arm64-v8a/libfotufilm.so ./build.sh
+FOTUFILM_REAL_ENGINE=/path/to/flutter/build/android-engine/jniLibs/arm64-v8a/libfotufilm.so \
+FOTUFILM_ENGINE_JNILIBS=/path/to/flutter/build/android-engine/jniLibs/arm64-v8a \
+  ./android-shell/build.sh   # 然后 cd android-shell && ./gradlew assembleDebug
 ```
 
 注意：真引擎的 `.so` 还带着 Swift 运行时（`libswiftCore.so` 等）和 FFmpeg，`tools/build-android-engine.sh`
-会把它们一起放进 `jniLibs/arm64-v8a/`。那样需要把它们一并拷进 APK 的 `lib/arm64-v8a/`，
-`build.sh` 里第 4 步只要多 `cp` 一次整个 `jniLibs` 目录即可。
+会把它们一起放进 `jniLibs/arm64-v8a/`；`FOTUFILM_ENGINE_JNILIBS=` 把它们整个拷进
+`app/src/main/jniLibs/arm64-v8a/`，Gradle 随后原样打进 APK。
 
 ### 路线 B：就在这台 aarch64 机器上硬啃（我没做，风险清单）
 
@@ -180,8 +186,10 @@ android-shell/
 ├── jni/fotufilm_engine_stub.cpp  按 fotufilm.h ABI 的占位引擎（含真错误串）
 ├── jni/fotufilm_jni.cpp          JNI 桥
 ├── app/AndroidManifest.xml + app/src/…/Shell.java, MainActivity.java
-├── tools/mkaxml.py               二进制清单编码器（替代 x86-64 的 aapt2）
-└── out/                          构建产物（.gitignore 忽略）
+├── settings.gradle.kts / build.gradle.kts / gradle.properties   AGP 8.7.3 + Gradle 8.9
+├── app/build.gradle.kts          namespace、sdk 级别、jniLibs 打包方式
+├── app/src/main/AndroidManifest.xml + java/com/fotufilm/shell/…  标准源集
+└── app/src/main/jniLibs/arm64-v8a/   原生库落点（build.sh 写入，.gitignore 忽略）
 ```
 
 ## 附录 A：NDK 宿主编译器无法执行
