@@ -1,4 +1,4 @@
-name: Build Fotufilm Android (Halide v21 + Cached)
+name: Build Fotufilm Android (Halide v21 + Robust Header Copy)
 
 on:
   workflow_dispatch:
@@ -102,14 +102,12 @@ jobs:
           mkdir -p $HOME/.swiftpm/swift-sdks
           cp -r swift-sdks/* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
 
-      # 🚀 核心增加：缓存 Halide 编译产物
       - name: Cache Halide Dist
         uses: actions/cache@v4
         id: cache-halide
         with:
           path: Halide-dist
-          # 缓存 Key 包含了版本号，如果你以后想强制重新编译 Halide，只需把 v1 改成 v2 即可
-          key: ${{ runner.os }}-halide-${{ env.HALIDE_VERSION }}-patched-v1
+          key: ${{ runner.os }}-halide-${{ env.HALIDE_VERSION }}-patched-v2 # 更改了缓存 Key，强制刷新
 
       - name: Build Halide (Smart Patch - v21)
         if: steps.cache-halide.outputs.cache-hit != 'true'
@@ -146,8 +144,18 @@ jobs:
           rm -rf "$HALIDE_DIST"
           mkdir -p "$HALIDE_DIST/include" "$HALIDE_DIST/lib"
           
-          # 🚀 核心修复：精确拷贝所有所需的头文件（解决 previous crash）
-          find . \( -name "Halide.h" -o -name "HalideBuffer.h" -o -name "HalideRuntime*.h" \) -exec cp {} "$HALIDE_DIST/include/" \;
+          echo "=== 从源码和系统目录兜底复制所需头文件 ==="
+          # 从 Halide 源码的 src/runtime/ 目录复制运行时头文件
+          cp -v ../src/runtime/HalideBuffer.h "$HALIDE_DIST/include/" 2>/dev/null || echo "⚠️ HalideBuffer.h not found in src/runtime"
+          cp -v ../src/runtime/HalideRuntime*.h "$HALIDE_DIST/include/" 2>/dev/null || echo "⚠️ HalideRuntime*.h not found in src/runtime"
+          
+          # 兜底：从系统安装目录查找并复制（如果 CMake 已经安装到系统）
+          find /usr/local/include /usr/include -name "HalideBuffer.h" -exec cp -v {} "$HALIDE_DIST/include/" \; 2>/dev/null
+          find /usr/local/include /usr/include -name "HalideRuntime*.h" -exec cp -v {} "$HALIDE_DIST/include/" \; 2>/dev/null
+          find /usr/local/include /usr/include -name "Halide.h" -exec cp -v {} "$HALIDE_DIST/include/" \; 2>/dev/null
+          
+          # 最后兜底：从构建目录里找
+          find . -name "Halide.h" -exec cp -v {} "$HALIDE_DIST/include/" \; 2>/dev/null
           
           # 拷贝带版本号的动态库
           find . -name "libHalide.so*" -exec cp -P {} "$HALIDE_DIST/lib/" \;
@@ -260,5 +268,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Fotufilm-Halide-v21-Cached-APK
+          name: Fotufilm-Halide-v21-Robust-APK
           path: build/flutter-host/Fotufilm.apk
