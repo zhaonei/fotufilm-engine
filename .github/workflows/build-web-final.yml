@@ -1,4 +1,4 @@
-name: Deploy Fotufilm Web (Official Build + PWA)
+name: Deploy Fotufilm Web (Pure Official Test)
 
 on:
   workflow_dispatch:
@@ -32,13 +32,12 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 1. 安装官方 web 目录依赖 (Vite 等)
       - name: Install Web Dependencies
         run: |
           cd web
           npm ci
 
-      # 2. 直接调用官方构建脚本 (处理 WASM 编译和 Vite 打包)
+      # 纯官方脚本编译，不加任何私货
       - name: Build Web using Official Script
         run: |
           export FOTUFILM_BASE=/fotufilm-engine/
@@ -46,54 +45,10 @@ jobs:
           chmod +x tool/build-web.sh
           ./tool/build-web.sh
 
-      # 3. 核心修复：解决子目录部署导致的 assets/assets 嵌套 404 问题
-      - name: Fix Assets Nested Path
-        run: |
-          ASSETS_DIR="flutter/build/web/assets"
-          if [ -d "$ASSETS_DIR/assets" ]; then
-            echo "🔧 检测到 assets/assets 嵌套，正在搬移文件..."
-            cp -rf "$ASSETS_DIR/assets/"* "$ASSETS_DIR/"
-            rm -rf "$ASSETS_DIR/assets"
-            echo "✅ 嵌套路径修复完成"
-          fi
-
       - name: Prepare deployment directory
         run: |
           mkdir -p deploy
           cp -r flutter/build/web/* deploy/
-          if [ -f "coi-serviceworker.js" ]; then cp coi-serviceworker.js deploy/; fi
-
-      # 4. 注入跨源隔离脚本与 PWA Manifest (解锁多线程 + 可安装)
-      - name: Inject Cross-Origin Isolation & PWA
-        run: |
-          INDEX="deploy/index.html"
-          # 注入多线程隔离脚本
-          sed -i 's|<head>|<head>\n    <script src="coi-serviceworker.js"></script>|' "$INDEX"
-          
-          # 生成 PWA Manifest
-          cat > deploy/manifest.json <<'EOF'
-          {
-            "name": "Fotufilm",
-            "short_name": "Fotufilm",
-            "start_url": "./index.html",
-            "display": "standalone",
-            "background_color": "#121212",
-            "theme_color": "#121212",
-            "icons": [
-              {
-                "src": "icons/Icon-192.png",
-                "sizes": "192x192",
-                "type": "image/png"
-              },
-              {
-                "src": "icons/Icon-512.png",
-                "sizes": "512x512",
-                "type": "image/png"
-              }
-            ]
-          }
-          EOF
-          sed -i 's|</head>|    <link rel="manifest" href="manifest.json">\n</head>|' "$INDEX"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
