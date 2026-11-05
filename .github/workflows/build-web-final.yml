@@ -1,4 +1,4 @@
-name: Deploy Fotufilm Web (Pure Official Test)
+name: Deploy Fotufilm Web (Pure Official + Eruda Console)
 
 on:
   workflow_dispatch:
@@ -37,7 +37,6 @@ jobs:
           cd web
           npm ci
 
-      # 纯官方脚本编译，不加任何私货
       - name: Build Web using Official Script
         run: |
           export FOTUFILM_BASE=/fotufilm-engine/
@@ -49,6 +48,16 @@ jobs:
         run: |
           mkdir -p deploy
           cp -r flutter/build/web/* deploy/
+
+      # 🚀 注入神器 Eruda，让你直接在网页上看控制台
+      - name: Inject Eruda Console for Debugging
+        run: |
+          INDEX="deploy/index.html"
+          # 将 Eruda 注入到 head 最前面
+          sed -i 's|<head>|<head>\n    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>\n    <script>eruda.init();</script>|' "$INDEX"
+          
+          echo "=== 注入后检查 ==="
+          head -n 10 "$INDEX"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
