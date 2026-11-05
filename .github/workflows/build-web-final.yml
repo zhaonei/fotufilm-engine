@@ -37,6 +37,7 @@ jobs:
           cd web
           npm ci
 
+      # 1. 纯官方脚本编译
       - name: Build Web using Official Script
         run: |
           export FOTUFILM_BASE=/fotufilm-engine/
@@ -44,20 +45,29 @@ jobs:
           chmod +x tool/build-web.sh
           ./tool/build-web.sh
 
-      # 🚀 终极暴力修复：解决 assets/assets 嵌套引发的 404
-      - name: Force Fix Assets Nested Path
+      # 🚀 2. 终极修复：双管齐下，既改清单，又移文件
+      - name: Force Fix Assets & Manifest
         run: |
           cd flutter/build/web
+          
+          echo "=== 1. 修复 AssetManifest 清单 ==="
+          if [ -f "AssetManifest.json" ]; then
+            sed -i 's|"assets/assets/|"assets/|g' AssetManifest.json
+            echo "✅ AssetManifest.json 路径已修正"
+          fi
+          if [ -f "AssetManifest.bin.json" ]; then
+            sed -i 's|"assets/assets/|"assets/|g' AssetManifest.bin.json
+            echo "✅ AssetManifest.bin.json 路径已修正"
+          fi
+
+          echo "=== 2. 移动物理文件 ==="
           if [ -d "assets/assets" ]; then
-            echo "🔧 检测到嵌套，正在暴力提权..."
-            # 把内层 assets 文件夹直接重命名为 assets 内的内容
-            mv assets/assets/* assets/
-            rmdir assets/assets
-            echo "✅ 嵌套已彻底删除"
+            cp -rf assets/assets/* assets/
+            rm -rf assets/assets
+            echo "✅ 物理文件已成功上移"
           fi
           
-          # 验证 controls.json 是否已经在正确位置
-          echo "=== 检查文件位置 ==="
+          echo "=== 3. 验证最终文件位置 ==="
           ls -la assets/generated/controls.json || echo "⚠️ 警告：文件依然不存在！"
 
       - name: Prepare deployment directory
@@ -65,7 +75,7 @@ jobs:
           mkdir -p deploy
           cp -r flutter/build/web/* deploy/
 
-      # 🚀 注入神器 Eruda 控制台（方便你随时看报错）
+      # 3. 注入神器 Eruda 控制台
       - name: Inject Eruda Console
         run: |
           INDEX="deploy/index.html"
