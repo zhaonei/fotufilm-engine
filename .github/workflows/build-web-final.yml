@@ -1,11 +1,16 @@
-name: Build Fotufilm Android (Halide v21 + Robust Header Copy)
+name: Deploy Flutter Web (WASM + Cross-Origin Isolation)
 
 on:
   workflow_dispatch:
 
-env:
-  NDK_VERSION: 'r27d'
-  HALIDE_VERSION: 'v21.0.0'
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -15,258 +20,53 @@ jobs:
         uses: actions/checkout@v4
         with: { submodules: recursive }
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with: { distribution: 'zulu', java-version: '17' }
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
-        with: { flutter-version: '3.29.3', cache: true }
-
-      - name: Install System Dependencies & LLVM 21
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config git
-          sudo apt-get install -y libedit-dev libz3-dev libffi-dev libncurses5-dev
-          sudo apt-get install -y zlib1g-dev libzstd-dev liblz4-dev libbz2-dev liblzma-dev
-          sudo apt-get install -y libjpeg-dev libpng-dev libtiff-dev libwebp-dev
-          sudo apt-get install -y libxml2-dev libexpat1-dev libssl-dev libcurl4-openssl-dev
-          sudo apt-get install -y libpython3-dev python3-dev swig automake autoconf libtool
-          
-          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main"
-          sudo apt-get update
-          sudo apt-get install -y llvm-21-dev clang-21 lld-21 libclang-21-dev liblld-21-dev
-          
-          sudo ln -sf /usr/bin/llvm-config-21 /usr/local/bin/llvm-config
-          sudo ln -sf /usr/bin/clang-21 /usr/local/bin/clang
-          sudo ln -sf /usr/bin/clang++-21 /usr/local/bin/clang++
-          sudo ln -sf /usr/bin/lld-21 /usr/local/bin/lld
-
-      - name: Setup Swap (8G)
-        run: |
-          sudo swapoff -a || true
-          sudo rm -f /swapfile
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-
-      - name: Cache Swift Host
-        uses: actions/cache@v4
-        id: cache-swift-host
         with:
-          path: swift-host
-          key: ${{ runner.os }}-swift-6.3.3-host
-
-      - name: Download Swift Host
-        if: steps.cache-swift-host.outputs.cache-hit != 'true'
-        run: |
-          curl -L -C - -o swift.tar.gz https://download.swift.org/swift-6.3.3-release/ubuntu2204/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubuntu22.04.tar.gz
-          tar -xzf swift.tar.gz
-          mv swift-6.3.3-RELEASE-ubuntu22.04 swift-host
-          rm swift.tar.gz
-
-      - name: Cache Android NDK
-        uses: actions/cache@v4
-        id: cache-ndk
-        with:
-          path: android-ndk-r27d
-          key: ${{ runner.os }}-ndk-r27d
-
-      - name: Download Android NDK
-        if: steps.cache-ndk.outputs.cache-hit != 'true'
-        run: |
-          curl -L -C - -o ndk.zip https://dl.google.com/dl/android/repository/android-ndk-r27d-linux.zip
-          unzip -q ndk.zip
-          rm ndk.zip
-
-      - name: Cache Swift Android SDK
-        uses: actions/cache@v4
-        id: cache-swift-sdk
-        with:
-          path: swift-sdks
-          key: ${{ runner.os }}-swift-6.3.3-android
-
-      - name: Download Swift Android SDK
-        if: steps.cache-swift-sdk.outputs.cache-hit != 'true'
-        run: |
-          curl -L -C - -o swift-android.tar.gz https://download.swift.org/swift-6.3.3-release/android-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_android.artifactbundle.tar.gz
-          mkdir -p swift-sdks
-          mv swift-android.tar.gz swift-sdks/
-          cd swift-sdks && tar -xzf swift-android.tar.gz
-          rm swift-android.tar.gz
-
-      - name: Setup Swift SDK Path
-        run: |
-          mkdir -p $HOME/.swiftpm/swift-sdks
-          cp -r swift-sdks/* $HOME/.swiftpm/swift-sdks/ 2>/dev/null || true
-
-      - name: Cache Halide Dist
-        uses: actions/cache@v4
-        id: cache-halide
-        with:
-          path: Halide-dist
-          key: ${{ runner.os }}-halide-${{ env.HALIDE_VERSION }}-patched-v2 # 更改了缓存 Key，强制刷新
-
-      - name: Build Halide (Smart Patch - v21)
-        if: steps.cache-halide.outputs.cache-hit != 'true'
-        run: |
-          git clone https://github.com/halide/Halide.git -b ${{ env.HALIDE_VERSION }} --depth 1
-          cd Halide
-          
-          echo "=== 尝试智能应用官方 Vulkan 补丁 ==="
-          git apply --3way ../tools/halide-vulkan-strict-float.patch || echo "⚠️ Patch 1 failed, skipping."
-          git apply --3way ../tools/halide-vulkan-bool-uniforms.patch || echo "⚠️ Patch 2 failed, skipping."
-          git apply --3way ../tools/halide-vulkan-allocation-padding.patch || echo "⚠️ Patch 3 failed, skipping."
-          
-          echo "=== 修复 FlatBuffers 编译警告 ==="
-          find . -path "*/flatbuffers/CMakeLists.txt" -exec sed -i 's/-Werror/-Wno-error/g' {} +
-          
-          mkdir build && cd build
-          
-          cmake .. -G Ninja \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm \
-            -DClang_DIR=/usr/lib/llvm-21/lib/cmake/clang \
-            -DLLD_DIR=/usr/lib/llvm-21/lib/cmake/lld \
-            -DHalide_SHARED_LLVM=YES \
-            -DCMAKE_CXX_FLAGS="-DHALIDE_RUNTIME_BUFFER_USE_ALIGNED_ALLOC=0" \
-            -DTARGET_WEBASSEMBLY=OFF \
-            -DTARGET_VULKAN=ON \
-            -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_PYTHON_BINDINGS=OFF
-          
-          ninja
-          
-          HALIDE_DIST="$GITHUB_WORKSPACE/Halide-dist"
-          rm -rf "$HALIDE_DIST"
-          mkdir -p "$HALIDE_DIST/include" "$HALIDE_DIST/lib"
-          
-          echo "=== 从源码和系统目录兜底复制所需头文件 ==="
-          # 从 Halide 源码的 src/runtime/ 目录复制运行时头文件
-          cp -v ../src/runtime/HalideBuffer.h "$HALIDE_DIST/include/" 2>/dev/null || echo "⚠️ HalideBuffer.h not found in src/runtime"
-          cp -v ../src/runtime/HalideRuntime*.h "$HALIDE_DIST/include/" 2>/dev/null || echo "⚠️ HalideRuntime*.h not found in src/runtime"
-          
-          # 兜底：从系统安装目录查找并复制（如果 CMake 已经安装到系统）
-          find /usr/local/include /usr/include -name "HalideBuffer.h" -exec cp -v {} "$HALIDE_DIST/include/" \; 2>/dev/null
-          find /usr/local/include /usr/include -name "HalideRuntime*.h" -exec cp -v {} "$HALIDE_DIST/include/" \; 2>/dev/null
-          find /usr/local/include /usr/include -name "Halide.h" -exec cp -v {} "$HALIDE_DIST/include/" \; 2>/dev/null
-          
-          # 最后兜底：从构建目录里找
-          find . -name "Halide.h" -exec cp -v {} "$HALIDE_DIST/include/" \; 2>/dev/null
-          
-          # 拷贝带版本号的动态库
-          find . -name "libHalide.so*" -exec cp -P {} "$HALIDE_DIST/lib/" \;
-          
-          echo "=== Halide-dist/include 内容 ==="
-          ls -la "$HALIDE_DIST/include"
-          echo "=== Halide-dist/lib 内容 ==="
-          ls -la "$HALIDE_DIST/lib"
-          
-          echo "HALIDE_ROOT=$HALIDE_DIST" >> $GITHUB_ENV
+          flutter-version: '3.29.3'
+          cache: true
 
       - name: Fix Dart SDK & Pubspec
         run: |
           sed -i 's/sdk: .\+/sdk: ">=3.0.0 <4.0.0"/g' flutter/pubspec.yaml || true
+          cd flutter
+          flutter pub remove flutter_test || true
+          flutter pub add dev:flutter_test --sdk=flutter
 
-      - name: Install Swift Drain & Vulkan Guard Hooks
+      # 🚀 核心：使用 WASM 构建，性能接近原生
+      - name: Build Flutter Web (WASM)
         run: |
-          CPP_DIR="flutter/android/app/src/main/cpp"
-          mkdir -p "$CPP_DIR"
+          cd flutter
+          flutter pub get
+          flutter build web --wasm --release --no-web-resources-cdn
+          cd ..
 
-          cat > "$CPP_DIR/swift_main_drain.c" <<'EOF'
-          #include <jni.h>
-          #include <android/log.h>
-          extern void _dispatch_main_queue_callback_4CF(void *msg);
-          JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
-              __android_log_print(ANDROID_LOG_INFO, "Fotufilm", "JNI_OnLoad: Swift drain hook ready");
-              return JNI_VERSION_1_6;
-          }
-          void fotufilm_drain_swift_main_queue(void) {
-              _dispatch_main_queue_callback_4CF(NULL);
-          }
-          EOF
-
-          cat > "$CPP_DIR/halide_vulkan_guard.c" <<'EOF'
-          #include <pthread.h>
-          #include <unistd.h>
-          #include <stdatomic.h>
-          #include <android/log.h>
-
-          extern int fotufilm_aot_vulkan_halide_vulkan_device_init(void) __attribute__((weak));
-
-          static atomic_int vulkan_init_done = 0;
-          static atomic_int vulkan_init_ok = 0;
-
-          static void* vulkan_init_thread(void* arg) {
-              int r = -1;
-              if (fotufilm_aot_vulkan_halide_vulkan_device_init) {
-                  r = fotufilm_aot_vulkan_halide_vulkan_device_init();
-              }
-              atomic_store(&vulkan_init_ok, (r == 0));
-              atomic_store(&vulkan_init_done, 1);
-              return NULL;
-          }
-
-          int fotufilm_init_vulkan_with_timeout(int timeout_ms) {
-              if (!fotufilm_aot_vulkan_halide_vulkan_device_init) {
-                  __android_log_print(ANDROID_LOG_WARN, "Fotufilm", "Vulkan init symbol missing, fallback to CPU");
-                  return 0;
-              }
-              pthread_t t;
-              atomic_store(&vulkan_init_done, 0);
-              atomic_store(&vulkan_init_ok, 0);
-              pthread_create(&t, NULL, vulkan_init_thread, NULL);
-              pthread_detach(t);
-
-              int waited = 0;
-              while (!atomic_load(&vulkan_init_done) && waited < timeout_ms) {
-                  usleep(100 * 1000);
-                  waited += 100;
-              }
-
-              if (!atomic_load(&vulkan_init_done)) {
-                  __android_log_print(ANDROID_LOG_ERROR, "Fotufilm", "Vulkan init TIMEOUT after %d ms, fallback to CPU", timeout_ms);
-                  return 0;
-              }
-              return atomic_load(&vulkan_init_ok) ? 1 : 0;
-          }
-          EOF
-
-          CMAKE_FILE="$CPP_DIR/CMakeLists.txt"
-          if [ -f "$CMAKE_FILE" ]; then
-            if ! grep -q "swift_main_drain.c" "$CMAKE_FILE"; then
-              sed -i '/add_library/a\    src/main/cpp/swift_main_drain.c' "$CMAKE_FILE"
-            fi
-            if ! grep -q "halide_vulkan_guard.c" "$CMAKE_FILE"; then
-              sed -i '/add_library/a\    src/main/cpp/halide_vulkan_guard.c' "$CMAKE_FILE"
-            fi
-          else
-            cat > "$CMAKE_FILE" <<'EOF'
-          cmake_minimum_required(VERSION 3.18.1)
-          project(fotufilm)
-          add_library(fotufilm SHARED src/main/cpp/swift_main_drain.c src/main/cpp/halide_vulkan_guard.c)
-          EOF
-          fi
-
-      - name: Build Native Engine (Swift + Halide)
-        env:
-          SWIFT_TOOLCHAIN: ${{ github.workspace }}/swift-host
-          SWIFT_SDK: swift-6.3.3-RELEASE_android
-          ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk-${{ env.NDK_VERSION }}
-          HALIDE_ROOT: ${{ github.workspace }}/Halide-dist
-          LD_LIBRARY_PATH: ${{ github.workspace }}/Halide-dist/lib:${{ env.LD_LIBRARY_PATH }}
-          MAKEFLAGS: "-j1"
-          CMAKE_BUILD_PARALLEL_LEVEL: "1"
+      - name: Prepare deployment directory
         run: |
-          chmod +x flutter/build-android.sh
-          ./flutter/build-android.sh
+          mkdir -p deploy
+          cp -r flutter/build/web/* deploy/
+          # 从根目录复制跨源隔离脚本
+          cp coi-serviceworker.js deploy/
+          ls -la deploy/
 
-      - name: Upload APK
-        if: always()
-        uses: actions/upload-artifact@v4
+      # 🚀 关键：在 index.html 中注入隔离脚本
+      - name: Inject Cross-Origin Isolation Script
+        run: |
+          INDEX="deploy/index.html"
+          sed -i 's|<head>|<head>\n    <script src="coi-serviceworker.js"></script>|' "$INDEX"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: Fotufilm-Halide-v21-Robust-APK
-          path: build/flutter-host/Fotufilm.apk
+          path: deploy
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
