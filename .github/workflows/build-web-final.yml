@@ -27,17 +27,17 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 🚀 步骤1：编译前将缺失的 bridge.js 注入网页源码根目录
+      # 🚀 步骤1：在编译前，将 bridge.js 注入 Flutter 工程的 web 目录
       - name: Prepare Bridge Script
         run: |
           if [ -f "web/src/flutter-bridge.js" ]; then
             cp web/src/flutter-bridge.js flutter/web/bridge.js
             echo "✅ Copied bridge.js to flutter/web"
           else
-            echo "⚠️ bridge.js source not found"
+            echo "⚠️ bridge.js source not found, skipping."
           fi
 
-      # 🚀 步骤2：加入 --base-href，确保 GitHub Pages 路径正确解析
+      # 🚀 步骤2：加上 --base-href 参数，这是解决所有 404 问题的根本
       - name: Build Flutter Web (WASM)
         run: |
           cd flutter
@@ -51,7 +51,7 @@ jobs:
           cp -r flutter/build/web/* deploy/
           cp coi-serviceworker.js deploy/
           
-          # 查漏补缺：确保 bridge.js 和 bootstrap 都在
+          # 确保 bridge.js 和 flutter_bootstrap.js 在部署根目录
           if [ -f "flutter/web/bridge.js" ]; then cp flutter/web/bridge.js deploy/; fi
           if [ -f "flutter/build/web/flutter_bootstrap.js" ]; then cp flutter/build/web/flutter_bootstrap.js deploy/; fi
           
