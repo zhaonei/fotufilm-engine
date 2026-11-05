@@ -27,20 +27,14 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 1. 预置 bridge.js 到 Flutter 的 web 根目录，确保被构建识别
       - name: Prepare Bridge Script
         run: |
           if [ -f "web/src/flutter-bridge.js" ]; then
             cp web/src/flutter-bridge.js flutter/web/bridge.js
-            echo "✅ Copied bridge.js to flutter/web"
           elif [ -f "flutter/web/src/flutter-bridge.js" ]; then
             cp flutter/web/src/flutter-bridge.js flutter/web/bridge.js
-            echo "✅ Copied bridge.js from flutter/web/src"
-          else
-            echo "⚠️ Warning: bridge.js source not found"
           fi
 
-      # 2. 编译 WASM 并指定基础路径
       - name: Build Flutter Web (WASM)
         run: |
           cd flutter
@@ -48,7 +42,6 @@ jobs:
           flutter build web --wasm --release --no-web-resources-cdn --base-href=/fotufilm-engine/
           cd ..
 
-      # 3. 整合部署目录并补齐关键 JS 文件
       - name: Prepare deployment directory
         run: |
           mkdir -p deploy
@@ -59,23 +52,29 @@ jobs:
           if [ -f "flutter/build/web/flutter_bootstrap.js" ]; then cp flutter/build/web/flutter_bootstrap.js deploy/; fi
           if [ -f "flutter/build/web/flutter.js" ]; then cp flutter/build/web/flutter.js deploy/; fi
           
-          echo "=== 部署根目录文件核对 ==="
-          ls -la deploy/ | head -n 30
+          # 如果存在嵌套的 assets/assets 目录，将其内容上移一层，消除重复前缀
+          if [ -d "deploy/assets/assets" ]; then
+            cp -r deploy/assets/assets/* deploy/assets/
+            rm -rf deploy/assets/assets
+            echo "✅ 已移除重复的 assets/assets 嵌套目录"
+          fi
+          
+          echo "=== deploy/assets 目录结构 ==="
+          ls -la deploy/assets/ | head -20
 
-      # 4. 注入 Service Worker 并在 index.html 中强制修正关键资源路径
       - name: Inject Scripts & Fix HTML Paths
         run: |
           INDEX="deploy/index.html"
           
-          # 在 <head> 中注入 coi-serviceworker 与 bridge.js
-          sed -i 's|<head>|<head>\n    <script src="coi-serviceworker.js"></script>\n    <script src="bridge.js"></script>|' "$INDEX"
+          # 关键修复：为 bridge.js 添加 type="module" 属性
+          sed -i 's|<head>|<head>\n    <script src="coi-serviceworker.js"></script>\n    <script type="module" src="bridge.js"></script>|' "$INDEX"
           
-          # 强制将根路径加载的 flutter.js / flutter_bootstrap.js 修正为正确的子目录路径
-          sed -i 's|src="/flutter.js"|src="./flutter.js"|g' "$INDEX"
+          # 确保 flutter_bootstrap.js 是普通脚本（非 module）
           sed -i 's|src="/flutter_bootstrap.js"|src="./flutter_bootstrap.js"|g' "$INDEX"
+          sed -i 's|src="/flutter.js"|src="./flutter.js"|g' "$INDEX"
           
-          echo "=== 注入后的 index.html 头部检查 ==="
-          head -n 20 "$INDEX"
+          echo "=== 注入后的 index.html 头部 ==="
+          head -n 15 "$INDEX"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
