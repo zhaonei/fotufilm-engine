@@ -1,0 +1,10 @@
+#!/bin/sh
+# The C++ driver: the C one with clang++ in place of clang. See that script for why this host can
+# use the NDK's target pieces while none of its compilers run here.
+#
+# Linking is expected to pass libc++'s static archives explicitly (CMakeLists.txt does, from the
+# sysroot) with -nostdlib++, so no libc++_shared.so dependency is created: Android devices do not
+# ship one.
+set -eu
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
+exec "$HERE/aarch64-linux-android28-clang" --driver-mode=g++ "$@"

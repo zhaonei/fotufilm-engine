@@ -1,0 +1,43 @@
+#!/bin/sh
+# Compiles for Android arm64 (API 28) with this machine's own clang.
+#
+# The NDK ships compilers only for x86-64 hosts, so on an aarch64 host none of its prebuilts run.
+# Its *target* pieces do: the bionic sysroot, libc++ for android, compiler-rt's builtins and
+# libunwind are all aarch64 code and are used as-is here, with --target doing the work.
+#
+# Two host quirks are handled:
+#   * musl-based hosts add -lssp_nonshared, which android has not got: an empty archive answers it;
+#   * the driver is told where the NDK's compiler-rt lives, or it looks in the host's own tree.
+#
+#   ANDROID_NDK_HOME=… android-shell/toolchain/aarch64-linux-android28-clang -c x.cpp
+set -eu
+: "${ANDROID_NDK_HOME:?set ANDROID_NDK_HOME to an unpacked Android NDK}"
+
+# Only the target pieces matter, so the host tag in the NDK's layout is not consulted.
+PREBUILT="$(ls -d "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/ | head -1)"
+PREBUILT="${PREBUILT%/}"
+SYSROOT="$PREBUILT/sysroot"
+RESOURCE_DIR="$(ls -d "$PREBUILT"/lib/clang/*/ | head -1)"
+[ -d "$SYSROOT/usr/include/android" ] || { echo "no NDK sysroot under $PREBUILT" >&2; exit 1; }
+
+SHIM="${TMPDIR:-/tmp}/fotufilm-android-shim"
+mkdir -p "$SHIM"
+if [ ! -f "$SHIM/libssp_nonshared.a" ]; then
+  command -v ar >/dev/null || { echo "install binutils (ar) to build the empty libssp_nonshared.a" >&2; exit 1; }
+  ( cd "$SHIM" && ar rcs libssp_nonshared.a )
+fi
+
+# Search paths only matter when linking; passing them while compiling earns a warning per flag.
+LINK_PATHS="-L$SYSROOT/usr/lib/aarch64-linux-android/28 -L$SYSROOT/usr/lib/aarch64-linux-android -L$SHIM"
+case " $* " in
+  *" -c "*|*" -E "*|*" -S "*) LINK_PATHS="" ;;
+esac
+
+# shellcheck disable=SC2086  # LINK_PATHS is a list of flags, not one word
+exec clang \
+  --target=aarch64-linux-android28 \
+  --sysroot="$SYSROOT" \
+  -resource-dir="$RESOURCE_DIR" \
+  $LINK_PATHS \
+  -fno-stack-protector \
+  "$@"
