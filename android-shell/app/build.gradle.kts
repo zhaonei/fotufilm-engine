@@ -19,16 +19,44 @@ android {
         }
     }
 
+    signingConfigs {
+        // A keystore in the tree, with its password, on purpose: AGP's own debug keystore lives
+        // in ~/.android and is generated afresh on each machine, so every CI run would hand out a
+        // different certificate and no build could be installed over the one before it. This key
+        // is a shell identity, not a secret -- do not put anything you care about behind it.
+        //
+        // v1 is turned on explicitly. AGP defaults it to "minSdk < 24", and a VIVO installer
+        // reads the certificate out of META-INF (the v1 / JAR signature), reporting
+        // "安装包缺乏开发者证书" when it is absent even though v2/v3 signed the APK just fine.
+        create("fotufilm") {
+            storeFile = file("../keystore/fotufilm-shell.jks")
+            storePassword = "fotufilm"
+            keyAlias = "fotufilm"
+            keyPassword = "fotufilm"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("fotufilm")
         }
         release {
             isMinifyEnabled = false
-            // Signed with the debug key so assembleRelease also yields an installable file;
-            // swap in a real signingConfig before publishing anything.
-            signingConfig = signingConfigs.getByName("debug")
+            // Not debuggable, and signed with the same certificate as debug, so an install
+            // upgrades in place rather than fighting over the signing identity.
+            signingConfig = signingConfigs.getByName("fotufilm")
         }
+    }
+
+    lint {
+        // assembleRelease runs lintVital; this shell is a few dozen lines of Java that CI then
+        // checks against the built APK anyway.
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     compileOptions {

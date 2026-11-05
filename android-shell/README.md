@@ -40,12 +40,25 @@ export ANDROID_NDK_HOME=~/Android/Sdk/ndk/27.2.12479018
 ./android-shell/build.sh                 # → app/src/main/jniLibs/arm64-v8a/libfotufilm.so
 
 cd android-shell
-./gradlew assembleDebug                  # → app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleRelease                # → app/build/outputs/apk/release/app-release.apk
 ```
 
 `gradle-wrapper.jar` is a binary and is not in the tree; run `gradle wrapper --gradle-version 8.9`
 once to generate the wrapper (the workflow does exactly that), or use `gradle assembleDebug`
 directly.
+
+### Signing
+
+`keystore/fotufilm-shell.jks` is committed, password and all: `fotufilm`. That is deliberate.
+AGP's own debug keystore lives in `~/.android` and is generated per machine, so every CI run
+would produce a different certificate and no build could install over the previous one. This key
+is a shell identity, not a secret — never put anything you care about behind it.
+
+`app/build.gradle.kts` turns v1 signing on explicitly. AGP defaults it to `minSdk < 24`, and this
+app is minSdk 28, so a VIVO installer reads the certificate out of `META-INF` (the v1 / JAR
+signature), finds none — v2/v3 had signed the APK perfectly well — and reports
+"安装包缺乏开发者证书". The CI step therefore fails unless `apksigner verify --min-sdk-version 18`
+reports v1, v2 and v3 all true.
 
 `FOTUFILM_PLACEHOLDER_ENGINE` in `CMakeLists.txt` chooses what is inside the library:
 

@@ -374,10 +374,12 @@ jobs:
           # gradle-wrapper.jar is a binary, so it is not in the tree: generate the wrapper here
           # and then build through it, so a checkout on a desk builds the same way.
           gradle wrapper --gradle-version 8.9 --distribution-type bin
-          ./gradlew --no-daemon --stacktrace assembleDebug
-          ls -l app/build/outputs/apk/debug/
+          # assembleRelease, not assembleDebug: a release build is not debuggable and carries the
+          # v1/v2/v3 signature the keystore config asks for.
+          ./gradlew --no-daemon --stacktrace assembleRelease
+          ls -l app/build/outputs/apk/release/
           mkdir -p out
-          cp app/build/outputs/apk/debug/app-debug.apk out/FotufilmShell.apk
+          cp app/build/outputs/apk/release/app-release.apk out/FotufilmShell.apk
 
       - name: Check the APK is what an installer expects
         run: |
@@ -393,8 +395,30 @@ jobs:
           unzip -l "$apk" | grep -q 'resources.arsc' ||
             { echo "::error::the APK carries no resources.arsc, which aapt2 always writes"; exit 1; }
 
+          # v1 (JAR) signature files are what an OEM installer reads its "developer certificate"
+          # from; AGP leaves them out unless enableV1Signing is set, and VIVO then reports
+          # "安装包缺乏开发者证书". Assert them, and assert the whole thing verifies.
+          for entry in 'META-INF/.*\.SF' 'META-INF/.*\.RSA'; do
+            unzip -l "$apk" | grep -qE "$entry" ||
+              { echo "::error::the APK has no $entry; v1 signing is missing"; exit 1; }
+          done
           JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
-          "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" verify --verbose "$apk" | head -6
+          # --min-sdk-version decides which scheme the verifier exercises: 18 can only use v1, 24
+          # v2, 28 v3. Reporting all three as true is what proves all three are in the file --
+          # "Verified using v1: false" at a higher floor only means v1 was not the one used.
+          for floor in 18 24 28; do
+            echo "--- apksigner verify, min-sdk $floor ---"
+            "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" verify --min-sdk-version "$floor" \
+              --verbose "$apk" | grep -E 'Verifies|scheme \('
+          done
+          "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" verify --min-sdk-version 18 \
+            --verbose "$apk" > /tmp/apkverify.txt
+          grep -q 'Verified using v1 scheme (JAR signing): true' /tmp/apkverify.txt || {
+            echo "::error::v1 (JAR) signature does not verify; VIVO reads the certificate from it"
+            exit 1
+          }
+          "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" verify --min-sdk-version 18 \
+            --print-certs "$apk" | head -3
 
           readelf -h "$libs/libfotufilm.so" | grep -q 'Machine:.*AArch64' ||
             { echo "::error::not arm64"; exit 1; }
