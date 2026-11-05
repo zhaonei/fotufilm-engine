@@ -27,12 +27,17 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Prepare Bridge Script
+      # 1. 精确复制 bridge.js 和配套的辅助 JS 文件
+      - name: Prepare Bridge Scripts
         run: |
           if [ -f "web/src/flutter-bridge.js" ]; then
             cp web/src/flutter-bridge.js flutter/web/bridge.js
-          elif [ -f "flutter/web/src/flutter-bridge.js" ]; then
-            cp flutter/web/src/flutter-bridge.js flutter/web/bridge.js
+            echo "✅ Copied flutter-bridge.js to flutter/web/bridge.js"
+          fi
+          # 复制 web/src 下所有相关的模块脚本，防止遗漏
+          if [ -d "web/src" ]; then
+            cp -r web/src/*.js flutter/web/ 2>/dev/null || true
+            echo "✅ Copied all JS modules from web/src"
           fi
 
       - name: Build Flutter Web (WASM)
@@ -48,33 +53,37 @@ jobs:
           cp -r flutter/build/web/* deploy/
           cp coi-serviceworker.js deploy/
           
-          if [ -f "flutter/web/bridge.js" ]; then cp flutter/web/bridge.js deploy/; fi
-          if [ -f "flutter/build/web/flutter_bootstrap.js" ]; then cp flutter/build/web/flutter_bootstrap.js deploy/; fi
-          if [ -f "flutter/build/web/flutter.js" ]; then cp flutter/build/web/flutter.js deploy/; fi
+          # 从 flutter/web 复制已准备好的 bridge.js 等核心脚本
+          cp flutter/web/*.js deploy/ 2>/dev/null || true
           
-          # 如果存在嵌套的 assets/assets 目录，将其内容上移一层，消除重复前缀
+          # 🚀 修复 assets/assets 重复前缀问题
           if [ -d "deploy/assets/assets" ]; then
             cp -r deploy/assets/assets/* deploy/assets/
             rm -rf deploy/assets/assets
             echo "✅ 已移除重复的 assets/assets 嵌套目录"
           fi
           
-          echo "=== deploy/assets 目录结构 ==="
-          ls -la deploy/assets/ | head -20
+          # 确保 flutter_bootstrap.js 在根目录
+          if [ -f "flutter/build/web/flutter_bootstrap.js" ]; then
+            cp flutter/build/web/flutter_bootstrap.js deploy/
+          fi
+          
+          echo "=== 部署根目录文件 ==="
+          ls -la deploy/ | head -30
 
       - name: Inject Scripts & Fix HTML Paths
         run: |
           INDEX="deploy/index.html"
           
-          # 关键修复：为 bridge.js 添加 type="module" 属性
+          # 为 bridge.js 添加 type="module"，同时修正相关脚本路径
           sed -i 's|<head>|<head>\n    <script src="coi-serviceworker.js"></script>\n    <script type="module" src="bridge.js"></script>|' "$INDEX"
           
-          # 确保 flutter_bootstrap.js 是普通脚本（非 module）
-          sed -i 's|src="/flutter_bootstrap.js"|src="./flutter_bootstrap.js"|g' "$INDEX"
+          # 强制将引用路径改为相对路径
           sed -i 's|src="/flutter.js"|src="./flutter.js"|g' "$INDEX"
+          sed -i 's|src="/flutter_bootstrap.js"|src="./flutter_bootstrap.js"|g' "$INDEX"
           
           echo "=== 注入后的 index.html 头部 ==="
-          head -n 15 "$INDEX"
+          head -n 20 "$INDEX"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
