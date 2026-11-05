@@ -1,4 +1,4 @@
-name: Deploy Fotufilm Web (Pure Official + Eruda Console)
+name: Deploy Fotufilm Web (Final Asset Fix + Eruda)
 
 on:
   workflow_dispatch:
@@ -44,20 +44,32 @@ jobs:
           chmod +x tool/build-web.sh
           ./tool/build-web.sh
 
+      # 🚀 终极暴力修复：解决 assets/assets 嵌套引发的 404
+      - name: Force Fix Assets Nested Path
+        run: |
+          cd flutter/build/web
+          if [ -d "assets/assets" ]; then
+            echo "🔧 检测到嵌套，正在暴力提权..."
+            # 把内层 assets 文件夹直接重命名为 assets 内的内容
+            mv assets/assets/* assets/
+            rmdir assets/assets
+            echo "✅ 嵌套已彻底删除"
+          fi
+          
+          # 验证 controls.json 是否已经在正确位置
+          echo "=== 检查文件位置 ==="
+          ls -la assets/generated/controls.json || echo "⚠️ 警告：文件依然不存在！"
+
       - name: Prepare deployment directory
         run: |
           mkdir -p deploy
           cp -r flutter/build/web/* deploy/
 
-      # 🚀 注入神器 Eruda，让你直接在网页上看控制台
-      - name: Inject Eruda Console for Debugging
+      # 🚀 注入神器 Eruda 控制台（方便你随时看报错）
+      - name: Inject Eruda Console
         run: |
           INDEX="deploy/index.html"
-          # 将 Eruda 注入到 head 最前面
           sed -i 's|<head>|<head>\n    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>\n    <script>eruda.init();</script>|' "$INDEX"
-          
-          echo "=== 注入后检查 ==="
-          head -n 10 "$INDEX"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
