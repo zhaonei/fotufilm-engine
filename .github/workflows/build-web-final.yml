@@ -1,4 +1,4 @@
-name: Deploy Fotufilm Web (Final Fixed Assets Path)
+name: Deploy Fotufilm Web (Official Build + PWA)
 
 on:
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
           cd web
           npm ci
 
-      # 1. 调用官方脚本编译（内部已处理 base-href 和 Vite 打包）
+      # 1. 直接调用官方脚本编译（处理 Vite 打包和 WASM）
       - name: Build Web using Official Script
         run: |
           export FOTUFILM_BASE=/fotufilm-engine/
@@ -45,24 +45,16 @@ jobs:
           chmod +x tool/build-web.sh
           ./tool/build-web.sh
 
-      # 2. 核心修复：将 assets/assets/ 下的内容移动到 assets/，解决 404
+      # 2. 核心修复：解决子目录部署导致的 assets/assets 嵌套 404 问题
       - name: Fix Assets Nested Path
         run: |
           ASSETS_DIR="flutter/build/web/assets"
           if [ -d "$ASSETS_DIR/assets" ]; then
-            echo "🔧 检测到 assets/assets 嵌套，正在移动文件..."
-            # 将内层 assets 的内容移动到外层 assets 根目录
+            echo "🔧 检测到 assets/assets 嵌套，正在搬移文件..."
             cp -rf "$ASSETS_DIR/assets/"* "$ASSETS_DIR/"
-            # 删除空的嵌套文件夹
             rm -rf "$ASSETS_DIR/assets"
             echo "✅ 嵌套路径修复完成"
-          else
-            echo "✅ 未检测到嵌套路径"
           fi
-          
-          # 验证文件是否已在正确位置
-          echo "=== 检查 controls.json 位置 ==="
-          find "$ASSETS_DIR" -name "controls.json"
 
       - name: Prepare deployment directory
         run: |
@@ -70,13 +62,36 @@ jobs:
           cp -r flutter/build/web/* deploy/
           if [ -f "coi-serviceworker.js" ]; then cp coi-serviceworker.js deploy/; fi
 
-      # 3. 注入跨源隔离脚本（用于 WASM 多线程）
+      # 3. 注入跨源隔离脚本（开启多线程加速）
       - name: Inject Cross-Origin Isolation Script
         run: |
           INDEX="deploy/index.html"
           sed -i 's|<head>|<head>\n    <script src="coi-serviceworker.js"></script>|' "$INDEX"
-          echo "=== 注入后检查 ==="
-          head -n 15 "$INDEX"
+          
+          # 补全一个简单的 Manifest，让浏览器认为它是可安装的 App
+          cat > deploy/manifest.json <<'EOF'
+          {
+            "name": "Fotufilm",
+            "short_name": "Fotufilm",
+            "start_url": "./index.html",
+            "display": "standalone",
+            "background_color": "#121212",
+            "theme_color": "#121212",
+            "icons": [
+              {
+                "src": "icons/Icon-192.png",
+                "sizes": "192x192",
+                "type": "image/png"
+              },
+              {
+                "src": "icons/Icon-512.png",
+                "sizes": "512x512",
+                "type": "image/png"
+              }
+            ]
+          }
+          EOF
+          sed -i 's|</head>|    <link rel="manifest" href="manifest.json">\n</head>|' "$INDEX"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
