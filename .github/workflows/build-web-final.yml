@@ -1,4 +1,4 @@
-name: Deploy Fotufilm Web (Final Asset Fix + Eruda)
+name: Deploy Fotufilm Web (Final Fix)
 
 on:
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
           cd web
           npm ci
 
-      # 1. 纯官方脚本编译
+      # 1. 官方脚本编译
       - name: Build Web using Official Script
         run: |
           export FOTUFILM_BASE=/fotufilm-engine/
@@ -45,37 +45,38 @@ jobs:
           chmod +x tool/build-web.sh
           ./tool/build-web.sh
 
-      # 🚀 2. 终极修复：双管齐下，既改清单，又移文件
-      - name: Force Fix Assets & Manifest
+      # 2. 终极修复：物理移动文件 + 同步修正清单
+      - name: Force Fix Assets Path and Manifest
         run: |
           cd flutter/build/web
           
-          echo "=== 1. 修复 AssetManifest 清单 ==="
-          if [ -f "AssetManifest.json" ]; then
-            sed -i 's|"assets/assets/|"assets/|g' AssetManifest.json
-            echo "✅ AssetManifest.json 路径已修正"
-          fi
-          if [ -f "AssetManifest.bin.json" ]; then
-            sed -i 's|"assets/assets/|"assets/|g' AssetManifest.bin.json
-            echo "✅ AssetManifest.bin.json 路径已修正"
-          fi
-
-          echo "=== 2. 移动物理文件 ==="
+          echo "=== 1. 将嵌套文件移动到正确位置 ==="
           if [ -d "assets/assets" ]; then
             cp -rf assets/assets/* assets/
             rm -rf assets/assets
-            echo "✅ 物理文件已成功上移"
+            echo "✅ 物理文件移动完成"
+          fi
+
+          echo "=== 2. 修正 AssetManifest.json 中的路径 ==="
+          if [ -f "AssetManifest.json" ]; then
+            sed -i 's|"assets/assets/|"assets/|g' AssetManifest.json
+            echo "✅ AssetManifest.json 已修正"
           fi
           
-          echo "=== 3. 验证最终文件位置 ==="
-          ls -la assets/generated/controls.json || echo "⚠️ 警告：文件依然不存在！"
+          if [ -f "AssetManifest.bin.json" ]; then
+            sed -i 's|"assets/assets/|"assets/|g' AssetManifest.bin.json
+            echo "✅ AssetManifest.bin.json 已修正"
+          fi
+          
+          echo "=== 3. 验证文件位置 ==="
+          ls -la assets/generated/controls.json || echo "⚠️ 文件仍不存在"
 
       - name: Prepare deployment directory
         run: |
           mkdir -p deploy
           cp -r flutter/build/web/* deploy/
 
-      # 3. 注入神器 Eruda 控制台
+      # 3. 注入 Eruda 控制台，方便随时查看
       - name: Inject Eruda Console
         run: |
           INDEX="deploy/index.html"
