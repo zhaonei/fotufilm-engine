@@ -1,4 +1,4 @@
-name: Deploy Flutter Web (WASM + Cross-Origin Isolation)
+name: Deploy Fotufilm Web (Official Build)
 
 on:
   workflow_dispatch:
@@ -20,6 +20,13 @@ jobs:
         uses: actions/checkout@v4
         with: { submodules: recursive }
 
+      # 1. 官方构建依赖：Node.js 22
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 2. 官方构建依赖：Flutter 3.41.9
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -27,60 +34,39 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 1. 官方规范：将 flutter-bridge.js 及所有相关模块脚本复制到 web 根目录
-      - name: Prepare Bridge Scripts
+      # 3. 官方构建依赖：安装 web 目录下的 Vite 依赖
+      - name: Install Web Dependencies
         run: |
-          if [ -d "web/src" ]; then
-            # 复制所有 JS 文件到 flutter/web 根目录
-            cp -r web/src/*.js flutter/web/ 2>/dev/null || true
-            # 官方文档指出 flutter-bridge.js 是关键入口
-            if [ -f "web/src/flutter-bridge.js" ]; then
-              cp web/src/flutter-bridge.js flutter/web/bridge.js
-            fi
-            echo "✅ Copied all JS modules from web/src to flutter/web"
-          else
-            echo "⚠️ Warning: web/src directory not found"
-          fi
+          cd web
+          npm ci
 
-      - name: Build Flutter Web (WASM)
+      # 4. 直接调用官方的构建脚本！传入子目录前缀
+      - name: Build Web using Official Script
         run: |
+          export FOTUFILM_BASE=/fotufilm-engine/
           cd flutter
-          flutter pub get
-          flutter build web --wasm --release --no-web-resources-cdn --base-href=/fotufilm-engine/
-          cd ..
+          chmod +x tool/build-web.sh
+          ./tool/build-web.sh
 
+      # 5. 整理部署目录
       - name: Prepare deployment directory
         run: |
           mkdir -p deploy
+          # 官方脚本编译出来的产物都在 flutter/build/web 里
           cp -r flutter/build/web/* deploy/
-          cp coi-serviceworker.js deploy/
           
-          # 确保从 flutter/web 复制过来的 bridge.js 等核心脚本在部署根目录
-          cp flutter/web/*.js deploy/ 2>/dev/null || true
-          
-          # 🚀 修复 assets/assets 重复嵌套问题
-          if [ -d "deploy/assets/assets" ]; then
-            cp -r deploy/assets/assets/* deploy/assets/
-            rm -rf deploy/assets/assets
-            echo "✅ 已修复 assets/assets 重复前缀"
-          fi
-          
-          echo "=== 部署根目录文件 (前30行) ==="
-          ls -la deploy/ | head -30
+          # 把跨源隔离脚本复制进根目录
+          if [ -f "coi-serviceworker.js" ]; then cp coi-serviceworker.js deploy/; fi
 
-      - name: Inject Scripts & Fix HTML Paths
+      # 6. 注入隔离脚本（官方 HTML 默认没有，我们需要加上）
+      - name: Inject Cross-Origin Isolation Script
         run: |
           INDEX="deploy/index.html"
+          # 官方脚本已经把路径处理得非常完美了，我们只需要在 head 中插入隔离脚本
+          sed -i 's|<head>|<head>\n    <script src="coi-serviceworker.js"></script>|' "$INDEX"
           
-          # 注入隔离脚本，并将 bridge.js 以 type="module" 方式加载
-          sed -i 's|<head>|<head>\n    <script src="coi-serviceworker.js"></script>\n    <script type="module" src="bridge.js"></script>|' "$INDEX"
-          
-          # 修正 flutter.js 和 flutter_bootstrap.js 的路径
-          sed -i 's|src="/flutter.js"|src="./flutter.js"|g' "$INDEX"
-          sed -i 's|src="/flutter_bootstrap.js"|src="./flutter_bootstrap.js"|g' "$INDEX"
-          
-          echo "=== 注入后的 index.html 头部 ==="
-          head -n 20 "$INDEX"
+          echo "=== 检查 index.html ==="
+          head -n 15 "$INDEX"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
