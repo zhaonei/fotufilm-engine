@@ -24,7 +24,8 @@ on:
       - '.github/workflows/build-apk.yml'
 
 permissions:
-  contents: read
+  # Write is for publishing the release at the end; nothing else in this job writes.
+  contents: write
 
 concurrency:
   group: apk-${{ github.ref }}
@@ -437,14 +438,24 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Checksum the APK
+        run: |
+          cd android-shell/out
+          sha256sum FotufilmShell.apk | tee FotufilmShell.apk.sha256
+
       - name: Upload the APK
+        # compression-level 0 stores the entries instead of deflating them: a phone's unzip
+        # library that misreads GitHub's deflate streams has nothing to misread, and the APK is
+        # already compressed internally by the aapt2/d8 pipeline anyway.
         uses: actions/upload-artifact@v4
         with:
           name: fotufilm-apk-arm64
           path: |
             android-shell/out/FotufilmShell.apk
+            android-shell/out/FotufilmShell.apk.sha256
             android-shell/app/src/main/jniLibs/arm64-v8a/libfotufilm.so
           if-no-files-found: error
+          compression-level: 0
           retention-days: 14
 
       - name: Upload the engine libraries
@@ -454,3 +465,41 @@ jobs:
           path: android-shell/app/src/main/jniLibs/arm64-v8a/
           if-no-files-found: error
           retention-days: 14
+
+      # Release assets are raw files, unlike the artifact above, which is a zip around the APK.
+      # Downloading the .apk from Releases therefore skips the phone-side unzip step entirely.
+      #
+      # v1.0.0 is a fixed tag, so a second run finds the release already there. The two assets are
+      # removed first: the upload rejects a name that already exists.
+      - name: Drop the release assets a previous run left behind
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          command -v gh > /dev/null || { echo "gh not installed; skipping"; exit 0; }
+          if gh release view v1.0.0 > /dev/null 2>&1; then
+            for name in FotufilmShell.apk FotufilmShell.apk.sha256; do
+              gh release delete-asset v1.0.0 "$name" --yes || true
+            done
+          fi
+
+      - name: Publish the APK as a release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0
+          name: Fotufilm shell v1.0.0
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          body: |
+            `libfotufilm.so` (arm64, Swift engine + Halide AOT kernels + codecs) packaged as a
+            signed debug APK by `android-shell`.
+
+            * `FotufilmShell.apk` -- install directly (`adb install -r FotufilmShell.apk`)
+            * `FotufilmShell.apk.sha256` -- `sha256sum -c` it to check the download
+
+            Signed with the throwaway debug keystore, so Android may ask you to allow installs
+            from unknown sources. Re-sign with your own key before publishing anywhere.
+          files: |
+            android-shell/out/FotufilmShell.apk
+            android-shell/out/FotufilmShell.apk.sha256
