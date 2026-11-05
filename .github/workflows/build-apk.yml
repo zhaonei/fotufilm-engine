@@ -68,14 +68,22 @@ jobs:
           echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" |
             sudo tee /etc/apt/sources.list.d/llvm-21.list > /dev/null
           sudo apt-get update
+          # libedit-dev: Halide's REPL links it. Its absence is a warning, not the failure that
+          # stopped the build, but a quiet warning is not worth keeping.
           sudo apt-get install -y --no-install-recommends \
             llvm-21-dev libclang-21-dev lld-21 liblld-21-dev \
-            libvulkan-dev libxml2-dev libffi-dev zlib1g-dev \
+            libvulkan-dev libxml2-dev libffi-dev zlib1g-dev libedit-dev \
             cmake ninja-build pkg-config curl xz-utils unzip python3 \
             libcurl4-openssl-dev libedit2 libsqlite3-0 libncurses-dev libz3-dev tzdata
           /usr/lib/llvm-21/bin/llvm-config --version
           /usr/lib/llvm-21/bin/llvm-config --components | tr ' ' '\n' | grep -x -E 'nvptx|nvptxcodegen' || \
             { echo "::error::LLVM 21 has no NVPTX, and tools/build-halide-linux.sh requires it"; exit 1; }
+          # Where these packages actually put their CMake configs; the Halide step reads them.
+          echo "--- LLVM/Clang CMake configs ---"
+          find /usr/lib/llvm-21 /usr/lib/cmake -maxdepth 4 \
+               \( -name 'LLVMConfig.cmake' -o -name 'ClangConfig.cmake' \) 2>/dev/null | sort || true
+          test -n "$(find /usr/lib/llvm-21 /usr/lib/cmake -maxdepth 4 -name 'LLVMConfig.cmake' 2>/dev/null | head -1)" || \
+            { echo "::error::no LLVMConfig.cmake; llvm-21-dev did not install"; exit 1; }
 
       - name: Cache the Swift toolchain
         id: cache-swift
@@ -216,9 +224,73 @@ jobs:
           key: halide-${{ steps.halide-pin.outputs.sha }}-${{ hashFiles('tools/halide-vulkan-*.patch', 'tools/halide-runtime-prefix-map.patch') }}-llvm21
 
       - name: Build Halide with the Vulkan patches
+        # Same preparation as tools/build-halide-linux.sh -- a shared clone of the pin and the
+        # five Vulkan patches -- but cmake runs here. That script passes only
+        # -DHalide_LLVM_ROOT, and Halide then derives where to look for a matching Clang from
+        # whichever layout it found LLVM through: Debian-derived packages put LLVM's config at
+        # /usr/lib/llvm-21/lib/cmake/llvm or /usr/lib/cmake/llvm-21 and Clang's at
+        # .../lib/cmake/clang or /usr/lib/cmake/clang-21, so the derived hint misses half the
+        # time and CMake falls back to the runner's clang 16/17/18, which EXACT 21 rejects.
+        # Giving LLVM_DIR and Clang_DIR outright removes the guess: they are attributes of the
+        # cache, not the environment, which is why exporting them would not have worked.
         if: steps.cache-halide.outputs.cache-hit != 'true'
         run: |
-          LLVM_ROOT="$LLVM_ROOT" tools/build-halide-linux.sh build/halide-linux-build "$HALIDE_ROOT"
+          SOURCE=build/halide-linux-src
+          BUILD=build/halide-linux-build
+
+          [ -f third_party/Halide/CMakeLists.txt ] || git submodule update --init third_party/Halide
+          pin="$(git ls-tree HEAD third_party/Halide | awk '{print $3}')"
+          echo "Halide pin: $pin"
+          [ -d "$SOURCE/.git" ] || git clone --quiet --shared --no-checkout third_party/Halide "$SOURCE"
+          git -C "$SOURCE" checkout --quiet --force --detach "$pin"
+          git -C "$SOURCE" clean -fdxq
+          for patch in halide-vulkan-strict-float halide-vulkan-bool-uniforms halide-vulkan-allocation-padding halide-vulkan-readback-staging halide-runtime-prefix-map; do
+            git -C "$SOURCE" apply "$PWD/tools/$patch.patch"
+          done
+
+          find_config() { find /usr/lib/llvm-21 /usr/lib/cmake -maxdepth 4 -name "$1" 2>/dev/null | head -1; }
+          llvm_config_cmake="$(find_config LLVMConfig.cmake)"
+          clang_config_cmake="$(find_config ClangConfig.cmake)"
+          if [ -z "$clang_config_cmake" ]; then
+            # Belt and braces: some packagings keep Clang's CMake config with the compiler.
+            echo "no ClangConfig.cmake found; installing clang-21 and looking again"
+            sudo apt-get install -y --no-install-recommends clang-21
+            clang_config_cmake="$(find_config ClangConfig.cmake)"
+          fi
+          [ -n "$llvm_config_cmake" ] || {
+            echo "::error::no LLVMConfig.cmake"
+            find /usr/lib -maxdepth 4 -name 'LLVMConfig.cmake' || true
+            exit 1
+          }
+          [ -n "$clang_config_cmake" ] || {
+            echo "::error::no ClangConfig.cmake anywhere searched"
+            dpkg -L libclang-21-dev | grep -i cmake | head -20 || true
+            exit 1
+          }
+          llvm_dir="$(dirname "$llvm_config_cmake")"
+          clang_dir="$(dirname "$clang_config_cmake")"
+          echo "LLVM_DIR=$llvm_dir"
+          echo "Clang_DIR=$clang_dir"
+
+          cmake -G Ninja -S "$SOURCE" -B "$BUILD" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_LIBDIR=lib \
+            -DHalide_LLVM_ROOT=/usr/lib/llvm-21 \
+            -DLLVM_DIR="$llvm_dir" \
+            -DClang_DIR="$clang_dir" \
+            -DHalide_WASM_BACKEND=OFF \
+            -DWITH_TESTS=OFF -DWITH_TUTORIALS=OFF -DWITH_DOCS=OFF \
+            -DWITH_UTILS=OFF -DWITH_PYTHON_BINDINGS=OFF -DWITH_SERIALIZATION=OFF
+
+          # CUDA kernels need LLVM's NVPTX backend, which Halide treats as optional and drops
+          # quietly; the same guard the repository's script applies.
+          grep -q 'found components:.*NVPTX' "$BUILD/CMakeCache.txt" || {
+            echo "::error::this LLVM has no NVPTX component; the CUDA kernels cannot be generated"
+            grep 'found components' "$BUILD/CMakeCache.txt" || true
+            exit 1
+          }
+          cmake --build "$BUILD" --parallel "$(nproc)"
+          cmake --install "$BUILD" --prefix "$HALIDE_ROOT" > /dev/null
           test -f "$HALIDE_ROOT/include/Halide.h" || { echo "::error::Halide was not installed"; exit 1; }
 
       - name: Generate the arm64 Vulkan AOT kernels
