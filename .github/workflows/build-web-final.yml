@@ -27,17 +27,19 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 1. 官方规范：复制 flutter-bridge.js 到 web 根目录
+      # 1. 官方规范：将 flutter-bridge.js 及所有相关模块脚本复制到 web 根目录
       - name: Prepare Bridge Scripts
         run: |
-          if [ -f "web/src/flutter-bridge.js" ]; then
-            cp web/src/flutter-bridge.js flutter/web/bridge.js
-            echo "✅ Copied flutter-bridge.js to flutter/web/bridge.js"
-          fi
-          # 复制 web/src 下所有相关的模块脚本
           if [ -d "web/src" ]; then
+            # 复制所有 JS 文件到 flutter/web 根目录
             cp -r web/src/*.js flutter/web/ 2>/dev/null || true
-            echo "✅ Copied all JS modules from web/src"
+            # 官方文档指出 flutter-bridge.js 是关键入口
+            if [ -f "web/src/flutter-bridge.js" ]; then
+              cp web/src/flutter-bridge.js flutter/web/bridge.js
+            fi
+            echo "✅ Copied all JS modules from web/src to flutter/web"
+          else
+            echo "⚠️ Warning: web/src directory not found"
           fi
 
       - name: Build Flutter Web (WASM)
@@ -53,30 +55,27 @@ jobs:
           cp -r flutter/build/web/* deploy/
           cp coi-serviceworker.js deploy/
           
-          # 复制 flutter/web 下已准备好的 bridge.js 等核心脚本
+          # 确保从 flutter/web 复制过来的 bridge.js 等核心脚本在部署根目录
           cp flutter/web/*.js deploy/ 2>/dev/null || true
           
-          # 🚀 官方明确修复：解决 assets/assets 重复前缀问题
+          # 🚀 修复 assets/assets 重复嵌套问题
           if [ -d "deploy/assets/assets" ]; then
             cp -r deploy/assets/assets/* deploy/assets/
             rm -rf deploy/assets/assets
             echo "✅ 已修复 assets/assets 重复前缀"
           fi
           
-          if [ -f "flutter/build/web/flutter_bootstrap.js" ]; then
-            cp flutter/build/web/flutter_bootstrap.js deploy/
-          fi
-          
-          echo "=== 部署根目录文件 ==="
+          echo "=== 部署根目录文件 (前30行) ==="
           ls -la deploy/ | head -30
 
       - name: Inject Scripts & Fix HTML Paths
         run: |
           INDEX="deploy/index.html"
           
-          # 官方规范：bridge.js 必须以 type="module" 加载
+          # 注入隔离脚本，并将 bridge.js 以 type="module" 方式加载
           sed -i 's|<head>|<head>\n    <script src="coi-serviceworker.js"></script>\n    <script type="module" src="bridge.js"></script>|' "$INDEX"
           
+          # 修正 flutter.js 和 flutter_bootstrap.js 的路径
           sed -i 's|src="/flutter.js"|src="./flutter.js"|g' "$INDEX"
           sed -i 's|src="/flutter_bootstrap.js"|src="./flutter_bootstrap.js"|g' "$INDEX"
           
