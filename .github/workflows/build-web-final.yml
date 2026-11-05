@@ -20,7 +20,6 @@ jobs:
         uses: actions/checkout@v4
         with: { submodules: recursive }
 
-      # 1. 升级 Flutter 到 3.41.9（搭配 Dart 3.11.5，满足 >=3.11.5 要求）
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -28,42 +27,38 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 2. 编译 WASM 引擎
+      # 🚀 步骤1：编译前将缺失的 bridge.js 注入网页源码根目录
+      - name: Prepare Bridge Script
+        run: |
+          if [ -f "web/src/flutter-bridge.js" ]; then
+            cp web/src/flutter-bridge.js flutter/web/bridge.js
+            echo "✅ Copied bridge.js to flutter/web"
+          else
+            echo "⚠️ bridge.js source not found"
+          fi
+
+      # 🚀 步骤2：加入 --base-href，确保 GitHub Pages 路径正确解析
       - name: Build Flutter Web (WASM)
         run: |
           cd flutter
           flutter pub get
-          flutter build web --wasm --release --no-web-resources-cdn
+          flutter build web --wasm --release --no-web-resources-cdn --base-href=/fotufilm-engine/
           cd ..
 
-      # 3. 整理部署资源并自动查找复制遗漏的 bridge.js 与 bootstrap 文件
       - name: Prepare deployment directory
         run: |
           mkdir -p deploy
           cp -r flutter/build/web/* deploy/
-
-          echo "=== 复制跨源隔离脚本 ==="
           cp coi-serviceworker.js deploy/
           
-          echo "=== 自动搜索并复制 bridge.js ==="
-          BRIDGE_FILE=$(find . -name "bridge.js" -not -path "*/node_modules/*" | head -n 1)
-          if [ -n "$BRIDGE_FILE" ]; then
-            cp "$BRIDGE_FILE" deploy/
-            echo "✅ 已成功将 $BRIDGE_FILE 复制到 deploy 根目录"
-          else
-            echo "⚠️ 未在源码中找到 bridge.js"
-          fi
+          # 查漏补缺：确保 bridge.js 和 bootstrap 都在
+          if [ -f "flutter/web/bridge.js" ]; then cp flutter/web/bridge.js deploy/; fi
+          if [ -f "flutter/build/web/flutter_bootstrap.js" ]; then cp flutter/build/web/flutter_bootstrap.js deploy/; fi
           
-          echo "=== 确保 flutter_bootstrap.js 存在 ==="
-          if [ ! -f "deploy/flutter_bootstrap.js" ] && [ -f "flutter/build/web/flutter_bootstrap.js" ]; then
-            cp flutter/build/web/flutter_bootstrap.js deploy/
-            echo "✅ 已从构建目录补全 flutter_bootstrap.js"
-          fi
-          
-          echo "=== 部署目录最终文件清单 ==="
+          echo "=== 部署文件清单 ==="
           ls -la deploy/
 
-      # 4. 注入隔离脚本标签
+      # 注入跨源隔离脚本
       - name: Inject Cross-Origin Isolation Script
         run: |
           INDEX="deploy/index.html"
