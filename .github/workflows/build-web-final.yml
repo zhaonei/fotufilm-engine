@@ -27,17 +27,17 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 🚀 步骤1：在编译前，将 bridge.js 注入 Flutter 工程的 web 目录
+      # 1. 将源码中的 bridge.js 注入到 Flutter 的 web 根目录
       - name: Prepare Bridge Script
         run: |
           if [ -f "web/src/flutter-bridge.js" ]; then
             cp web/src/flutter-bridge.js flutter/web/bridge.js
             echo "✅ Copied bridge.js to flutter/web"
           else
-            echo "⚠️ bridge.js source not found, skipping."
+            echo "⚠️ bridge.js source not found"
           fi
 
-      # 🚀 步骤2：加上 --base-href 参数，这是解决所有 404 问题的根本
+      # 2. 显式指定 --base-href 且关闭 CDN 依赖
       - name: Build Flutter Web (WASM)
         run: |
           cd flutter
@@ -45,20 +45,21 @@ jobs:
           flutter build web --wasm --release --no-web-resources-cdn --base-href=/fotufilm-engine/
           cd ..
 
+      # 3. 整理部署目录并强制补全核心文件
       - name: Prepare deployment directory
         run: |
           mkdir -p deploy
           cp -r flutter/build/web/* deploy/
           cp coi-serviceworker.js deploy/
           
-          # 确保 bridge.js 和 flutter_bootstrap.js 在部署根目录
           if [ -f "flutter/web/bridge.js" ]; then cp flutter/web/bridge.js deploy/; fi
           if [ -f "flutter/build/web/flutter_bootstrap.js" ]; then cp flutter/build/web/flutter_bootstrap.js deploy/; fi
+          if [ -f "flutter/build/web/flutter.js" ]; then cp flutter/build/web/flutter.js deploy/; fi
           
           echo "=== 部署文件清单 ==="
           ls -la deploy/
 
-      # 注入跨源隔离脚本
+      # 4. 注入隔离脚本
       - name: Inject Cross-Origin Isolation Script
         run: |
           INDEX="deploy/index.html"
