@@ -20,14 +20,13 @@ jobs:
         uses: actions/checkout@v4
         with: { submodules: recursive }
 
-      # 🚀 核心修复：升级 Flutter 到 3.41.9，自带 Dart 3.11.5
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.41.9'
+          flutter-version: '3.29.3'
           cache: true
 
-      # 🚀 直接构建，删除所有强行改版本的复杂步骤
+      # 🚀 核心：直接构建，不强行改版本了
       - name: Build Flutter Web (WASM)
         run: |
           cd flutter
@@ -35,13 +34,35 @@ jobs:
           flutter build web --wasm --release --no-web-resources-cdn
           cd ..
 
+      # 🚀 新增关键步骤：准备部署目录，手动复制缺失的文件
       - name: Prepare deployment directory
         run: |
           mkdir -p deploy
           cp -r flutter/build/web/* deploy/
+
+          # 1. 从源码复制 bridge.js (如果存在的话)
+          if [ -f "web/src/flutter-bridge.js" ]; then
+            cp web/src/flutter-bridge.js deploy/
+            echo "✅ Copied bridge.js from source"
+          else
+            echo "⚠️ bridge.js not found in source, checking build output..."
+          fi
+          
+          # 2. 从构建产物复制 flutter_bootstrap.js (以防万一)
+          if [ -f "flutter/build/web/flutter_bootstrap.js" ]; then
+            cp flutter/build/web/flutter_bootstrap.js deploy/
+            echo "✅ Copied flutter_bootstrap.js from build"
+          else
+            echo "⚠️ flutter_bootstrap.js not found in build output"
+          fi
+
+          # 3. 复制跨源隔离脚本
           cp coi-serviceworker.js deploy/
+          
+          # 4. 列出 deploy 目录内容，方便在日志里核对
           ls -la deploy/
 
+      # 🚀 关键：注入隔离脚本 (这一步不变)
       - name: Inject Cross-Origin Isolation Script
         run: |
           INDEX="deploy/index.html"
