@@ -1,5 +1,10 @@
 # android-shell
 
+**Not the shipped app.** The released APK is the Flutter editor, built by `flutter/build-android.sh`
+and published by `.github/workflows/build-apk.yml`; this directory is kept as (a) a minimal
+harness that loads `libfotufilm.so` through JNI on a phone in seconds, useful when the question is
+"does the engine load at all", and (b) the home of the signing keystore the release pipeline uses.
+
 The smallest Android app that loads the engine through JNI: a standard Gradle project whose
 `arm64-v8a` libraries are `libfotufilm.so` plus whatever rides beside it.
 

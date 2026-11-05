@@ -40,6 +40,11 @@ struct fotufilm_engine {
     int placeholder = 1;
 };
 
+// The build hides everything by default (-fvisibility=hidden). The C interface is the exception:
+// it is what the app resolves through dart:ffi, and the linker cannot promote a hidden symbol
+// back to exported. The real engine gets this for free because FotufilmHost compiles the same
+// functions from Swift, which defaults to visible, and a version script then trims the rest.
+#pragma GCC visibility push(default)
 extern "C" {
 
 int32_t fotufilm_api_version(void) { return FOTUFILM_API_VERSION; }
@@ -128,3 +133,4 @@ int32_t fotufilm_host_call_progress(fotufilm_engine *engine, const char *method,
 }
 
 }  // extern "C"
+#pragma GCC visibility pop

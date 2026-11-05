@@ -329,83 +329,107 @@ jobs:
           find "$engine" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2
           du -sh "$engine"
 
-      - name: Put the engine where Gradle packages it from
-        # android-shell/build.sh only fills app/src/main/jniLibs/arm64-v8a/ now; the APK is
-        # Gradle's job, so the manifest, the resources table, the dex, the alignment and the
-        # signature all come from aapt2/d8/apksigner driven by AGP rather than by hand.
-        run: |
-          FOTUFILM_REAL_ENGINE="$PWD/flutter/build/android-engine/jniLibs/$ABI/libfotufilm.so" \
-          FOTUFILM_ENGINE_JNILIBS="$PWD/flutter/build/android-engine/jniLibs/$ABI" \
-          ANDROID_NDK_HOME="$ANDROID_NDK_HOME" \
-            ./android-shell/build.sh
-          find "android-shell/app/src/main/jniLibs/$ABI" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2
+      - name: Set up Node.js
+        # flutter/tool/prepare.sh reads the editor's control catalogue through node.
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
-      - name: Ensure the SDK platform Gradle compiles against
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.41.9'
+          cache: true
+
+      - name: Accept the SDK licences
+        # The Flutter Gradle plugin picks the platform/build-tools/NDK versions it wants; accepting
+        # the licences lets AGP fetch the ones this runner lacks instead of failing at configure.
         run: |
           sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          [ -n "$sdk" ] || { echo "::error::no Android SDK on this runner"; exit 1; }
           manager="$(find "$sdk/cmdline-tools" -maxdepth 2 -name sdkmanager 2>/dev/null | head -1)"
-          need=()
-          [ -d "$sdk/platforms/android-34" ] || need+=("platforms;android-34")
-          [ -d "$sdk/build-tools/34.0.0" ] || need+=("build-tools;34.0.0")
-          if [ "${#need[@]}" -gt 0 ] && [ -n "$manager" ]; then
-            echo "installing: ${need[*]}"
-            yes | "$manager" --licenses > /dev/null 2>&1 || true
-            "$manager" "${need[@]}"
-          fi
-          find "$sdk/platforms" -maxdepth 1 -mindepth 1 -printf '%f\n' | sort | head
-          find "$sdk/build-tools" -maxdepth 1 -mindepth 1 -printf '%f\n' | sort | tail -3
+          [ -n "$manager" ] || { echo "::warning::no sdkmanager; relying on what the image has"; exit 0; }
+          yes | "$manager" --licenses > /dev/null 2>&1 || true
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Build the APK with Gradle
-        working-directory: android-shell
+      - name: Build the Flutter app and pack the engine into it
+        # flutter/build-android.sh is the repository's own path: it rebuilds the engine through
+        # tools/build-android-engine.sh (kernels and codecs are cached, so this is the compile and
+        # link), stages the editor's generated assets, and hands the engine to Gradle through
+        # FOTUFILM_ANDROID_ENGINE -- which app/build.gradle.kts turns into
+        # sourceSets["main"].jniLibs, the supported way in. Copying files into
+        # android/app/src/main/jniLibs instead would declare the same lib/arm64-v8a/libfotufilm.so
+        # twice.
+        env:
+          FLUTTER: flutter
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          SWIFT_TOOLCHAIN: ${{ env.SWIFT_TOOLCHAIN }}
+          SWIFT_SDK: ${{ env.SWIFT_SDK }}
+          HALIDE_ROOT: ${{ env.HALIDE_ROOT }}
+          FOTUFILM_ANDROID_DEPS: ${{ env.FOTUFILM_ANDROID_DEPS }}
+          FOTUFILM_ANDROID_KERNELS: ${{ env.FOTUFILM_ANDROID_KERNELS }}
+          # The keystore in the tree, so every build carries the same certificate and a download
+          # installs over the previous one. See android-shell/keystore.
+          FOTUFILM_ANDROID_KEYSTORE: ${{ github.workspace }}/android-shell/keystore/fotufilm-shell.jks
+          FOTUFILM_ANDROID_KEYSTORE_PASSWORD: fotufilm
+          FOTUFILM_ANDROID_KEY_ALIAS: fotufilm
+          FOTUFILM_ANDROID_KEY_PASSWORD: fotufilm
         run: |
-          # JAVA_HOME_17_X64 comes from the runner's environment, not the env context.
-          JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
-          export JAVA_HOME
-          export PATH="$JAVA_HOME/bin:$PATH"
-          echo "java: $("$JAVA_HOME/bin/java" -version 2>&1 | head -1)"
-          android_home="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          printf 'sdk.dir=%s\n' "$android_home" > local.properties
-          # gradle-wrapper.jar is a binary, so it is not in the tree: generate the wrapper here
-          # and then build through it, so a checkout on a desk builds the same way.
-          gradle wrapper --gradle-version 8.9 --distribution-type bin
-          # assembleRelease, not assembleDebug: a release build is not debuggable and carries the
-          # v1/v2/v3 signature the keystore config asks for.
-          ./gradlew --no-daemon --stacktrace assembleRelease
-          ls -l app/build/outputs/apk/release/
-          mkdir -p out
-          cp app/build/outputs/apk/release/app-release.apk out/FotufilmShell.apk
+          export PATH="$SWIFT_TOOLCHAIN/usr/bin:$PATH"
+          echo "flutter: $(flutter --version | head -1)"
+          echo "engine libraries: $(find flutter/build/android-engine/jniLibs/arm64-v8a -name '*.so' | wc -l)"
+          ./flutter/build-android.sh
+          ls -lh build/flutter-host/Fotufilm.apk
 
-      - name: Check the APK is what an installer expects
+      - name: Check the APK an installer will read
         run: |
           sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
           BT="$(find "$sdk/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)"
-          apk=android-shell/out/FotufilmShell.apk
-          libs=android-shell/app/src/main/jniLibs/$ABI
+          apk=build/flutter-host/Fotufilm.apk
+          JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
 
-          # aapt2 reads the binary manifest and the resources table the way the installer does.
           "$BT/aapt2" dump badging "$apk" | head -8
           "$BT/aapt2" dump badging "$apk" | grep -q "native-code: 'arm64-v8a'" ||
             { echo "::error::the APK declares no arm64-v8a native code"; exit 1; }
           unzip -l "$apk" | grep -q 'resources.arsc' ||
-            { echo "::error::the APK carries no resources.arsc, which aapt2 always writes"; exit 1; }
+            { echo "::error::the APK carries no resources.arsc"; exit 1; }
+
+          rm -rf /tmp/apkso && mkdir -p /tmp/apkso
+          unzip -o -q "$apk" 'lib/arm64-v8a/*.so' -d /tmp/apkso
+          libs=/tmp/apkso/lib/arm64-v8a
+          echo "--- libraries in the APK ---"
+          find "$libs" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2
+          test -f "$libs/libfotufilm.so" || { echo "::error::the APK carries no libfotufilm.so"; exit 1; }
+
+          # What Flutter actually resolves: every symbol the Dart side looks up has to be exported
+          # by the library that ships inside the APK. This is the alignment that matters -- the app
+          # speaks dart:ffi to fotufilm.h, not JNI.
+          grep -oE "'fotufilm_[a-z_]+'" flutter/lib/engine/fotufilm_ffi.dart | tr -d "'" | sort -u > /tmp/wanted.txt
+          readelf -sW "$libs/libfotufilm.so" | awk '$5 == "GLOBAL" && $7 != "UND" {print $8}' | sort -u > /tmp/exported.txt
+          missing=0
+          while read -r symbol; do
+            grep -qx "$symbol" /tmp/exported.txt ||
+              { echo "::error::the engine does not export $symbol, which Flutter looks up"; missing=1; }
+          done < /tmp/wanted.txt
+          [ "$missing" = 0 ] || exit 1
+          echo "all $(wc -l < /tmp/wanted.txt) fotufilm_* symbols Flutter asks for are exported"
+
+          # Every DT_NEEDED of the engine has to ride beside it, or the loader stops at the first
+          # miss: the Swift runtime and FFmpeg are in that list.
+          missing=0
+          for needed in $(readelf -d "$libs/libfotufilm.so" | sed -n 's/.*NEEDED.*\[\(.*\)\]/\1/p'); do
+            case "$needed" in libc.so|libdl.so|libm.so|liblog.so|libz.so|libandroid.so) continue ;; esac
+            if [ ! -f "$libs/$needed" ]; then echo "::error::missing $needed beside libfotufilm.so"; missing=1; fi
+          done
+          [ "$missing" = 0 ] || exit 1
 
           # v1 (JAR) signature files are what an OEM installer reads its "developer certificate"
-          # from; AGP leaves them out unless enableV1Signing is set, and VIVO then reports
-          # "安装包缺乏开发者证书". Assert them, and assert the whole thing verifies.
+          # from; AGP leaves them out unless enableV1Signing is set.
           for entry in 'META-INF/.*\.SF' 'META-INF/.*\.RSA'; do
             unzip -l "$apk" | grep -qE "$entry" ||
               { echo "::error::the APK has no $entry; v1 signing is missing"; exit 1; }
           done
-          JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
-          # --min-sdk-version decides which scheme the verifier exercises: 18 can only use v1, 24
-          # v2, 28 v3. Reporting all three as true is what proves all three are in the file --
-          # "Verified using v1: false" at a higher floor only means v1 was not the one used.
+          # --min-sdk-version decides which scheme the verifier may use: 18 can only use v1, 24 v2,
+          # 28 v3, so the three together prove the file carries all of them.
           for floor in 18 24 28; do
             echo "--- apksigner verify, min-sdk $floor ---"
             "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" verify --min-sdk-version "$floor" \
@@ -413,24 +437,10 @@ jobs:
           done
           "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" verify --min-sdk-version 18 \
             --verbose "$apk" > /tmp/apkverify.txt
-          grep -q 'Verified using v1 scheme (JAR signing): true' /tmp/apkverify.txt || {
-            echo "::error::v1 (JAR) signature does not verify; VIVO reads the certificate from it"
-            exit 1
-          }
+          grep -q 'Verified using v1 scheme (JAR signing): true' /tmp/apkverify.txt ||
+            { echo "::error::v1 (JAR) signature does not verify; VIVO reads the certificate from it"; exit 1; }
           "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" verify --min-sdk-version 18 \
             --print-certs "$apk" | head -3
-
-          readelf -h "$libs/libfotufilm.so" | grep -q 'Machine:.*AArch64' ||
-            { echo "::error::not arm64"; exit 1; }
-          readelf -sW "$libs/libfotufilm.so" | grep -q 'fotufilm_api_version' ||
-            { echo "::error::engine symbols missing"; exit 1; }
-          missing=0
-          for needed in $(readelf -d "$libs/libfotufilm.so" | sed -n 's/.*NEEDED.*\[\(.*\)\]/\1/p'); do
-            case "$needed" in libc.so|libdl.so|libm.so|liblog.so|libz.so|libandroid.so) continue ;; esac
-            if [ ! -f "$libs/$needed" ]; then echo "::error::missing $needed"; missing=1; fi
-          done
-          [ "$missing" = 0 ] || exit 1
-          unzip -l "$apk" | grep -c "lib/$ABI/.*\.so" || true
           ls -lh "$apk"
 
       - name: Diagnostics on failure
@@ -453,19 +463,19 @@ jobs:
             echo "| item | value |"
             echo "| --- | --- |"
             echo "| commit | \`$GITHUB_SHA\` |"
-            echo "| engine libraries | $(find "android-shell/app/src/main/jniLibs/$ABI" -maxdepth 1 -type f 2>/dev/null | wc -l) |"
-            echo "| APK size | $(du -h android-shell/out/FotufilmShell.apk 2>/dev/null | cut -f1) |"
-            echo "| libfotufilm.so | $(du -h "android-shell/app/src/main/jniLibs/$ABI/libfotufilm.so" 2>/dev/null | cut -f1) |"
+            echo "| engine libraries | $(find "flutter/build/android-engine/jniLibs/$ABI" -maxdepth 1 -type f 2>/dev/null | wc -l) |"
+            echo "| APK size | $(du -h build/flutter-host/Fotufilm.apk 2>/dev/null | cut -f1) |"
+            echo "| libfotufilm.so | $(du -h "flutter/build/android-engine/jniLibs/$ABI/libfotufilm.so" 2>/dev/null | cut -f1) |"
             echo
             echo '```'
-            find "android-shell/app/src/main/jniLibs/$ABI" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2 2>/dev/null || echo "no engine libraries"
+            find "flutter/build/android-engine/jniLibs/$ABI" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2 2>/dev/null || echo "no engine libraries"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Checksum the APK
         run: |
-          cd android-shell/out
-          sha256sum FotufilmShell.apk | tee FotufilmShell.apk.sha256
+          cd build/flutter-host
+          sha256sum Fotufilm.apk | tee Fotufilm.apk.sha256
 
       - name: Upload the APK
         # compression-level 0 stores the entries instead of deflating them: a phone's unzip
@@ -475,9 +485,8 @@ jobs:
         with:
           name: fotufilm-apk-arm64
           path: |
-            android-shell/out/FotufilmShell.apk
-            android-shell/out/FotufilmShell.apk.sha256
-            android-shell/app/src/main/jniLibs/arm64-v8a/libfotufilm.so
+            build/flutter-host/Fotufilm.apk
+            build/flutter-host/Fotufilm.apk.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -486,7 +495,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fotufilm-engine-arm64
-          path: android-shell/app/src/main/jniLibs/arm64-v8a/
+          path: flutter/build/android-engine/jniLibs/arm64-v8a/
           if-no-files-found: error
           retention-days: 14
 
@@ -501,7 +510,8 @@ jobs:
         run: |
           command -v gh > /dev/null || { echo "gh not installed; skipping"; exit 0; }
           if gh release view v1.0.0 > /dev/null 2>&1; then
-            for name in FotufilmShell.apk FotufilmShell.apk.sha256; do
+            # Both the current names and the ones earlier runs published under.
+            for name in Fotufilm.apk Fotufilm.apk.sha256 FotufilmShell.apk FotufilmShell.apk.sha256; do
               gh release delete-asset v1.0.0 "$name" --yes || true
             done
           fi
@@ -516,14 +526,14 @@ jobs:
           prerelease: false
           fail_on_unmatched_files: true
           body: |
-            `libfotufilm.so` (arm64, Swift engine + Halide AOT kernels + codecs) packaged as a
-            signed debug APK by `android-shell`.
+            The Flutter editor with `libfotufilm.so` (arm64: Swift engine, Halide AOT kernels,
+            codecs and FFmpeg) built by `flutter/build-android.sh`.
 
-            * `FotufilmShell.apk` -- install directly (`adb install -r FotufilmShell.apk`)
-            * `FotufilmShell.apk.sha256` -- `sha256sum -c` it to check the download
+            * `Fotufilm.apk` -- the editor, install directly (`adb install -r Fotufilm.apk`)
+            * `Fotufilm.apk.sha256` -- `sha256sum -c` it to check the download
 
-            Signed with the throwaway debug keystore, so Android may ask you to allow installs
-            from unknown sources. Re-sign with your own key before publishing anywhere.
+            Signed with the keystore committed in `android-shell/keystore`, so each build installs
+            over the last. Android will ask you to allow installs from unknown sources.
           files: |
-            android-shell/out/FotufilmShell.apk
-            android-shell/out/FotufilmShell.apk.sha256
+            build/flutter-host/Fotufilm.apk
+            build/flutter-host/Fotufilm.apk.sha256

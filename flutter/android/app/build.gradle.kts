@@ -50,6 +50,12 @@ android {
                 keyAlias = setting("FOTUFILM_ANDROID_KEY_ALIAS")
                 keyPassword = setting("FOTUFILM_ANDROID_KEY_PASSWORD")
                     ?: setting("FOTUFILM_ANDROID_KEYSTORE_PASSWORD")
+                // v2/v3 alone is not enough for every installer: VIVO reads the developer
+                // certificate out of META-INF, which only the v1 (JAR) signature writes, and
+                // reports "安装包缺乏开发者证书" without it. minSdk 28 makes AGP leave v1 off.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
