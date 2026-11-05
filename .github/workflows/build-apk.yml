@@ -103,24 +103,76 @@ jobs:
         id: cache-swift-sdk
         uses: actions/cache@v4
         with:
+          # v2: the v1 runs saved whatever the first attempt left behind.
           path: ~/.swiftpm/swift-sdks
-          key: swift-sdk-${{ env.SWIFT_VERSION }}-android
+          key: swift-sdk-${{ env.SWIFT_VERSION }}-android-v2
 
       - name: Install the Swift SDK for Android
+        # swift sdk install decides for itself where the bundle lands, and on Swift 6.3 an
+        # artifact bundle can end up under a name other than the archive's. So the archive is
+        # unpacked here, the .artifactbundle directory is found rather than assumed, and it is
+        # put where tools/build-android-engine.sh looks for it:
+        #   ~/.swiftpm/swift-sdks/$SWIFT_SDK.artifactbundle/swift-android
+        # swift sdk install then runs only to register the SDK, and may fail harmlessly.
         run: |
           export PATH="$SWIFT_TOOLCHAIN/usr/bin:$PATH"
-          bundle="$HOME/.swiftpm/swift-sdks/${SWIFT_SDK}.artifactbundle"
-          if [ ! -d "$bundle/swift-android" ]; then
+          sdk_root="$HOME/.swiftpm/swift-sdks"
+          bundle="$sdk_root/${SWIFT_SDK}.artifactbundle"
+          mkdir -p "$sdk_root"
+          echo "--- before ---"
+          find "$sdk_root" -maxdepth 2 -mindepth 1 | head -20
+
+          if [ ! -f "$bundle/swift-android/swift-sdk.json" ]; then
             url="https://download.swift.org/swift-${SWIFT_VERSION}-release/android-sdk/swift-${SWIFT_VERSION}-RELEASE/swift-${SWIFT_VERSION}-RELEASE_android.artifactbundle.tar.gz"
-            curl -fsSL --retry 5 --retry-delay 5 -o /tmp/swift-android.tar.gz "$url"
-            swift sdk install /tmp/swift-android.tar.gz || {
-              # Same result by hand: the archive holds one .artifactbundle directory.
-              mkdir -p "$HOME/.swiftpm/swift-sdks"
-              tar xzf /tmp/swift-android.tar.gz -C "$HOME/.swiftpm/swift-sdks"
-            }
+            curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/swift-android.tar.gz "$url"
+
+            # An error page with the right name would otherwise fail inside tar, far from the cause.
+            size=$(stat -c%s /tmp/swift-android.tar.gz)
+            echo "downloaded $size bytes from $url"
+            [ "$size" -gt 200000000 ] || { echo "::error::expected ~318 MB, got $size bytes"; file /tmp/swift-android.tar.gz; exit 1; }
+            gzip -t /tmp/swift-android.tar.gz || { echo "::error::the download is not a gzip archive"; exit 1; }
+
+            echo "--- archive top level ---"
+            tar tzf /tmp/swift-android.tar.gz | awk -F/ 'NF<=2' | sort -u | head -10
+
+            unpacked=/tmp/swift-sdk-unpack
+            chmod -R u+w "$unpacked" 2>/dev/null || true
+            rm -rf "$unpacked"
+            mkdir -p "$unpacked"
+            tar xzf /tmp/swift-android.tar.gz -C "$unpacked"
+
+            # The archive holds one .artifactbundle directory; find it instead of trusting a name.
+            found=$(find "$unpacked" -maxdepth 2 -name '*.artifactbundle' -type d | head -1)
+            rm -rf "$bundle"
+            if [ -n "$found" ]; then
+              echo "found bundle: $found"
+              mv "$found" "$bundle"
+            else
+              # No wrapper directory: the variant sits at the archive root.
+              echo "no .artifactbundle wrapper; using the archive root"
+              mkdir -p "$bundle"
+              cp -a "$unpacked/." "$bundle/"
+            fi
+            # A bundle that kept no wrapper may have nested the variant one level deeper.
+            if [ ! -d "$bundle/swift-android" ]; then
+              inner=$(find "$bundle" -maxdepth 2 -name 'swift-android' -type d | head -1)
+              [ -n "$inner" ] && mv "$inner" "$bundle/swift-android"
+            fi
           fi
-          test -d "$bundle/swift-android" || { echo "::error::no Swift SDK for Android at $bundle"; exit 1; }
-          swift sdk list
+
+          # Optional: let swiftpm know about it too. The build reads the path directly, so a
+          # refusal here is not a failure.
+          swift sdk install "$bundle" ||
+            echo "::warning::swift sdk install declined the bundle; android-shell reads it from $bundle"
+
+          test -f "$bundle/swift-android/swift-sdk.json" || {
+            echo "::error::no Swift SDK for Android at $bundle"
+            find "$sdk_root" -maxdepth 3 | head -30
+            exit 1
+          }
+          echo "--- installed ---"
+          find "$bundle/swift-android" -maxdepth 1 -mindepth 1 | sort
+          swift sdk list || true
 
       - name: Cache the Android NDK
         id: cache-ndk
@@ -146,7 +198,11 @@ jobs:
           cd "$HOME/.swiftpm/swift-sdks/${SWIFT_SDK}.artifactbundle/swift-android"
           bash scripts/setup-android-sdk.sh
           test -f "swift-resources/usr/lib/swift-aarch64/android/aarch64/swiftrt.o" || {
-            echo "::error::the Swift SDK has no arm64 swiftrt.o"; exit 1; }
+            echo "::error::the Swift SDK has no arm64 swiftrt.o"
+            pwd
+            find . -maxdepth 1 -mindepth 1 -printf '%y %f\n'
+            find swift-resources/usr/lib -maxdepth 1 -mindepth 1 -printf '%y %f\n' 2>/dev/null | head -20
+            exit 1; }
 
       - name: Read the Halide pin
         id: halide-pin
@@ -244,6 +300,17 @@ jobs:
           echo "$counted shared objects for $ABI inside the APK"
           [ "${counted:-0}" -gt 0 ] || { echo "::error::the APK carries no $ABI library"; exit 1; }
           ls -lh android-shell/out/FotufilmShell.apk
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          df -h /
+          echo "--- swift sdk dir ---"
+          find "$HOME/.swiftpm/swift-sdks" -maxdepth 3 2>/dev/null | head -40
+          echo "--- build dir ---"
+          find build -maxdepth 2 -type d 2>/dev/null | head -20
+          echo "--- installed bundles ---"
+          ls -lh /tmp/swift-android.tar.gz /tmp/ndk.zip /tmp/swift.tar.gz 2>/dev/null || true
 
       - name: Summary
         if: always()
