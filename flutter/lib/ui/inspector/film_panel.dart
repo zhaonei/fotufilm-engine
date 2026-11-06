@@ -32,7 +32,7 @@ List<Widget> _following(EditorModel editor) {
 List<Widget> filmPanel(InspectorControls c) {
   final editor = c.editor;
   if (!c.hasFilm) {
-    return const [
+    return [
       Section(title: tr('Normal'), children: [InfoRow('Stock', 'None')]),
     ];
   }

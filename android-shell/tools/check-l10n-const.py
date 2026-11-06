@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """Fails if a tr() call sits inside a const expression, which Dart will not compile.
 
-    Android Studio: "Method invocation is not a constant expression."
-    Dart VM:        "Error: Method invocation is not a constant expression."
+    Dart: "Error: Method invocation is not a constant expression."
 
-l10n/zh.dart's tr() is a function, so `const FieldLabel(tr('Name'))` is not a constant and
-`const [Text(tr('Cancel'))]` is not a constant list. Dart reports the first such line only, which
-makes it a compile-run-fix-repeat loop; this finds them all, in a second, without a Dart toolchain.
+l10n/zh.dart's tr() is a function, so `const FieldLabel(tr('Name'))`, `const [Text(tr('x'))]` and
+`const {'k': tr('x')}` are all illegal. Dart reports one such line per build, which turns a
+30-minute CI cycle into a guessing game; this reports every one of them in a second, with no Dart
+toolchain and no network.
 
-Two shapes are checked:
+It reads the file as text, skips string literals and comments, keeps a stack of every bracket it
+has open, and remembers for each whether the expression it opens was marked `const`:
 
-  * the `const` is on the same line, before the call -- `const FieldLabel(tr('Name')),`
-  * the `const` opens a constructor or list whose body contains the call --
-        const Column(children: [
-          Text(tr('Cancel')),
-        ])
+    const Column(children: [        <- const group
+      Text(tr('Cancel')),           <- violation, through two levels
+    ])
+
+    return const [
+      Section(title: tr('Normal')),  <- violation through a const list
+    ];
+
+Nothing is guessed from line numbers or indentation.
 
     python3 android-shell/tools/check-l10n-const.py [flutter/lib]
 """
@@ -22,39 +27,97 @@ import pathlib
 import re
 import sys
 
+OPEN = '([{'
+CLOSE = ')]}'
+MATCH = {')': '(', ']': '[', '}': '{'}
 CALL = 'tr('
-CONST = re.compile(r'\bconst\b')
 
 
-def same_line(text):
-    """(line number, line) where tr( shares its line with a const before it."""
-    found = []
-    for number, line in enumerate(text.split('\n'), start=1):
-        index = line.find(CALL)
-        while index != -1:
-            if CONST.search(line[:index]):
-                found.append((number, line.strip()))
-                break
-            index = line.find(CALL, index + 1)
-    return found
+def scan(text):
+    """Yield (index, char, stack) for each character, where stack is the open group list.
 
-
-def enclosing(text):
-    """(line number, opening line) where tr( is inside a const that opened earlier."""
-    found, lines = [], text.split('\n')
-    for index, line in enumerate(lines):
-        if CALL not in line:
+    Each stack entry is (bracket, from_index, is_const). Strings and comments are skipped, so a
+    bracket inside them cannot open or close anything.
+    """
+    stack = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c in '\'"':
+            quote = c
+            i += 1
+            while i < n:
+                if text[i] == '\\':
+                    i += 2
+                    continue
+                if text[i] == quote:
+                    break
+                i += 1
+            i += 1
             continue
-        # The same line was checked already; walk back for the constructor that contains it.
-        depth, back = 0, index
-        while back > 0:
-            probe = lines[back - 1]
-            depth += probe.count(')') - probe.count('(')
-            if depth < 0:
-                if CONST.search(probe):
-                    found.append((index + 1, probe.strip()))
-                break
-            back -= 1
+        if c == '/' and i + 1 < n:
+            if text[i + 1] == '/':
+                while i < n and text[i] != '\n':
+                    i += 1
+                continue
+            if text[i + 1] == '*':
+                end = text.find('*/', i + 2)
+                i = n if end == -1 else end + 2
+                continue
+        if c in OPEN:
+            stack.append((c, i, opens_const(text, i)))
+            yield i, c, tuple(stack)
+            i += 1
+            continue
+        if c in CLOSE:
+            if stack and stack[-1][0] == MATCH[c]:
+                stack.pop()
+            yield i, c, tuple(stack)
+            i += 1
+            continue
+        yield i, c, tuple(stack)
+        i += 1
+
+
+def opens_const(text, index):
+    """Whether the expression opened at `index` was written as `const Foo(...)` or `const [...]`."""
+    j = index - 1
+    while j >= 0 and text[j] in ' \t\n\r':
+        j -= 1
+    if j >= 0 and text[j] == '>':                       # const Foo<Bar>(...)
+        depth = 0
+        while j >= 0:
+            if text[j] == '>':
+                depth += 1
+            elif text[j] == '<':
+                depth -= 1
+                if depth == 0:
+                    j -= 1
+                    break
+            j -= 1
+        while j >= 0 and text[j] in ' \t\n\r':
+            j -= 1
+    end = j + 1
+    while j >= 0 and (text[j].isalnum() or text[j] in '_.$'):
+        j -= 1
+    word = text[j + 1:end]
+    if word == 'const':                     # `const [` / `const {...}` : no type name at all
+        return True
+    before = text[:j + 1]
+    if word:                                # `const Column(...)` : look past the type name
+        return re.search(r'const\s*$', before) is not None
+    return re.search(r'const\s*$', text[:index]) is not None
+
+
+def violations(text):
+    """(offset, reason) for every tr() call inside a const group."""
+    found = []
+    for index, char, stack in scan(text):
+        if char == 't' and text.startswith(CALL, index):
+            const_groups = [g for g in stack if g[2]]
+            if const_groups:
+                opener = const_groups[-1][1]
+                found.append((index, text.count('\n', 0, opener) + 1))
     return found
 
 
@@ -65,11 +128,13 @@ def main(argv):
         return 2
     total = 0
     for path in sorted(root.rglob('*.dart')):
-        if 'l10n' in path.parts:
-            continue            # the table itself mentions no tr() in a const
         text = path.read_text()
-        for number, line in same_line(text) + enclosing(text):
-            print(f'{path}:{number}: tr() is in a const expression: {line}')
+        for offset, opener_line in violations(text):
+            line = text.count('\n', 0, offset) + 1
+            snippet = text[text.rfind('\n', 0, offset) + 1:
+                           text.find('\n', offset) if text.find('\n', offset) != -1 else len(text)]
+            print(f'{path}:{line}: tr() inside a const expression opened at line {opener_line}: '
+                  f'{snippet.strip()[:80]}')
             total += 1
     if total:
         print(f'\n{total} tr() call(s) inside a const expression. Remove the const, or the call.')

@@ -10,6 +10,8 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
+// ValueListenable lives in foundation; widgets.dart does not re-export it.
+import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
 import 'package:flutter/widgets.dart';
 
 /// The lines, newest last, capped so a long session cannot grow without bound.

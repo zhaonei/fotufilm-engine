@@ -7,7 +7,7 @@ import '../../l10n/zh.dart';
 
 List<Widget> developPanel(InspectorControls c) {
   if (!c.hasFilm) {
-    return const [
+    return [
       Section(title: tr('Normal'), children: [
         Note('Choose a film from the library to use development and grain.'),
       ]),
