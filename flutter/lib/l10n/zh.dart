@@ -299,7 +299,7 @@ const Map<String, String> zhOf = {
   'Finish': '完成',
   'Finished print': '成品照片',
   'Four-Corner Crop': '四角裁剪',
-  'Grade': '号数',
+  'Grade': '调色',
   'Green–Blue': '绿至蓝',
   'HDR Highlights': 'HDR 高光',
   'Histogram': '直方图',
@@ -389,4 +389,5 @@ const Map<String, String> zhOf = {
   'Zoom in': '放大',
   'Zoom out': '缩小',
   'Zoom to fit (0)': '适应窗口 (0)',
+  'Cropping': '裁剪',
 };

@@ -33,7 +33,7 @@ List<Widget> exposePanel(InspectorControls c) {
   // Only a photograph that records light above white has any to keep.
   final headroom = editor.active?.headroom ?? 1;
   return [
-    Section(title: 'Light', children: [
+    Section(title: tr('Light'), children: [
       ...c.sliders('Light', film: !negative),
       if (!negative)
         SwitchRow(
@@ -57,8 +57,8 @@ List<Widget> exposePanel(InspectorControls c) {
       if (c.edit['sceneLight'] == 'custom') ...c.sliders('Source Illuminant'),
     ]),
     Section(title: tr('White Balance'), children: c.sliders('White Balance')),
-    Section(title: 'Color', children: c.sliders('Color')),
-    Section(title: 'Grade', children: [
+    Section(title: tr('Color'), children: c.sliders('Color')),
+    Section(title: tr('Grade'), children: [
       GradeDeck(editor: editor),
       ...c.sliders('Output Levels'),
       c.editSwitch('gradeSpace', 'Encoded Grade'),

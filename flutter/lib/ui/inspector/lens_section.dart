@@ -38,7 +38,7 @@ class LensSection extends StatelessWidget {
     final amount = catalogue.catalogueSlider('lensAmount', 'Lens');
     final profileID = lens['profileID'] as String?;
     final raw = catalogue.control('rawCorrections');
-    return Section(title: 'Lens', children: [
+    return Section(title: tr('Lens'), children: [
       // The browser's RAW decoder corrects nothing, so it has no RAW Corrections to turn off.
       if (doc != null && doc.raw && !kIsWeb)
         SwitchRow(

@@ -20,7 +20,7 @@ Widget lensFiltersSection(InspectorControls c) {
   void change(Json value) => editor.change(value);
   final options = [for (final f in catalogue.choices) PickerOption(f['id'] as String, f['name'] as String)];
   final note = catalogue.note(filters);
-  return Section(title: 'Filters', children: [
+  return Section(title: tr('Filters'), children: [
     for (var i = 0; i < filters.length; i++)
       _FittedFilter(
         // The same filter twice keeps each row its own.

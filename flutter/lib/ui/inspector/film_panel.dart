@@ -33,7 +33,7 @@ List<Widget> filmPanel(InspectorControls c) {
   final editor = c.editor;
   if (!c.hasFilm) {
     return const [
-      Section(title: 'Normal', children: [InfoRow('Stock', 'None')]),
+      Section(title: tr('Normal'), children: [InfoRow('Stock', 'None')]),
     ];
   }
   final fixed = c.fixedSettings;
@@ -52,7 +52,7 @@ List<Widget> filmPanel(InspectorControls c) {
       ..._following(editor),
     ]),
     if (!fixed) Section(title: tr('Film Condition'), children: c.profileControls(const ['expired'])),
-    Section(title: 'Halation', children: [
+    Section(title: tr('Halation'), children: [
       PickerField<String>(
         label: tr('Halation Model'),
         detail: c.catalogue.detail('halationModel'),

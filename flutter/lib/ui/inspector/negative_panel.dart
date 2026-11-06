@@ -33,7 +33,7 @@ List<Widget> negativePanel(InspectorControls c) {
   final lightFrame = negative['lightFrame'] as String?;
   final frames = scans.lightFrames;
   return [
-    Section(title: 'Negative', children: [
+    Section(title: tr('Negative'), children: [
       InfoRow(tr('Film'), c.stock?['name'] as String? ?? 'Normal'),
       if (suggestions.isNotEmpty) const InfoRow('Base looks like', ''),
       for (final s in suggestions)

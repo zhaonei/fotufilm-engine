@@ -31,7 +31,7 @@ List<Widget> printPanel(InspectorControls c) {
   final cmyChanged = _screenCMY.any((f) => (c.profile[f] as num? ?? 0) != 0);
   final fixed = c.fixedSettings;
   return [
-    Section(title: 'Output', children: [
+    Section(title: tr('Output'), children: [
       ToneCurveChart(editor: editor),
       MediumRow(
         editor: editor,
@@ -106,7 +106,7 @@ List<Widget> printPanel(InspectorControls c) {
         ]),
       ),
     if (!fixed && editor.active != null) PrintFrameSection(editor: editor),
-    Section(title: 'Export', children: [
+    Section(title: tr('Export'), children: [
       Builder(
         builder: (context) => Align(
           alignment: Alignment.centerLeft,

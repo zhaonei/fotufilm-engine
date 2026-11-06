@@ -8,6 +8,7 @@
 // edits as they were when it was asked for, and a photograph closed meanwhile stays loaded until
 // its export is done. A movie, and every export in a browser, holds the editor until it is done.
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -349,7 +350,10 @@ class ExportTool {
   /// Runs an export: the editor waits and the renderer leaves the engine's work alone, so that
   /// a develop the view asks for does not cancel it. Cancelling is not a failure.
   Future<T?> _run<T>(String status, Future<T> Function() body) async {
-    if (editor.exporting) return null;
+    if (editor.exporting) {
+      developer.log('export skipped: another export is running ($status)', name: 'fotufilm');
+      return null;
+    }
     editor
       ..exporting = true
       ..error = null
@@ -485,12 +489,22 @@ class ExportTool {
   /// `path`). Answers what was saved, or null when nothing was.
   Future<SavedExport?> exportPhoto({String? path, void Function()? onStarted}) async {
     final doc = editor.active, engine = _engine;
-    if (doc == null || engine == null || editor.exporting) return null;
+    if (doc == null || engine == null || editor.exporting) {
+      // Silence here is what made the Export button look dead: no dialog, no error, no clue.
+      developer.log(
+          'export skipped: photo=${doc == null ? 'none' : 'open'} '
+          'engine=${engine == null ? 'none' : 'ok'} exporting=${editor.exporting}',
+          name: 'fotufilm');
+      return null;
+    }
     if (doc.isMovie) return exportMovie(path: path);
     if (type == originalType) return exportOriginal(path: path, onStarted: onStarted);
     final filename = stillFilename(doc.name, doc.edit, type);
     path ??= await _chooseFile(filename, type);
-    if (path == null) return null;
+    if (path == null) {
+      developer.log('export stopped: no destination chosen for $filename', name: 'fotufilm');
+      return null;
+    }
     final destination = path;
     final request = {
       ..._request(doc, maxEdge: exportMaxEdge(sizeId(batch: false), cropSize(doc))),
@@ -518,7 +532,13 @@ class ExportTool {
   Future<SavedExport?> exportAll({String? directory, void Function()? onStarted}) async {
     final engine = _engine;
     final docs = _batch;
-    if (engine == null || docs.isEmpty || editor.exporting) return null;
+    if (engine == null || docs.isEmpty || editor.exporting) {
+      developer.log(
+          'export all skipped: engine=${engine == null ? 'none' : 'ok'} '
+          'photos=${docs.length} exporting=${editor.exporting}',
+          name: 'fotufilm');
+      return null;
+    }
     directory ??= await _chooseFolder();
     if (directory == null) return null;
     final request = {

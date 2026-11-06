@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import '../../model/editor.dart';
 import '../kit/kit.dart';
+import '../../l10n/zh.dart';
 
 class PrintFrameSection extends StatelessWidget {
   const PrintFrameSection({super.key, required this.editor});
@@ -29,7 +30,7 @@ class PrintFrameSection extends StatelessWidget {
     final frameCount = editor.catalogue.control('printFrameCount');
     final camera = editor.catalogue.control('printFrameCamera');
     final printsEdge = editor.edit['printFrameEdgePrinting'] as bool? ?? true;
-    return Section(title: 'Frame', children: [
+    return Section(title: tr('Frame'), children: [
       PickerField<String>(
         label: control['title'] as String,
         detail: control['detail'] as String?,

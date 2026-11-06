@@ -8,7 +8,7 @@ import '../../l10n/zh.dart';
 List<Widget> developPanel(InspectorControls c) {
   if (!c.hasFilm) {
     return const [
-      Section(title: 'Normal', children: [
+      Section(title: tr('Normal'), children: [
         Note('Choose a film from the library to use development and grain.'),
       ]),
     ];
@@ -21,8 +21,8 @@ List<Widget> developPanel(InspectorControls c) {
     'chromaticFringeRadius',
   ];
   return [
-    Section(title: 'Development', children: c.profileControls(const ['push', 'bleach'])),
-    Section(title: 'Grain', children: [
+    Section(title: tr('Development'), children: c.profileControls(const ['push', 'bleach'])),
+    Section(title: tr('Grain'), children: [
       ...c.sliders('Character'),
       ...c.profileControls(const [
         'grainMottle',

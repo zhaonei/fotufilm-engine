@@ -3,6 +3,7 @@
 // started at the first export, makes the background calls on the same engine, so an export runs
 // beside the editor's develops; a few more, started at the first thumbnail, draw thumbnails
 // side by side.
+import 'dart:developer' as developer;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
@@ -86,6 +87,10 @@ class NativeEngine implements EngineConnection {
   @override
   Future<EngineReply> call(String method, [Map<String, dynamic> params = const {},
       Uint8List? payload]) {
+    // Every call crosses to the engine's own isolate, so the UI thread is never the one waiting.
+    // What it does cost is time, and a slow call is what a stall in the interface is made of;
+    // anything over 200 ms says so in logcat, with the method that took it.
+    final watch = Stopwatch()..start();
     final id = _next++;
     final completer = _pending[id] = Completer<EngineReply>();
     _commands.send((
@@ -95,7 +100,12 @@ class NativeEngine implements EngineConnection {
       payload == null ? null : TransferableTypedData.fromList([payload]),
       false,
     ));
-    return completer.future;
+    return completer.future.whenComplete(() {
+      if (watch.elapsedMilliseconds > 200) {
+        developer.log('engine $method took ${watch.elapsedMilliseconds} ms',
+            name: 'fotufilm');
+      }
+    });
   }
 
   @override

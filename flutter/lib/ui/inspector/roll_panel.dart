@@ -18,7 +18,7 @@ List<Widget> rollPanel(InspectorControls c) {
   final disabled = measuring != null;
   final enough = frames.length >= 2;
   return [
-    Section(title: 'Roll', children: [
+    Section(title: tr('Roll'), children: [
       InfoRow(tr('Frames'), frames.isEmpty ? 'Not in a folder' : '${frames.length}'),
     ]),
     Section(title: tr('Colour Balance'), children: [

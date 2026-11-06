@@ -12,14 +12,14 @@ List<Widget> cropPanel(InspectorControls c) {
   final crop = editor.crop;
   final size = crop.cropSize;
   return [
-    Section(title: 'Orientation', children: [
+    Section(title: tr('Orientation'), children: [
       Row(children: [
         Expanded(child: _ActionButton(icon: 'rotate', label: tr('Rotate Left'), onPressed: crop.rotateLeft)),
         const SizedBox(width: 8),
         Expanded(child: _ActionButton(icon: 'flip', label: 'Flip', onPressed: crop.flip)),
       ]),
     ]),
-    Section(title: 'Crop', children: [
+    Section(title: tr('Crop'), children: [
       _ToggleButton(
         label: tr('Four-Corner Crop'),
         selected: crop.shape == 'corners',
@@ -37,11 +37,11 @@ List<Widget> cropPanel(InspectorControls c) {
       _geometry(c, 'straighten'),
       InfoRow('Crop size', '${size.width.round()} × ${size.height.round()}'),
     ]),
-    Section(title: 'Perspective', children: [
+    Section(title: tr('Perspective'), children: [
       _geometry(c, 'perspectiveVertical', 'perspectiveV'),
       _geometry(c, 'perspectiveHorizontal', 'perspectiveH'),
     ]),
-    Section(title: 'Finish', children: [
+    Section(title: tr('Finish'), children: [
       PillButton(tr('Reset Crop'), expand: true, onPressed: crop.reset),
       PillButton(tr('Done'), expand: true, variant: ButtonVariant.accent, onPressed: crop.done),
     ]),
