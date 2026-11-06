@@ -77,9 +77,7 @@ List<Widget> filmPanel(InspectorControls c) {
       // Halation is a multiplier in stops (0 leaves the film exactly as it is), and how bright the
       // halo is also depends on the film's own return, which most stocks state at well under one
       // percent. Both have to move before anything shows, which looks like a dead slider.
-      if ((c.edit['profile'] as Map?)?['halation'] == null ||
-          ((c.edit['profile'] as Map?)!['halation'] as num? ?? 0) == 0)
-        const Note('光晕强度 = Halation Return × 档位倍数 × 胶卷系数：本胶卷返回率只有 0.8%，所以单拉档位几乎看不见；请用下方“增强光晕”或同时抬高 Halation Return。'),
+      const Note('0 档 = 原样；点“增强光晕”可直接看到效果。'),
       QuietButton(
         label: tr('Boost Halation'),
         onPressed: () => editor.change({
