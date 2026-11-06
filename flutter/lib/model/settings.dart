@@ -27,6 +27,8 @@ class AppSettings extends ChangeNotifier {
   static const prefix = 'fotufilm.setting.';
 
   static const defaults = <String, Object?>{
+    // A tool, not a library: an exported photograph leaves nothing behind.
+    'forgetAfterExport': true,
     'autoFilm': false,
     'startingFilm': null,
     'startingFormat': null,

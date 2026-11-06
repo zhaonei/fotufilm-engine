@@ -95,6 +95,15 @@ class OpenedFiles(private val activity: Activity, messenger: BinaryMessenger) {
                         "importsAt" to importsDir().path,
                     )
                 )
+                // Deletes an imported copy once the export is published. Guarded to the imports
+                // folder: a path outside it is never removed, whatever Dart asks for.
+                "deleteImport" -> {
+                    val path = call.argument<String>("path")
+                    val file = path?.let { File(it) }
+                    val inside = file != null &&
+                        file.canonicalPath.startsWith(importsDir().canonicalPath + File.separator)
+                    result.success(inside && file!!.delete())
+                }
                 else -> result.notImplemented()
             }
         }

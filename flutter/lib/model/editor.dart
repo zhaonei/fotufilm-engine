@@ -3,7 +3,12 @@
 // Renderer's business (renderer.dart).
 import 'dart:async';
 
+import 'package:flutter/services.dart' show MethodChannel;
+
 import '../debug/log_tape.dart';
+
+/// The host's file channel: used only to drop an imported copy once it has been exported.
+const _forgetFile = MethodChannel('fotufilm/files');
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -446,6 +451,27 @@ class EditorModel extends ChangeNotifier implements RenderHost {
     if (index == activeIndex) return;
     endEdit();
     _activate(index);
+  }
+
+  /// Exports make a picture and nothing else: when this is on, the photograph the export came
+  /// from is forgotten afterwards -- its edit, its library entry, the copy taken in from the
+  /// picker -- so the app holds no trace of what it developed. Off, it behaves like a library.
+  bool get forgetAfterExport => settings.get<bool>('forgetAfterExport') ?? true;
+
+  Future<void> forgetExported(PhotoDocument doc) async {
+    if (!forgetAfterExport) return;
+    final path = doc.path;
+    keptEdits.forget(doc);
+    library.forgetPath(path);
+    var deleted = false;
+    try {
+      deleted = await _forgetFile.invokeMethod<bool>('deleteImport', {'path': path}) ?? false;
+    } catch (e) {
+      LogTape.record('forget: could not delete $path: $e');
+    }
+    final index = documents.indexOf(doc);
+    if (index >= 0) await closeDocument(index);
+    LogTape.record('forgot ${doc.name}: edit cleared, source ${deleted ? 'deleted' : 'kept'}');
   }
 
   Future<void> closeDocument(int index) async {

@@ -89,6 +89,18 @@ class KeptEdits {
     if (job != null) _save(job.key, job.text);
   }
 
+  /// Erases what is kept for [doc]: the tool has exported it and is to remember nothing about it.
+  void forget(PhotoDocument doc) {
+    final key = doc.identity;
+    if (_pending?.key == key) {
+      _timer?.cancel();
+      _pending = null;
+    }
+    _baselines.remove(doc);
+    _last.remove(doc);
+    if (key != null) _save(key, null);
+  }
+
   /// Keeps the edit of a photograph other than the one shown (a paste onto several).
   void keep(PhotoDocument doc) {
     final key = doc.identity;

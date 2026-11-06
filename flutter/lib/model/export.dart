@@ -535,6 +535,8 @@ class ExportTool {
       if (_androidExports) {
         final where = await _publish(saved, name, type);
         LogTape.record('exported to $where', urgent: true);
+        // A tool, not a library: the photograph leaves nothing behind once it is written.
+        unawaited(editor.forgetExported(doc));
         return SavedExport(filename: name, path: where);
       }
       return SavedExport(filename: name, path: saved);
@@ -609,6 +611,10 @@ class ExportTool {
         }
         final where = await _publishDir(source, type);
         LogTape.record('exported ${written.length} photos to $where', urgent: true);
+        // Same rule as one photograph: what was exported leaves nothing behind.
+        for (final doc in docs) {
+          unawaited(editor.forgetExported(doc));
+        }
         return SavedExport(
           filename: '${written.length} photos',
           path: where,
