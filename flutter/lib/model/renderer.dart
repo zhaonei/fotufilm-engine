@@ -75,9 +75,10 @@ class Renderer {
   static const maxPreviewEdge = 4096;
 
   /// A phone's preview stops well below 4096. Its screen is around 1200 px across, so a develop
-  /// past ~2048 has nothing left to show while costing the square of the pixels: switching films
-  /// re-develops the whole print pipeline, which is exactly where that shows as a stall.
-  static const phonePreviewEdge = 2048;
+  /// past ~1600 has nothing left to show while costing the square of the pixels: switching films
+  /// re-develops the whole print pipeline, which is exactly where that shows as a stall. The
+  /// measured settles were 4.6 s and 11.4 s at 2048; the pixels are what that is made of.
+  static const phonePreviewEdge = 1600;
 
   static int get _previewCap => switch (defaultTargetPlatform) {
         TargetPlatform.android || TargetPlatform.iOS => phonePreviewEdge,

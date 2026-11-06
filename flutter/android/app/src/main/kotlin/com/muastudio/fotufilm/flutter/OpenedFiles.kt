@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.util.Log
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
@@ -104,6 +105,9 @@ class OpenedFiles(private val activity: Activity, messenger: BinaryMessenger) {
                         file.canonicalPath.startsWith(importsDir().canonicalPath + File.separator)
                     result.success(inside && file!!.delete())
                 }
+                // Scratch space only: exports already published elsewhere, and the engine's
+                // temporary decodes. Called at start-up and when the app goes to the background.
+                "clearExports" -> result.success(clearScratch())
                 else -> result.notImplemented()
             }
         }
@@ -153,46 +157,73 @@ class OpenedFiles(private val activity: Activity, messenger: BinaryMessenger) {
     /** Imported photographs. Their own folder each, the library keeps the file's path. */
     private fun importsDir(): File = File(activity.filesDir, "imports").apply { mkdirs() }
 
+    private fun clearScratch(): Boolean {
+        exportsDir().listFiles()?.forEach { runCatching { it.deleteRecursively() } }
+        File(activity.cacheDir, "fotufilm-import").deleteRecursively()
+        // Left behind by the earlier build, which unpacked imports into the cache.
+        File(activity.cacheDir, "opened").deleteRecursively()
+        return true
+    }
+
     private fun sizeOf(dir: File): Long =
         dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
 
-    private fun isPicture(mime: String) = mime.startsWith("image/")
+    /// What the gallery collection accepts. TIFF, DPX and EXR are images to the engine but not
+    /// pictures to MediaStore's Images collection: inserting one there produced a row that
+    /// openOutputStream could not open ("No item at content://.../images/media/<id>"). Anything
+    /// that is not in this set goes to Downloads, which takes any file.
+    private fun isGalleryPicture(mime: String) = mime.lowercase() in setOf(
+        "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "image/avif"
+    )
 
     private fun publishedFolder(mime: String) =
-        if (isPicture(mime)) "Pictures/$ALBUM" else "Movies/$ALBUM"
+        if (isGalleryPicture(mime)) "Pictures/$ALBUM" else "Download/$ALBUM"
 
     /**
-     * Hands a file to the system gallery, so it shows in the phone's Photos app and survives the
-     * cache being cleared. MediaStore on Android 10 and later needs no permission; before that the
-     * file is written beside the camera's own pictures.
+     * Hands a file to the system, so it shows in the phone's file manager and survives the cache
+     * being cleared. MediaStore on Android 10 and later needs no permission; before that the file
+     * is written beside the camera's own pictures.
      */
     private fun publish(file: File, name: String, mime: String): String {
         val folder = publishedFolder(mime)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val collection = if (isPicture(mime)) {
+            val collection = if (isGalleryPicture(mime)) {
                 MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             } else {
                 MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             }
+            val resolver = activity.contentResolver
             val pending = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)
                 put(MediaStore.MediaColumns.MIME_TYPE, mime)
                 put(MediaStore.MediaColumns.RELATIVE_PATH, folder)
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
-            val resolver = activity.contentResolver
             val uri = resolver.insert(collection, pending)
-                ?: throw java.io.IOException("the gallery refused $name")
-            resolver.openOutputStream(uri)!!.use { out -> file.inputStream().use { it.copyTo(out) } }
-            resolver.update(uri, ContentValues().apply {
-                put(MediaStore.MediaColumns.IS_PENDING, 0)
-            }, null, null)
-            return "$folder/$name"
+            if (uri != null) {
+                val written = runCatching {
+                    val out = resolver.openOutputStream(uri)
+                        ?: throw java.io.IOException("no stream for $uri")
+                    out.use { stream -> file.inputStream().use { it.copyTo(stream) } }
+                }
+                if (written.isSuccess) {
+                    runCatching {
+                        resolver.update(uri, ContentValues().apply {
+                            put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        }, null, null)
+                    }
+                    return "$folder/$name"
+                }
+                // Leave nothing half-written behind, then take the road that always works.
+                runCatching { resolver.delete(uri, null, null) }
+            }
+            return publishBesideTheApp(file, name, folder, "MediaStore refused it")
         }
         @Suppress("DEPRECATION")
         val directory = File(
             Environment.getExternalStoragePublicDirectory(
-                if (isPicture(mime)) Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_MOVIES
+                if (isGalleryPicture(mime)) Environment.DIRECTORY_PICTURES
+                else Environment.DIRECTORY_DOWNLOADS
             ), ALBUM
         ).apply { mkdirs() }
         val target = File(directory, name)
@@ -200,7 +231,21 @@ class OpenedFiles(private val activity: Activity, messenger: BinaryMessenger) {
         return target.path
     }
 
+    /**
+     * The last resort: the app's own external folder. Always writable without a permission and
+     * visible over USB and to most file managers, so an export can still be collected by hand.
+     */
+    private fun publishBesideTheApp(file: File, name: String, folder: String, why: String): String {
+        val root = activity.getExternalFilesDir(null) ?: activity.filesDir
+        val directory = File(root, folder.replace('/', '_')).apply { mkdirs() }
+        val target = File(directory, name)
+        file.inputStream().use { input -> target.outputStream().use { input.copyTo(it) } }
+        Log.w(TAG, "publish to the gallery failed ($why); wrote $target")
+        return target.path
+    }
+
     private companion object {
+        const val TAG = "FotufilmFiles"
         const val REQUEST = 0x0f07
         const val ALBUM = "Fotufilm"
     }

@@ -358,12 +358,30 @@ class EditorModel extends ChangeNotifier implements RenderHost {
 
   /// Opens photographs the system named by path (the Finder, the command line, the driver); one
   /// brings its folder into the strip. Film packs among them are installed instead.
+  /// Forgets every open photograph except [keep]: called when a new one replaces them.
+  Future<void> forgetOthers({Set<PhotoDocument> keep = const {}}) async {
+    for (final doc in documents.where((d) => !keep.contains(d)).toList()) {
+      keptEdits.forget(doc);
+      library.forgetPath(doc.path);
+      try {
+        await _forgetFile.invokeMethod<bool>('deleteImport', {'path': doc.path});
+      } catch (_) {}
+      final index = documents.indexOf(doc);
+      if (index >= 0) await closeDocument(index);
+    }
+  }
+
   Future<void> openPaths(List<String> paths) async {
     final packs = paths.where(isFilmPack).toList();
     if (packs.isNotEmpty) await filmPacks.importPaths(packs);
     final photos = paths.where((path) => !isFilmPack(path)).toList();
     if (photos.isEmpty) return;
+    final before = {...documents};
     await strip.open([for (final path in photos) PhotoFile(path.split('/').last, path: path)]);
+    if (keepOnlyCurrentPhoto) {
+      // What was open before this call is replaced, not accumulated.
+      await forgetOthers(keep: {...documents}.difference(before));
+    }
   }
 
   /// Opens photographs: by path where the engine reads files itself, otherwise by their bytes.
@@ -457,7 +475,11 @@ class EditorModel extends ChangeNotifier implements RenderHost {
   /// Exports make a picture and nothing else: when this is on, the photograph the export came
   /// from is forgotten afterwards -- its edit, its library entry, the copy taken in from the
   /// picker -- so the app holds no trace of what it developed. Off, it behaves like a library.
-  bool get forgetAfterExport => settings.get<bool>('forgetAfterExport') ?? true;
+  bool get forgetAfterExport => settings.get<bool>('forgetAfterExport') ?? false;
+
+  /// Whether opening photographs replaces the ones already open. The app is a tool for the picture
+  /// in front of you: the previous one's copy, edit and history go when the next arrives.
+  bool get keepOnlyCurrentPhoto => settings.get<bool>('keepOnlyCurrentPhoto') ?? true;
 
   Future<void> forgetExported(PhotoDocument doc) async {
     if (!forgetAfterExport) return;

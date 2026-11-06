@@ -27,8 +27,10 @@ class AppSettings extends ChangeNotifier {
   static const prefix = 'fotufilm.setting.';
 
   static const defaults = <String, Object?>{
-    // A tool, not a library: an exported photograph leaves nothing behind.
-    'forgetAfterExport': true,
+    // Exporting keeps the photograph and its edit, so it can be developed on.
+    'forgetAfterExport': false,
+    // A photograph opened next replaces what was open: its copy, its edit and its history go.
+    'keepOnlyCurrentPhoto': true,
     'autoFilm': false,
     'startingFilm': null,
     'startingFormat': null,

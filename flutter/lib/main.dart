@@ -36,6 +36,16 @@ void main(List<String> arguments) {
   runApp(Boot(arguments: arguments));
 }
 
+/// Clears the scratch space -- published exports and the engine's temporary decodes -- on start-up
+/// and when the app goes to the background. Settings, presets and the photographs themselves are
+/// not touched.
+Future<void> _tidyScratch() async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+  try {
+    await const MethodChannel('fotufilm/files').invokeMethod<bool>('clearExports');
+  } catch (_) {}
+}
+
 /// What the app is using on the phone, so storage growth is visible rather than guessed at:
 /// the imports it keeps (the library's own files), the export cache, and the engine's unpacked
 /// resources. Only Android answers; the call is a no-op anywhere else.
@@ -123,10 +133,21 @@ class _BootState extends State<Boot> {
   StackTrace? _stack;
   String _stage = 'Starting…';
 
+  final AppLifecycleListener _lifecycle = AppLifecycleListener(
+    onPause: () => unawaited(_tidyScratch()),
+    onDetach: () => unawaited(_tidyScratch()),
+  );
+
   @override
   void initState() {
     super.initState();
     unawaited(_boot());
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
   }
 
   void _showStage(String stage) {
@@ -156,6 +177,7 @@ class _BootState extends State<Boot> {
       // A browser engine answers in sRGB; the desktop engine's Display P3 is converted for drawing.
       ColourConversion.enabled = editor.engine?.picturesAreDisplayP3 ?? true;
       Driver.start(editor, _boundary);
+      await _tidyScratch();
       unawaited(_reportStorage());
       // What arrived, in logcat: the first question a quiet render bug asks is whether the
       // catalogue and the engine's film list are actually populated.
