@@ -367,6 +367,88 @@ class EditorModel extends ChangeNotifier implements RenderHost {
   /// Opens photographs the system named by path (the Finder, the command line, the driver); one
   /// brings its folder into the strip. Film packs among them are installed instead.
   /// Forgets every open photograph except [keep]: called when a new one replaces them.
+  /// Renders the shown photograph twice per film lever -- once as it stands, once with that
+  /// lever pushed to an extreme -- and reports how many bytes of the developed PNG differ. Zero
+  /// means the lever never reached the pixels; a large number means it works and what the eye
+  /// saw was the film's own small value. This is the measurement the desktop cannot give us,
+  /// because the phone is the only place this request path runs.
+  Future<void> runLeverCheck() async {
+    final doc = active, engine = this.engine;
+    if (doc == null || engine == null) {
+      LogTape.record('自检：请先打开一张照片');
+      return;
+    }
+    Future<List<int>?> shot(Map<String, Object?> patch) async {
+      final edit = <String, dynamic>{...doc.edit};
+      edit['profile'] = <String, dynamic>{
+        ...?(doc.edit['profile'] as Map?)?.cast<String, dynamic>(),
+        ...patch,
+      };
+      final request = renderRequest(
+        catalogue: catalogue,
+        handle: doc.handle,
+        edit: edit,
+        stock: stockById(edit['stock'] as String?),
+        maxEdge: 192,
+      );
+      try {
+        final answer = await engine.call('render', {...request, 'original': false});
+        return answer.bytes('preview');
+      } catch (e) {
+        LogTape.record('自检：渲染失败 $e');
+        return null;
+      }
+    }
+
+    LogTape.record('自检开始（${doc.name}，192px 预览）');
+    final base = await shot(const {});
+    if (base == null) {
+      LogTape.record('自检：基线渲染没有返回图像');
+      return;
+    }
+    const levers = <String, Map<String, Object?>>{
+      '光晕档位 +4': {'halation': 4.0},
+      '光晕返回率 50%': {'halationReturn': 0.5},
+      '防光晕层 0': {'antiHalation': 0.0},
+      '颗粒模型 Film': {'grainModel': 'film'},
+      '颗粒尺寸 3': {'filmGrainSize': 3.0},
+      '彩色颗粒 0': {'filmColourGrain': 0.0},
+      '颗粒团簇 最大': {'grainMottle': 'maximum'},
+      '扫描柔度 3': {'filmScanSoftness': 3.0},
+      '过期 20 年': {'expired': 20.0},
+      '推冲 +1 档': {'push': 1.0},
+      '成色剂 2': {'couplers': 2.0},
+      '边缘对比 2': {'couplerSelf': 2.0},
+      '液层串色到顶': {'couplerReach': 3.0},
+      '印相灯 3400K': {'printerLamp': 3400.0},
+      '印相曝光 +4 档': {'printerExposure': 4.0},
+      '相纸号数 5': {'screenGrade': 5.0},
+      '基础雾度 100': {'halationHaze': 100.0},
+      '片基厚度 2': {'baseThickness': 2.0},
+    };
+    for (final entry in levers.entries) {
+      final variant = await shot(entry.value);
+      if (variant == null) {
+        LogTape.record('自检 ${entry.key}：无图像');
+        continue;
+      }
+      if (variant.length != base.length) {
+        LogTape.record('自检 ${entry.key}：尺寸化（${base.length} → ${variant.length} 字节）→ 有变化');
+        continue;
+      }
+      var differing = 0, biggest = 0;
+      for (var i = 0; i < base.length; i++) {
+        final d = (base[i] - variant[i]).abs();
+        if (d != 0) differing++;
+        if (d > biggest) biggest = d;
+      }
+      LogTape.record(differing == 0
+          ? '自检 ${entry.key}：✗ 完全没有变化（该参数未进入渲染）'
+          : '自检 ${entry.key}：✓ 变化 $differing 字节 / 峰值 $biggest');
+    }
+    LogTape.record('自检结束');
+  }
+
   Future<void> forgetOthers({Set<PhotoDocument> keep = const {}}) async {
     for (final doc in documents.where((d) => !keep.contains(d)).toList()) {
       keptEdits.forget(doc);

@@ -173,6 +173,7 @@ class _BootState extends State<Boot> {
       // earlier build is deliberately ignored: it was what kept them coming.
       LogTape.showBanners = false;
       LogTape.persistBanners = null;
+      LogTape.selfCheck = editor.runLeverCheck;
       final editor = EditorModel(catalogue, settings: settings);
 
       _showStage('Starting the engine…');
