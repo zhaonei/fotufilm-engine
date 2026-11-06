@@ -6,6 +6,7 @@ import '../../model/editor.dart';
 import '../kit/kit.dart';
 import 'controls.dart';
 import 'format_picker.dart';
+import '../../l10n/zh.dart';
 
 /// A chosen format goes back to the camera's or the film's; otherwise which one is followed.
 List<Widget> _following(EditorModel editor) {
@@ -37,23 +38,23 @@ List<Widget> filmPanel(InspectorControls c) {
   }
   final fixed = c.fixedSettings;
   return [
-    Section(title: 'Loaded Film', children: [
+    Section(title: tr('Loaded Film'), children: [
       if (fixed) const Note('Fixed profile: film settings are off.'),
       InfoRow('Stock', c.stock?['name'] as String? ?? ''),
     ]),
-    if (!fixed) Section(title: 'Film Format', children: [
+    if (!fixed) Section(title: tr('Film Format'), children: [
       FormatPicker(editor: editor),
       SwitchRow(
-        label: 'Magnified Detail',
+        label: tr('Magnified Detail'),
         value: editor.formatDetail,
         onChanged: editor.setFormatDetail,
       ),
       ..._following(editor),
     ]),
-    if (!fixed) Section(title: 'Film Condition', children: c.profileControls(const ['expired'])),
+    if (!fixed) Section(title: tr('Film Condition'), children: c.profileControls(const ['expired'])),
     Section(title: 'Halation', children: [
       PickerField<String>(
-        label: 'Halation Model',
+        label: tr('Halation Model'),
         detail: c.catalogue.detail('halationModel'),
         value: c.edit['halationModel'] as String? ?? 'legacy',
         options: const [

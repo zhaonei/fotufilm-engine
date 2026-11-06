@@ -6,12 +6,13 @@ import 'package:flutter/widgets.dart';
 import '../../model/editor.dart';
 import '../../model/film_packs.dart';
 import 'app_dialogs.dart';
+import '../../l10n/zh.dart';
 
 /// Import Film Pack…: packs chosen in the open panel go in, and the notice says what happened.
 Future<void> chooseFilmPacks(EditorModel editor) async {
   if (!editor.filmPacks.available || editor.exporting) return;
-  final files = await openFiles(acceptedTypeGroups: const [
-    XTypeGroup(label: 'Film packs', extensions: [filmPackExtension]),
+  final files = await openFiles(acceptedTypeGroups: [
+    XTypeGroup(label: tr('Film packs'), extensions: [filmPackExtension]),
   ]);
   await editor.filmPacks.importPaths([for (final f in files) f.path]);
 }

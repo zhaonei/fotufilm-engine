@@ -10,6 +10,7 @@ import '../kit/kit.dart';
 import '../theme/theme.dart';
 import 'dialogs.dart';
 import 'video_controls.dart' show videoLabel;
+import '../../l10n/zh.dart';
 
 void showExportDialog(BuildContext context, EditorModel editor) =>
     showModal(context, (close) => ExportDialog(editor: editor, onClose: close));
@@ -86,7 +87,7 @@ class _ExportDialogState extends State<ExportDialog> {
       title: batch ? 'Export $count photos' : 'Export image',
       width: 480,
       actions: [
-        PillButton('Cancel', onPressed: exporting ? x.cancel : widget.onClose),
+        PillButton(tr('Cancel'), onPressed: exporting ? x.cancel : widget.onClose),
         PillButton(
           exporting
               ? 'Exporting…'
@@ -122,7 +123,7 @@ class _ExportDialogState extends State<ExportDialog> {
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   // In a row, so the button keeps its own width.
                   child: Row(children: [
-                    PillButton('Use Last Export Settings', onPressed: x.applyLast),
+                    PillButton(tr('Use Last Export Settings'), onPressed: x.applyLast),
                   ]),
                 ),
               _SelectRow('Format', PickerField<String>(
@@ -218,7 +219,7 @@ class _ExportDialogState extends State<ExportDialog> {
       title: label('export'),
       width: 480,
       actions: [
-        PillButton('Cancel', onPressed: exporting ? x.cancel : widget.onClose),
+        PillButton(tr('Cancel'), onPressed: exporting ? x.cancel : widget.onClose),
         PillButton(
           exporting ? 'Exporting…' : 'Export',
           variant: ButtonVariant.accent,
@@ -235,7 +236,7 @@ class _ExportDialogState extends State<ExportDialog> {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: Row(children: [
-                    PillButton('Use Last Export Settings', onPressed: x.applyLast),
+                    PillButton(tr('Use Last Export Settings'), onPressed: x.applyLast),
                   ]),
                 ),
               _SelectRow('Format', PickerField<String>(

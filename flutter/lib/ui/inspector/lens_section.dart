@@ -10,6 +10,7 @@ import '../../model/editor.dart';
 import '../../model/lens.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
+import '../../l10n/zh.dart';
 
 class LensSection extends StatelessWidget {
   const LensSection({super.key, required this.editor});
@@ -92,7 +93,7 @@ class LensSection extends StatelessWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: QuietButton(
-            label: 'Reset Lens',
+            label: tr('Reset Lens'),
             onPressed: hasLensAdjustments(lens)
                 ? () => change({...defaultLens, 'enabled': lens['enabled']})
                 : null,
@@ -145,8 +146,8 @@ class _LensProfileLibraryState extends State<_LensProfileLibrary> {
   }
 
   Future<String?> _import() async {
-    final file = await openFile(acceptedTypeGroups: const [
-      XTypeGroup(label: 'Lens profiles', extensions: ['json']),
+    final file = await openFile(acceptedTypeGroups: [
+      XTypeGroup(label: tr('Lens profiles'), extensions: ['json']),
     ]);
     if (file == null) return null;
     final count = await widget.lenses.import(file);
@@ -165,7 +166,7 @@ class _LensProfileLibraryState extends State<_LensProfileLibrary> {
         Align(
           alignment: Alignment.centerLeft,
           child: QuietButton(
-            label: 'Import Lens Profiles…',
+            label: tr('Import Lens Profiles…'),
             onPressed: _busy ? null : () => _run(_import),
           ),
         ),
@@ -173,7 +174,7 @@ class _LensProfileLibraryState extends State<_LensProfileLibrary> {
           Align(
             alignment: Alignment.centerLeft,
             child: QuietButton(
-              label: 'Remove Imported Profiles',
+              label: tr('Remove Imported Profiles'),
               onPressed: _busy
                   ? null
                   : () => _run(() async {

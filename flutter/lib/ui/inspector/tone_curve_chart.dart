@@ -9,6 +9,7 @@ import '../../model/histogram.dart' show smoothHistogram;
 import '../../model/tone_curve.dart';
 import '../theme/theme.dart';
 import '../workspace/histogram_panel.dart' show histogramColors;
+import '../../l10n/zh.dart';
 
 class ToneCurveChart extends StatelessWidget {
   const ToneCurveChart({super.key, required this.editor});
@@ -22,7 +23,7 @@ class ToneCurveChart extends StatelessWidget {
           if (curve == null) return const SizedBox.shrink();
           final palette = Palette.of(context);
           return Semantics(
-            label: 'Tone curve',
+            label: tr('Tone curve'),
             value: _description(curve),
             child: AspectRatio(
               aspectRatio: 280 / 168,

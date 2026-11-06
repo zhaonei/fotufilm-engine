@@ -6,6 +6,7 @@ import '../../model/catalogue.dart';
 import '../../model/selective.dart';
 import '../kit/kit.dart';
 import 'controls.dart';
+import '../../l10n/zh.dart';
 
 List<Widget> selectivePanel(InspectorControls c) {
   final tool = c.editor.selective;
@@ -54,7 +55,7 @@ List<Widget> selectivePanel(InspectorControls c) {
       ),
       button(spec['clear'] as String, c.edit['selective'] != null ? tool.clear : null),
     ]),
-    Section(title: 'Selection Light', children: [
+    Section(title: tr('Selection Light'), children: [
       for (final s in c.catalogue.sliders)
         if (selectionKeys.contains(s.key) && !s.key.startsWith('grade'))
           AdjustmentRow(

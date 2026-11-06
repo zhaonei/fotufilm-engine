@@ -5,6 +5,7 @@ import '../../app/editor_shortcuts.dart';
 import '../../model/editor.dart';
 import '../theme/theme.dart';
 import 'app_dialogs.dart';
+import '../../l10n/zh.dart';
 
 class ShortcutsDialog extends StatelessWidget {
   const ShortcutsDialog({super.key, required this.editor, required this.onClose});
@@ -15,7 +16,7 @@ class ShortcutsDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final muted = editorText(context, color: Palette.of(context).muted);
     return AppDialogCard(
-      title: 'Keyboard shortcuts',
+      title: tr('Keyboard shortcuts'),
       onDismiss: onClose,
       children: [
         for (final (action, keys) in shortcutRows(editor))

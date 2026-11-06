@@ -9,6 +9,7 @@ import '../../model/editor.dart';
 import '../../model/export.dart' show ExportJob;
 import '../kit/kit.dart';
 import '../theme/theme.dart';
+import '../../l10n/zh.dart';
 
 class ExportProgressButton extends StatefulWidget {
   const ExportProgressButton({super.key, required this.editor, this.size = Metrics.control});
@@ -184,7 +185,7 @@ class _JobRow extends StatelessWidget {
           if (job.running)
             ProgressBar(value: job.progress)
           else
-            Text('Waiting', style: editorText(context, size: TextSizes.caption, color: palette.muted)),
+            Text(tr('Waiting'), style: editorText(context, size: TextSizes.caption, color: palette.muted)),
         ]),
       ),
       const SizedBox(width: 12),

@@ -13,6 +13,7 @@ import 'settings_dialog.dart';
 import 'shortcuts_dialog.dart';
 import 'support_dialog.dart';
 import 'update_dialog.dart';
+import '../../l10n/zh.dart';
 
 /// Shows the dialog `editor.dialogs` asks for over the window, and refreshes the film packs and
 /// plug-ins when the window comes back to the front: either may have changed behind it. It takes
@@ -141,7 +142,7 @@ class AppDialogCard extends StatelessWidget {
                 ),
               ),
               if (onDismiss != null)
-                QuietButton(icon: 'close', tooltip: 'Dismiss', onPressed: onDismiss),
+                QuietButton(icon: 'close', tooltip: tr('Dismiss'), onPressed: onDismiss),
             ]),
             const SizedBox(height: 14),
             Flexible(

@@ -8,6 +8,7 @@ import '../../model/negatives.dart';
 import '../kit/kit.dart';
 import 'controls.dart';
 import 'scan_controls.dart';
+import '../../l10n/zh.dart';
 
 // The lights a scan can be made under (NegativeScanCrosstalk.Light).
 const _scanLights = [
@@ -33,7 +34,7 @@ List<Widget> negativePanel(InspectorControls c) {
   final frames = scans.lightFrames;
   return [
     Section(title: 'Negative', children: [
-      InfoRow('Film', c.stock?['name'] as String? ?? 'Normal'),
+      InfoRow(tr('Film'), c.stock?['name'] as String? ?? 'Normal'),
       if (suggestions.isNotEmpty) const InfoRow('Base looks like', ''),
       for (final s in suggestions)
         ScanButton(
@@ -44,7 +45,7 @@ List<Widget> negativePanel(InspectorControls c) {
               : () => editor.chooseStock(((s['films'] as List).first as Map)['id'] as String),
         ),
     ]),
-    Section(title: 'Film Base', children: [
+    Section(title: tr('Film Base'), children: [
       InfoRow('Clear film', negative['border'] != null ? 'Sampled' : 'Estimated'),
       ScanButton(
         'Pick Clear Film',
@@ -56,15 +57,15 @@ List<Widget> negativePanel(InspectorControls c) {
         onPressed: negative['border'] == null ? null : () => scans.read({'border': null}),
       ),
     ]),
-    Section(title: 'Colour Separation', children: [
+    Section(title: tr('Colour Separation'), children: [
       PickerField<String>(
-        label: 'Scanned Under',
+        label: tr('Scanned Under'),
         value: negative['scanLight'] as String? ?? 'white',
         options: _scanLights,
         onChanged: (v) => scans.read({'scanLight': v}),
       ),
       AdjustmentRow(
-        label: 'Crosstalk Correction',
+        label: tr('Crosstalk Correction'),
         detail: _crosstalkDetail,
         value: (negative['crosstalk'] as num? ?? 0).toDouble(),
         range: const SliderRange(min: 0, max: 1, step: .01, def: 0),
@@ -74,7 +75,7 @@ List<Widget> negativePanel(InspectorControls c) {
     ]),
     // Light frames are kept by a host with a file system, not by a browser.
     if (scans.keepsLightFrames)
-      Section(title: 'Light Source', children: [
+      Section(title: tr('Light Source'), children: [
         PickerField<String?>(
           value: frames.any((f) => f['id'] == lightFrame) ? lightFrame : null,
           options: [
@@ -84,7 +85,7 @@ List<Widget> negativePanel(InspectorControls c) {
           onChanged: (id) => scans.read({'lightFrame': id}),
         ),
         ScanButton('Add Light Frame…', onPressed: scans.chooseLightFrame),
-        ScanButton('Remove Light Frame',
+        ScanButton(tr('Remove Light Frame'),
             onPressed: lightFrame == null ? null : scans.removeLightFrame),
       ]),
   ];

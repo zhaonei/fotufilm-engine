@@ -6,6 +6,8 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
+import '../l10n/zh.dart';
+
 typedef Json = Map<String, dynamic>;
 
 class SliderSpec {
@@ -37,7 +39,36 @@ class Catalogue {
   static Future<Catalogue> load() async =>
       Catalogue._(jsonDecode(await rootBundle.loadString('assets/generated/controls.json')) as Json);
 
-  List<Json> get controls => (module['EDITOR_CONTROLS'] as List).cast<Json>();
+  /// The catalogue's English as the interface shows it: every title and every menu choice is put
+  /// through l10n/zh.dart's tr() once, here, so no widget has to know about languages. The
+  /// entries stay whole maps -- the screens read `title`, `choices[].label` and `host.label`
+  /// straight out of them.
+  late final List<Json> _controls = [
+    for (final c in (module['EDITOR_CONTROLS'] as List).cast<Json>()) _localized(c),
+  ];
+
+  List<Json> get controls => _controls;
+
+  static Json _localized(Json c) {
+    final host = c['host'];
+    return {
+      ...c,
+      if (c['title'] is String) 'title': tr(c['title'] as String),
+      if (c['choices'] is List)
+        'choices': [for (final choice in c['choices'] as List) _localizedChoice(choice)],
+      if (host is Map && host['label'] is String)
+        'host': {...host.cast<String, dynamic>(), 'label': tr(host['label'] as String)},
+    };
+  }
+
+  static Json _localizedChoice(Object? choice) {
+    final map = (choice as Map).cast<String, dynamic>();
+    return {
+      ...map,
+      if (map['label'] is String) 'label': tr(map['label'] as String),
+      if (map['name'] is String) 'name': tr(map['name'] as String),
+    };
+  }
   List<Json> get filmFormats => (module['FILM_FORMATS'] as List).cast<Json>();
   Json get screenConversion => module['SCREEN_CONVERSION'] as Json;
   Json get profileMenus => module['PROFILE_MENUS'] as Json;
@@ -66,10 +97,10 @@ class Catalogue {
     final scale = c['scale'] as Json;
     return SliderSpec(
       key: field,
-      label: c['title'] as String,
+      label: tr(c['title'] as String),
       detail: c['detail'] as String?,
       availability: c['availability'] as String?,
-      group: group,
+      group: tr(group),
       step: step,
       min: (scale['min'] as num).toDouble(),
       max: (scale['max'] as num).toDouble(),
@@ -82,26 +113,26 @@ class Catalogue {
   late final List<SliderSpec> sliders = [
     catalogueSlider('cameraPreflash', 'Light', 0.005),
     catalogueSlider('sceneLightKelvin', 'Source Illuminant', 1),
-    SliderSpec(key: 'ev', label: 'Exposure', min: -3, max: 3, step: .05, def: 0, unit: 'EV',
-        group: 'Light', detail: detail('exposure')),
-    SliderSpec(key: 'highlights', label: 'Highlights', min: -1, max: 1, step: .01, def: 0,
-        group: 'Light', detail: detail('highlights')),
-    SliderSpec(key: 'shadows', label: 'Shadows', min: -1, max: 1, step: .01, def: 0,
-        group: 'Light', detail: detail('shadows')),
-    SliderSpec(key: 'temperature', label: 'Temperature', min: 2000, max: 12000, step: 1,
-        def: 6504, unit: 'K', group: 'White Balance'),
-    SliderSpec(key: 'tint', label: 'Tint', min: -100, max: 100, step: 1, def: 0,
-        group: 'White Balance', detail: detail('tint')),
-    SliderSpec(key: 'saturation', label: 'Saturation', min: 0, max: 2, step: .01, def: 1,
-        unit: '×', group: 'Color', detail: detail('saturation')),
-    SliderSpec(key: 'vibrance', label: 'Vibrance', min: -1, max: 1, step: .01, def: 0,
-        group: 'Color', detail: detail('vibrance')),
-    SliderSpec(key: 'grain', label: 'Grain', min: 0, max: 2, step: .01, def: 1, unit: '×',
-        group: 'Character', detail: detail('grain')),
+    SliderSpec(key: 'ev', label: tr('Exposure'), min: -3, max: 3, step: .05, def: 0, unit: 'EV',
+        group: tr('Light'), detail: detail('exposure')),
+    SliderSpec(key: 'highlights', label: tr('Highlights'), min: -1, max: 1, step: .01, def: 0,
+        group: tr('Light'), detail: detail('highlights')),
+    SliderSpec(key: 'shadows', label: tr('Shadows'), min: -1, max: 1, step: .01, def: 0,
+        group: tr('Light'), detail: detail('shadows')),
+    SliderSpec(key: 'temperature', label: tr('Temperature'), min: 2000, max: 12000, step: 1,
+        def: 6504, unit: 'K', group: tr('White Balance')),
+    SliderSpec(key: 'tint', label: tr('Tint'), min: -100, max: 100, step: 1, def: 0,
+        group: tr('White Balance'), detail: detail('tint')),
+    SliderSpec(key: 'saturation', label: tr('Saturation'), min: 0, max: 2, step: .01, def: 1,
+        unit: '×', group: tr('Color'), detail: detail('saturation')),
+    SliderSpec(key: 'vibrance', label: tr('Vibrance'), min: -1, max: 1, step: .01, def: 0,
+        group: tr('Color'), detail: detail('vibrance')),
+    SliderSpec(key: 'grain', label: tr('Grain'), min: 0, max: 2, step: .01, def: 1, unit: '×',
+        group: tr('Character'), detail: detail('grain')),
     for (final band in const ['Shadows', 'Midtones', 'Highlights'])
       for (final axis in const ['Warmth', 'Tint', 'Level'])
-        SliderSpec(key: 'grade$band$axis', label: axis, min: -1, max: 1, step: .01, def: 0,
-            group: band),
+        SliderSpec(key: 'grade$band$axis', label: tr(axis), min: -1, max: 1, step: .01, def: 0,
+            group: tr(band)),
     catalogueSlider('blackPoint', 'Output Levels', 0.005),
     catalogueSlider('whitePoint', 'Output Levels', 0.005),
   ];
@@ -111,7 +142,13 @@ class Catalogue {
   late final List<Json> profileControls = [
     for (final c in controls)
       if (c['webTransform'] == 'profile')
-        {...c, 'choices': c['choices'] ?? profileMenus[c['field']]},
+        {
+          ...c,
+          'choices': [
+            for (final choice in (c['choices'] ?? profileMenus[c['field']]) as List)
+              _localizedChoice(choice)
+          ],
+        },
   ];
 
   static Object? profileDefault(Json c) {

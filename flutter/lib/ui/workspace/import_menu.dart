@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import '../../model/editor.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
+import '../../l10n/zh.dart';
 
 class ImportMenu extends StatelessWidget {
   const ImportMenu(
@@ -19,7 +20,7 @@ class ImportMenu extends StatelessWidget {
     return Builder(
       builder: (anchor) => QuietButton(
         icon: 'plus',
-        tooltip: 'Add media',
+        tooltip: tr('Add media'),
         size: size,
         opensMenu: true,
         onPressed: editor.exporting
@@ -34,7 +35,7 @@ class ImportMenu extends StatelessWidget {
                       onSelected: scans.canImport ? scans.chooseNegatives : null),
                   if (editor.engine?.opensPaths ?? true)
                     MenuItem(
-                        label: 'Trichromatic Negative',
+                        label: tr('Trichromatic Negative'),
                         onSelected: scans.canMerge ? scans.chooseExposures : null),
                 ]),
       ),

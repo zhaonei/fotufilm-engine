@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
 import 'controls.dart';
+import '../../l10n/zh.dart';
 
 List<Widget> cropPanel(InspectorControls c) {
   final editor = c.editor;
@@ -13,19 +14,19 @@ List<Widget> cropPanel(InspectorControls c) {
   return [
     Section(title: 'Orientation', children: [
       Row(children: [
-        Expanded(child: _ActionButton(icon: 'rotate', label: 'Rotate Left', onPressed: crop.rotateLeft)),
+        Expanded(child: _ActionButton(icon: 'rotate', label: tr('Rotate Left'), onPressed: crop.rotateLeft)),
         const SizedBox(width: 8),
         Expanded(child: _ActionButton(icon: 'flip', label: 'Flip', onPressed: crop.flip)),
       ]),
     ]),
     Section(title: 'Crop', children: [
       _ToggleButton(
-        label: 'Four-Corner Crop',
+        label: tr('Four-Corner Crop'),
         selected: crop.shape == 'corners',
         onPressed: crop.fourCorners,
       ),
       PickerField<String>(
-        label: 'Aspect ratio',
+        label: tr('Aspect ratio'),
         value: crop.ratio,
         options: [
           for (final r in crop.ratioChoices)
@@ -41,8 +42,8 @@ List<Widget> cropPanel(InspectorControls c) {
       _geometry(c, 'perspectiveHorizontal', 'perspectiveH'),
     ]),
     Section(title: 'Finish', children: [
-      PillButton('Reset Crop', expand: true, onPressed: crop.reset),
-      PillButton('Done', expand: true, variant: ButtonVariant.accent, onPressed: crop.done),
+      PillButton(tr('Reset Crop'), expand: true, onPressed: crop.reset),
+      PillButton(tr('Done'), expand: true, variant: ButtonVariant.accent, onPressed: crop.done),
     ]),
   ];
 }

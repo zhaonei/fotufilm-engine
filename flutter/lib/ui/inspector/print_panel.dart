@@ -10,6 +10,7 @@ import 'controls.dart';
 import 'print_frame_section.dart';
 import 'receiver_bands.dart';
 import 'tone_curve_chart.dart';
+import '../../l10n/zh.dart';
 
 const _matchFilm = 'match-film';
 const _screenCMY = ['screenCyan', 'screenMagenta', 'screenYellow'];
@@ -36,7 +37,7 @@ List<Widget> printPanel(InspectorControls c) {
         editor: editor,
         offersBands: !fixed && printMedium?['receiverBands'] == true,
         picker: PickerField<String>(
-          label: 'Output medium',
+          label: tr('Output medium'),
           enabled: c.hasFilm,
           value: c.edit['mediumFollowsFilm'] == true && canMatchFilm ? _matchFilm : medium,
           options: [

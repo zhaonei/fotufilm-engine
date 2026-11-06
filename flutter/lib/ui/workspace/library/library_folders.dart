@@ -8,6 +8,7 @@ import '../../../model/library_model.dart';
 import '../../kit/kit.dart';
 import '../../theme/theme.dart';
 import 'photo_grid.dart' show libraryHover;
+import '../../../l10n/zh.dart';
 
 /// What the grid shows: all photos, a folder, or one of its subfolders.
 typedef LibraryScope = ({String folderId, String path});
@@ -96,7 +97,7 @@ class _LibraryFoldersState extends State<LibraryFolders> {
             label: folder.negative ? 'Open as Photos' : 'Open as Negatives',
             onSelected: () => widget.onMarkNegative(folder, !folder.negative),
           ),
-          MenuItem(label: 'Remove from Library…', onSelected: () => widget.onRemove(folder)),
+          MenuItem(label: tr('Remove from Library…'), onSelected: () => widget.onRemove(folder)),
         ],
       ));
       if (open) _subfolders(rows, folder, root, 1, nested);
@@ -109,19 +110,19 @@ class _LibraryFoldersState extends State<LibraryFolders> {
           padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
           child: Row(children: [
             Expanded(
-              child: Text('Library',
+              child: Text(tr('Library'),
                   style: editorText(context, size: TextSizes.body, weight: FontWeight.w700)),
             ),
             // A folder of scanned negatives is added as one.
             Builder(
               builder: (anchor) => QuietButton(
                 icon: 'addFolder',
-                tooltip: 'Add Folder',
+                tooltip: tr('Add Folder'),
                 opensMenu: true,
                 onPressed: () => showMenu(anchor, alignEnd: true, width: 210, [
-                  MenuItem(label: 'Add Folder…', onSelected: () => widget.onAdd(negative: false)),
+                  MenuItem(label: tr('Add Folder…'), onSelected: () => widget.onAdd(negative: false)),
                   MenuItem(
-                      label: 'Add Negatives Folder…', onSelected: () => widget.onAdd(negative: true)),
+                      label: tr('Add Negatives Folder…'), onSelected: () => widget.onAdd(negative: true)),
                 ]),
               ),
             ),

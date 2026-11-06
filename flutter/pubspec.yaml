@@ -25,16 +25,21 @@ flutter:
   uses-material-design: false
   shaders:
     - shaders/display_p3_to_srgb.frag
-  # 再次注释掉，防止找不到文件报错
-  # assets:
-  #   - assets/generated/
-  #   - assets/generated/glyphs/
-  # fonts:
-  #   - family: Satoshi
-  #     fonts:
-  #       - asset: assets/generated/fonts/Satoshi-Regular.otf
-  #         weight: 400
-  #       - asset: assets/generated/fonts/Satoshi-Medium.otf
-  #         weight: 500
-  #       - asset: assets/generated/fonts/Satoshi-Bold.otf
-  #         weight: 700
+  # These were commented out to make a local `flutter build` stop complaining that the files were
+  # missing -- they are staged, not committed (flutter/.gitignore ignores assets/generated/), and
+  # flutter/tool/prepare.sh writes them. Dropping them from the bundle is not survivable: the app
+  # reads controls.json, material-symbols.json and the glyphs before it draws anything, so a build
+  # without them starts to a black screen. Run tool/prepare.sh first (flutter/build-android.sh
+  # does); the APK check in .github/workflows/build-apk.yml now fails if they are missing.
+  assets:
+    - assets/generated/
+    - assets/generated/glyphs/
+  fonts:
+    - family: Satoshi
+      fonts:
+        - asset: assets/generated/fonts/Satoshi-Regular.otf
+          weight: 400
+        - asset: assets/generated/fonts/Satoshi-Medium.otf
+          weight: 500
+        - asset: assets/generated/fonts/Satoshi-Bold.otf
+          weight: 700

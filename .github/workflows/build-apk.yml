@@ -393,6 +393,20 @@ jobs:
           unzip -l "$apk" | grep -q 'resources.arsc' ||
             { echo "::error::the APK carries no resources.arsc"; exit 1; }
 
+          # The editor reads these before it draws anything (flutter/lib/main.dart). A bundle
+          # without them used to start to a black screen with nothing on it: the loads ran before
+          # runApp, so a missing asset meant no widget tree at all. pubspec lists the directory
+          # now; this makes sure a change there cannot go unnoticed again.
+          for asset in assets/generated/controls.json assets/generated/material-symbols.json; do
+            unzip -l "$apk" | grep -q "flutter_assets/$asset" ||
+              { echo "::error::the APK has no $asset; the editor would start to a black screen"; exit 1; }
+          done
+          glyphs=$(unzip -l "$apk" | grep -c 'flutter_assets/assets/generated/glyphs/' || true)
+          echo "$glyphs glyphs in the bundle"
+          [ "${glyphs:-0}" -gt 0 ] || { echo "::error::the APK carries no glyphs"; exit 1; }
+          fonts=$(unzip -l "$apk" | grep -c 'flutter_assets/assets/generated/fonts/' || true)
+          echo "$fonts font files in the bundle"
+
           rm -rf /tmp/apkso && mkdir -p /tmp/apkso
           unzip -o -q "$apk" 'lib/arm64-v8a/*.so' -d /tmp/apkso
           libs=/tmp/apkso/lib/arm64-v8a
@@ -466,6 +480,8 @@ jobs:
             echo "| engine libraries | $(find "flutter/build/android-engine/jniLibs/$ABI" -maxdepth 1 -type f 2>/dev/null | wc -l) |"
             echo "| APK size | $(du -h build/flutter-host/Fotufilm.apk 2>/dev/null | cut -f1) |"
             echo "| libfotufilm.so | $(du -h "flutter/build/android-engine/jniLibs/$ABI/libfotufilm.so" 2>/dev/null | cut -f1) |"
+            echo "| localized call sites | $(grep -ro 'tr(' flutter/lib --include='*.dart' | wc -l) |"
+            echo "| vocabulary entries | $(grep -c '^  ' flutter/lib/l10n/zh.dart) |"
             echo
             echo '```'
             find "flutter/build/android-engine/jniLibs/$ABI" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2 2>/dev/null || echo "no engine libraries"

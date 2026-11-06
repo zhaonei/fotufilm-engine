@@ -13,6 +13,7 @@ import 'controls.dart';
 import 'grade_deck.dart';
 import 'lens_filters.dart';
 import 'lens_section.dart';
+import '../../l10n/zh.dart';
 
 final _gradeKeys = [
   for (final band in GradeDeck.bands)
@@ -42,7 +43,7 @@ List<Widget> exposePanel(InspectorControls c) {
           onChanged: (v) => editor.change({'localTone': v}),
         ),
     ]),
-    if (!negative) Section(title: 'Source Illuminant', children: [
+    if (!negative) Section(title: tr('Source Illuminant'), children: [
       PickerField<String>(
         label: sceneLight['title'] as String,
         detail: sceneLight['detail'] as String?,
@@ -55,7 +56,7 @@ List<Widget> exposePanel(InspectorControls c) {
       ),
       if (c.edit['sceneLight'] == 'custom') ...c.sliders('Source Illuminant'),
     ]),
-    Section(title: 'White Balance', children: c.sliders('White Balance')),
+    Section(title: tr('White Balance'), children: c.sliders('White Balance')),
     Section(title: 'Color', children: c.sliders('Color')),
     Section(title: 'Grade', children: [
       GradeDeck(editor: editor),
@@ -75,11 +76,11 @@ List<Widget> exposePanel(InspectorControls c) {
       ),
     ]),
     if (!negative && c.available.contains('shutter'))
-      Section(title: 'Long Exposure', children: c.profileControls(const ['shutter'])),
+      Section(title: tr('Long Exposure'), children: c.profileControls(const ['shutter'])),
     if (!negative && !c.fixedSettings) lensFiltersSection(c),
     if (!negative) LensSection(editor: editor),
     if (!negative && headroom > 1)
-      Section(title: 'HDR Highlights', children: [
+      Section(title: tr('HDR Highlights'), children: [
         ...c.profileControls(const ['hdrRange', 'hdrRollOff']),
         Note('${_stops(math.log(headroom) / math.ln2)} stops above white recorded'),
       ]),

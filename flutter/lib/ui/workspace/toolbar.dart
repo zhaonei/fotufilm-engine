@@ -19,6 +19,7 @@ import 'film_pack_notice.dart';
 import 'import_menu.dart';
 import 'support_dialog.dart';
 import 'viewer_status.dart';
+import '../../l10n/zh.dart';
 
 class EditorToolbar extends StatelessWidget {
   const EditorToolbar({super.key, required this.commands});
@@ -115,7 +116,7 @@ class _LibraryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => QuietButton(
         icon: 'library',
-        tooltip: 'Library (L)',
+        tooltip: tr('Library (L)'),
         selected: editor.library.open,
         size: size,
         onPressed: editor.exporting ? null : editor.library.toggle,
@@ -141,7 +142,7 @@ class _ViewGroup extends StatelessWidget {
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       QuietButton(
           icon: 'minus',
-          tooltip: 'Zoom out',
+          tooltip: tr('Zoom out'),
           onPressed: !photo || fit || cropMode ? null : editor.zoomOut),
       SizedBox(
         width: 40,
@@ -152,24 +153,24 @@ class _ViewGroup extends StatelessWidget {
       ),
       QuietButton(
           icon: 'plus',
-          tooltip: 'Zoom in',
+          tooltip: tr('Zoom in'),
           onPressed: !photo || max || cropMode ? null : editor.zoomIn),
       const SizedBox(width: Metrics.toolbarGap),
       QuietButton(
           icon: 'fit',
-          tooltip: 'Zoom to fit (0)',
+          tooltip: tr('Zoom to fit (0)'),
           onPressed: !photo || fit ? null : () => editor.setZoom(null)),
       const SizedBox(width: Metrics.toolbarGap),
       QuietButton(
         icon: 'selective',
-        tooltip: 'Selective',
+        tooltip: tr('Selective'),
         selected: editor.panel == Panel.selective && editor.inspectorOpen,
         onPressed: !photo || editor.exporting || doc.isMovie ? null : () => open(Panel.selective),
       ),
       const SizedBox(width: Metrics.toolbarGap),
       QuietButton(
         icon: 'crop',
-        tooltip: 'Crop',
+        tooltip: tr('Crop'),
         selected: editor.panel == Panel.crop && editor.inspectorOpen,
         onPressed: !photo || editor.exporting ? null : () => open(Panel.crop),
       ),
@@ -200,7 +201,7 @@ class _EditGroup extends StatelessWidget {
     final gap = SizedBox(width: compact ? 0 : Metrics.toolbarGap);
     final histogram = QuietButton(
       icon: 'histogram',
-      tooltip: 'Histogram (H)',
+      tooltip: tr('Histogram (H)'),
       selected: editor.histogramOpen,
       onPressed: doc != null ? editor.toggleHistogram : null,
     );
@@ -217,7 +218,7 @@ class _EditGroup extends StatelessWidget {
         onPressed: (history?.future.isNotEmpty ?? false) && !exporting ? editor.redo : null);
     final reset = QuietButton(
         icon: 'reset',
-        tooltip: 'Reset all edits',
+        tooltip: tr('Reset all edits'),
         onPressed: doc != null && !exporting ? editor.resetEdit : null);
     // Exports running in the background (export_progress.dart).
     final progress = [
@@ -234,7 +235,7 @@ class _EditGroup extends StatelessWidget {
       key: moreOptionsKey,
       builder: (anchor) => QuietButton(
         icon: 'more',
-        tooltip: 'More options',
+        tooltip: tr('More options'),
         opensMenu: true,
         size: size,
         onPressed: () => showMoreOptions(anchor, commands),
@@ -266,7 +267,7 @@ class _EditGroup extends StatelessWidget {
       gap,
       QuietButton(
         icon: 'inspector',
-        tooltip: 'Toggle adjustments',
+        tooltip: tr('Toggle adjustments'),
         selected: editor.inspectorOpen,
         onPressed: editor.layout.toggleInspector,
       ),
@@ -300,26 +301,26 @@ void showMoreOptions(BuildContext anchor, EditorCommands commands) {
           onSelected: doc != null ? editor.toggleHistogram : null,
         ),
         MenuItem(
-          label: 'Reset All Edits',
+          label: tr('Reset All Edits'),
           icon: 'reset',
           onSelected: noPhoto ? null : editor.resetEdit,
         ),
       ],
     [
       MenuItem(
-        label: 'Import Scanned Negative…',
+        label: tr('Import Scanned Negative…'),
         icon: 'negative',
         onSelected: editor.negatives.canImport ? editor.negatives.chooseNegatives : null,
       ),
       if (editor.engine?.opensPaths ?? true)
         MenuItem(
-          label: 'Import Trichromatic Scan…',
+          label: tr('Import Trichromatic Scan…'),
           icon: 'negative',
           onSelected: editor.negatives.canMerge ? editor.negatives.chooseExposures : null,
         ),
       if (editor.filmPacks.available)
         MenuItem(
-          label: 'Import Film Pack…',
+          label: tr('Import Film Pack…'),
           icon: 'film',
           onSelected: exporting ? null : () => chooseFilmPacks(editor),
         ),
@@ -339,7 +340,7 @@ void showMoreOptions(BuildContext anchor, EditorCommands commands) {
     // Every step of the shown photograph's history, the one standing ticked.
     [
       MenuItem(
-        label: 'Edit History',
+        label: tr('Edit History'),
         icon: 'undo',
         submenu: noPhoto
             ? const []
@@ -357,7 +358,7 @@ void showMoreOptions(BuildContext anchor, EditorCommands commands) {
     // Paste Settings and presets go onto every photo chosen in the strip.
     [
       MenuItem(
-        label: 'Copy Settings…',
+        label: tr('Copy Settings…'),
         icon: 'copySettings',
         description: mobilePlatform ? null : shortcutLabel('⌥⌘C'),
         onSelected: noPhoto ? null : commands.actions.copySettings,
@@ -374,20 +375,20 @@ void showMoreOptions(BuildContext anchor, EditorCommands commands) {
               label: preset.name,
               onSelected: noPhoto ? null : () => presets.applyPreset(preset.id)),
         if (presets.list.isNotEmpty) const MenuItem.divider(),
-        MenuItem(label: 'Save Preset…', onSelected: noPhoto ? null : commands.actions.savePreset),
+        MenuItem(label: tr('Save Preset…'), onSelected: noPhoto ? null : commands.actions.savePreset),
         MenuItem(
-            label: 'Manage Presets…',
+            label: tr('Manage Presets…'),
             onSelected: presets.list.isEmpty ? null : commands.actions.managePresets),
-        MenuItem(label: 'Import Looks…', onSelected: exporting ? null : commands.actions.importLooks),
+        MenuItem(label: tr('Import Looks…'), onSelected: exporting ? null : commands.actions.importLooks),
       ]),
     ],
     [
       MenuItem(
-          label: 'Save edits…',
+          label: tr('Save edits…'),
           icon: 'saveEdits',
           onSelected: noPhoto ? null : editor.keptEdits.saveFile),
       MenuItem(
-          label: 'Load edits…',
+          label: tr('Load edits…'),
           icon: 'loadEdits',
           onSelected: noPhoto ? null : editor.keptEdits.loadFile),
     ],
@@ -402,7 +403,7 @@ void showMoreOptions(BuildContext anchor, EditorCommands commands) {
         icon: 'crop',
         onSelected: imageOnlyDisabled ? null : () => open(Panel.crop),
       ),
-      MenuItem(label: 'Inspect pipeline', icon: 'pipeline', onSelected: () => open(Panel.pipeline)),
+      MenuItem(label: tr('Inspect pipeline'), icon: 'pipeline', onSelected: () => open(Panel.pipeline)),
     ],
     [
       MenuItem(
@@ -418,12 +419,12 @@ void showMoreOptions(BuildContext anchor, EditorCommands commands) {
         ),
       if (!mobilePlatform)
         MenuItem(
-          label: 'Keyboard shortcuts',
+          label: tr('Keyboard shortcuts'),
           icon: 'shortcuts',
           onSelected: () => editor.dialogs.request(AppDialog.shortcuts),
         ),
       MenuItem(
-        label: 'Browser support',
+        label: tr('Browser support'),
         icon: 'help',
         onSelected: () => editor.dialogs.request(AppDialog.support),
       ),

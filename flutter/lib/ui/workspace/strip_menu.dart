@@ -11,6 +11,7 @@ import '../kit/kit.dart';
 import 'editing_dialogs.dart';
 import 'export_dialog.dart';
 import 'library/library_dialogs.dart';
+import '../../l10n/zh.dart';
 
 void showStripMenu(BuildContext context, EditorModel editor, StripItem item, Offset position) {
   final strip = editor.strip, library = editor.library, presets = editor.presets;
@@ -33,16 +34,16 @@ void showStripMenu(BuildContext context, EditorModel editor, StripItem item, Off
 
   showMenuAt(context, position, width: 220, [
     if (single)
-      MenuItem(label: 'Copy Settings…', onSelected: () => edit(() => showCopySettingsDialog(context, editor))),
+      MenuItem(label: tr('Copy Settings…'), onSelected: () => edit(() => showCopySettingsDialog(context, editor))),
     MenuItem(
       label: pasteTitle(targets.length),
       onSelected: presets.copied == null ? null : () => edit(presets.paste),
     ),
-    MenuItem(label: 'Apply Preset', submenu: [
+    MenuItem(label: tr('Apply Preset'), submenu: [
       for (final preset in presets.list)
         MenuItem(label: preset.name, onSelected: () => edit(() => presets.applyPreset(preset.id))),
     ]),
-    MenuItem(label: 'Reset Edits', onSelected: () => edit(presets.reset)),
+    MenuItem(label: tr('Reset Edits'), onSelected: () => edit(presets.reset)),
     const MenuItem.divider(),
     MenuItem(label: 'Export…', onSelected: () => edit(() => showExportDialog(context, editor))),
     if (rated) ...[
@@ -56,7 +57,7 @@ void showStripMenu(BuildContext context, EditorModel editor, StripItem item, Off
             onSelected: () => library.rate(keys, stars),
           ),
         MenuItem(
-          label: 'No Rating',
+          label: tr('No Rating'),
           checked: rating == 0,
           selection: MenuSelection.single,
           onSelected: () => library.rate(keys, 0),
@@ -73,7 +74,7 @@ void showStripMenu(BuildContext context, EditorModel editor, StripItem item, Off
           onSelected: () => showRenameDialog(context, item.name, (name) => library.renameAt(item.path, name)),
         ),
       MenuItem(
-        label: 'Move to Trash…',
+        label: tr('Move to Trash…'),
         onSelected: () => showConfirmDialog(
           context,
           title: single ? 'Move “${item.name}” to the Trash?' : 'Move ${files.length} photos to the Trash?',
@@ -92,11 +93,11 @@ void showStripMenu(BuildContext context, EditorModel editor, StripItem item, Off
       onSelected: () => strip.closeAll(targets),
     ),
     MenuItem(
-      label: 'Close Others',
+      label: tr('Close Others'),
       onSelected: items.length > targets.length
           ? () => strip.closeAll([for (final i in items) if (!files.contains(i.path)) i])
           : null,
     ),
-    MenuItem(label: 'Close All', onSelected: () => strip.closeAll(items)),
+    MenuItem(label: tr('Close All'), onSelected: () => strip.closeAll(items)),
   ]);
 }

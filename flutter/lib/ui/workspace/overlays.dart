@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 
 import '../kit/kit.dart';
 import '../theme/theme.dart';
+import '../../l10n/zh.dart';
 
 class EmptyCanvas extends StatelessWidget {
   const EmptyCanvas({super.key, required this.onOpen, required this.ready, this.error});
@@ -25,7 +26,7 @@ class EmptyCanvas extends StatelessWidget {
     }
     return Center(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
-        PillButton('Open image or video',
+        PillButton(tr('Open image or video'),
             variant: ButtonVariant.accent, onPressed: ready ? onOpen : null),
         const SizedBox(height: 8),
         Text(ready ? 'or drop files here' : 'Loading films…',
@@ -51,7 +52,7 @@ class OriginalBadge extends StatelessWidget {
               border: Border.all(color: const Color(0x35FFFFFF)),
               borderRadius: BorderRadius.circular(5),
             ),
-            child: Text('Original',
+            child: Text(tr('Original'),
                 style: editorText(context, size: TextSizes.label, color: const Color(0xFFFFFFFF))),
           ),
         ),
@@ -122,7 +123,7 @@ class ErrorBanner extends StatelessWidget {
                   style: editorText(context, size: TextSizes.label, color: fg, height: 1.45)),
             ),
             if (onRetry != null) QuietButton(label: 'Retry', size: 24, onPressed: onRetry),
-            QuietButton(icon: 'close', tooltip: 'Dismiss', onPressed: onClose, iconSize: 15),
+            QuietButton(icon: 'close', tooltip: tr('Dismiss'), onPressed: onClose, iconSize: 15),
           ]),
         ),
       ),
@@ -147,7 +148,7 @@ class DropOverlay extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
             alignment: Alignment.center,
-            child: Text('Drop images to open', style: editorText(context, size: TextSizes.dialog)),
+            child: Text(tr('Drop images to open'), style: editorText(context, size: TextSizes.dialog)),
           ),
         ),
       ),

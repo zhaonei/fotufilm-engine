@@ -7,6 +7,7 @@ import '../../model/editor.dart';
 import '../../model/panel_layout.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
+import '../../l10n/zh.dart';
 
 /// Collapses or expands the film library; in the compact layout it closes the film dock.
 class FilmSidebarToggle extends StatelessWidget {
@@ -37,7 +38,7 @@ class FilmSettingsButton extends StatelessWidget {
   Widget build(BuildContext context) => editor.layout.compact
       ? QuietButton(
           icon: 'adjustments',
-          tooltip: 'Film settings',
+          tooltip: tr('Film settings'),
           onPressed: editor.layout.filmSettings,
         )
       : const SizedBox.shrink();

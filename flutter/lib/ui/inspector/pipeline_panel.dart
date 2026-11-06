@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
 import 'controls.dart';
+import '../../l10n/zh.dart';
 
 List<Widget> pipelinePanel(InspectorControls c) {
   final tool = c.editor.pipeline;
@@ -12,7 +13,7 @@ List<Widget> pipelinePanel(InspectorControls c) {
     Builder(
       builder: (context) => Padding(
         padding: const EdgeInsets.only(top: 16, bottom: 10),
-        child: Text('Pipeline',
+        child: Text(tr('Pipeline'),
             style: editorText(context, size: TextSizes.heading, weight: FontWeight.w600)),
       ),
     ),
@@ -26,7 +27,7 @@ List<Widget> pipelinePanel(InspectorControls c) {
       padding: const EdgeInsets.only(top: 6, bottom: 24),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         _StageButton(
-          label: 'Finished print',
+          label: tr('Finished print'),
           quiet: true,
           selected: tool.stage == null,
           onPressed: () => tool.setStage(null),
@@ -43,7 +44,7 @@ List<Widget> pipelinePanel(InspectorControls c) {
       ]),
     ),
     SwitchRow(
-      label: 'Show stage difference',
+      label: tr('Show stage difference'),
       value: tool.difference,
       enabled: (tool.stage ?? 0) > 0,
       onChanged: tool.setDifference,

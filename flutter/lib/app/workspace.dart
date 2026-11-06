@@ -31,6 +31,7 @@ import 'commands.dart';
 import 'editor_shortcuts.dart';
 import 'host_window.dart';
 import 'native_menu.dart';
+import '../l10n/zh.dart';
 
 const imageExtensions = [
   'jpg', 'jpeg', 'png', 'tif', 'tiff', 'heic', 'heif', 'avif', 'exr', 'webp', //
@@ -264,7 +265,7 @@ class _WorkspaceState extends State<Workspace> {
           bottom: 0,
           width: hit,
           child: _Resizer(
-            label: 'Resize film list',
+            label: tr('Resize film list'),
             onDrag: (dx) => layout.setWidth(PanelSide.film, layout.widths.film + dx),
             onEnd: layout.keepWidths,
             onReset: () => layout.setWidth(PanelSide.film, Metrics.filmWidth, keep: true),
@@ -277,7 +278,7 @@ class _WorkspaceState extends State<Workspace> {
           bottom: 0,
           width: hit,
           child: _Resizer(
-            label: 'Resize darkroom panel',
+            label: tr('Resize darkroom panel'),
             onDrag: (dx) =>
                 layout.setWidth(PanelSide.inspector, layout.widths.inspector - dx),
             onEnd: layout.keepWidths,
@@ -390,7 +391,7 @@ class _DockGrabber extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Semantics(
         button: true,
-        label: 'Close panel',
+        label: tr('Close panel'),
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onVerticalDragUpdate: (d) => onDrag(d.delta.dy),

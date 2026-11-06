@@ -7,6 +7,7 @@ import '../../../model/library_model.dart';
 import '../../kit/kit.dart';
 import '../../theme/theme.dart';
 import '../dialogs.dart';
+import '../../../l10n/zh.dart';
 
 /// Opens a menu with its corner at `position` (window coordinates), kept inside the window.
 void showMenuAt(BuildContext context, Offset position, List<MenuItem> items, {double width = 220}) {
@@ -94,15 +95,15 @@ class _RenameDialogState extends State<_RenameDialog> {
     return CallbackShortcuts(
       bindings: {const SingleActivator(LogicalKeyboardKey.escape): widget.onClose},
       child: DialogCard(
-        title: 'Rename Photo',
+        title: tr('Rename Photo'),
         width: 360,
         actions: [
-          PillButton('Cancel', onPressed: widget.onClose),
-          PillButton('Rename',
+          PillButton(tr('Cancel'), onPressed: widget.onClose),
+          PillButton(tr('Rename'),
               variant: ButtonVariant.accent, onPressed: problem == null ? _submit : null),
         ],
         children: [
-          Text('Name', style: editorText(context, size: TextSizes.label, color: palette.muted)),
+          Text(tr('Name'), style: editorText(context, size: TextSizes.label, color: palette.muted)),
           const SizedBox(height: 4),
           Container(
             height: 28,
@@ -146,7 +147,7 @@ void showConfirmDialog(BuildContext context,
             title: title,
             width: 400,
             actions: [
-              PillButton('Cancel', onPressed: close),
+              PillButton(tr('Cancel'), onPressed: close),
               PillButton(action, variant: ButtonVariant.negative, onPressed: () {
                 close();
                 onConfirm();

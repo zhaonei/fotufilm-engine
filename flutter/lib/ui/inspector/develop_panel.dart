@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 
 import '../kit/kit.dart';
 import 'controls.dart';
+import '../../l10n/zh.dart';
 
 List<Widget> developPanel(InspectorControls c) {
   if (!c.hasFilm) {
@@ -33,9 +34,9 @@ List<Widget> developPanel(InspectorControls c) {
         'filmBlueLayer',
         'filmScanSoftness',
       ]),
-      PillButton('New Grain Pattern', expand: true, onPressed: c.editor.newGrainPattern),
+      PillButton(tr('New Grain Pattern'), expand: true, onPressed: c.editor.newGrainPattern),
     ]),
     if (c.available.any(separation.take(4).contains))
-      Section(title: 'Colour Separation', children: c.profileControls(separation)),
+      Section(title: tr('Colour Separation'), children: c.profileControls(separation)),
   ];
 }

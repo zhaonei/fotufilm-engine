@@ -18,6 +18,7 @@ import '../model/saved_edits.dart' show fixedStockSettings;
 import '../ui/kit/popover.dart' show openModals;
 import '../ui/workspace/film_pack_notice.dart';
 import 'host_window.dart';
+import '../l10n/zh.dart';
 
 // ── Key equivalents ─────────────────────────────────────────────────────────────────────────
 
@@ -182,10 +183,10 @@ List<SubmenuNode> mainMenu(List<Json> plugins) => [
       ]),
       // Undo, Redo and the clipboard belong to a focused text field, or Undo and Redo to the
       // photograph's history, named after the step they change.
-      const SubmenuNode('Edit', [
+      SubmenuNode('Edit', [
         CommandNode('undo', 'Undo', KeyEquivalent('z')),
         CommandNode('redo', 'Redo', KeyEquivalent('z', shift: true)),
-        SubmenuNode('Edit History', [], list: 'history', empty: 'No Open Edit'),
+        SubmenuNode(tr('Edit History'), [], list: 'history', empty: 'No Open Edit'),
         _separator,
         CommandNode('autoAdjust', 'Auto Adjust', KeyEquivalent('a', shift: true)),
         CommandNode('sampleSelection', 'Sample a Selection', KeyEquivalent('s', shift: true)),
@@ -199,17 +200,17 @@ List<SubmenuNode> mainMenu(List<Json> plugins) => [
         _separator,
         CommandNode('copySettings', 'Copy Settings…', KeyEquivalent('c', alt: true)),
         CommandNode('pasteSettings', 'Paste Settings', KeyEquivalent('v', alt: true)),
-        SubmenuNode('Presets', [
+        SubmenuNode(tr('Presets'), [
           CommandNode('savePreset', 'Save Preset…'),
           CommandNode('managePresets', 'Manage Presets…'),
           CommandNode('importLooks', 'Import Looks…'),
         ], list: 'presets', empty: 'No Presets'),
       ]),
-      const SubmenuNode('Film', [
+      SubmenuNode('Film', [
         SubmenuNode('Choose Film', [], list: 'films', empty: 'No Films'),
         _separator,
         CommandNode('newGrainPattern', 'New Grain Pattern', KeyEquivalent('g', shift: true)),
-        SubmenuNode('Grain Model', [
+        SubmenuNode(tr('Grain Model'), [
           CommandNode('grainModel:clump', 'Standard'),
           CommandNode('grainModel:film', 'Film'),
         ]),
@@ -220,7 +221,7 @@ List<SubmenuNode> mainMenu(List<Json> plugins) => [
         _separator,
         CommandNode('resetEdits', 'Reset All Edits', KeyEquivalent('r', shift: true)),
       ]),
-      SubmenuNode('View', [
+      SubmenuNode(tr('View'), [
         // ⌘+ rather than ⌘=: the menu shows characters, as the Mac app's does.
         const CommandNode('zoomIn', 'Zoom In', KeyEquivalent('+')),
         const CommandNode('zoomOut', 'Zoom Out', KeyEquivalent('-')),

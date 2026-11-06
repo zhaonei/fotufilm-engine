@@ -10,6 +10,7 @@ import '../../model/lens_filters.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
 import 'controls.dart';
+import '../../l10n/zh.dart';
 
 Widget lensFiltersSection(InspectorControls c) {
   final editor = c.editor;
@@ -39,7 +40,7 @@ Widget lensFiltersSection(InspectorControls c) {
         onMove: (delta) => change({'filters': moveFilter(filters, i, delta)}),
       ),
     PickerField<String>(
-      label: 'Add Filter',
+      label: tr('Add Filter'),
       value: 'none',
       options: [const PickerOption('none', 'Add Filter…'), ...options],
       onChanged: (id) {
@@ -58,7 +59,7 @@ Widget lensFiltersSection(InspectorControls c) {
     if (filters.isNotEmpty)
       Align(
         alignment: Alignment.centerLeft,
-        child: QuietButton(label: 'Take Them All Off', onPressed: () => change({'filters': []})),
+        child: QuietButton(label: tr('Take Them All Off'), onPressed: () => change({'filters': []})),
       ),
     if (note != null) Note(note),
   ]);
@@ -99,7 +100,7 @@ class _FittedFilter extends StatelessWidget {
         ),
         const SizedBox(width: 6),
         QuietButton(
-          tooltip: 'Move filter nearer the lens',
+          tooltip: tr('Move filter nearer the lens'),
           onPressed: index == 0 ? null : () => onMove(-1),
           icon: 'chevronDown',
           iconSize: 16,
@@ -107,14 +108,14 @@ class _FittedFilter extends StatelessWidget {
         ),
         const SizedBox(width: 2),
         QuietButton(
-          tooltip: 'Move filter further from the lens',
+          tooltip: tr('Move filter further from the lens'),
           onPressed: index == count - 1 ? null : () => onMove(1),
           icon: 'chevronDown',
           iconSize: 16,
         ),
         const SizedBox(width: 2),
         QuietButton(
-          tooltip: 'Take this filter off',
+          tooltip: tr('Take this filter off'),
           onPressed: () => onReplace('none'),
           icon: 'minus',
           iconSize: 16,

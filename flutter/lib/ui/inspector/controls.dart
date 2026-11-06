@@ -6,6 +6,7 @@ import '../../model/catalogue.dart';
 import '../../model/editor.dart';
 import '../kit/kit.dart';
 import 'spectrum_curve.dart';
+import '../../l10n/zh.dart';
 
 class InspectorControls {
   InspectorControls(this.editor);
@@ -118,7 +119,7 @@ class InspectorControls {
         children: [
           slider,
           QuietButton(
-            label: 'Use Film Return',
+            label: tr('Use Film Return'),
             onPressed: enabled && profile.containsKey(field) ? () => set(null) : null,
           ),
         ],
