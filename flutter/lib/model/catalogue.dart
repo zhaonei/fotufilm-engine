@@ -232,8 +232,14 @@ class Catalogue {
       final field = c['field'] as String;
       final stops = ((active['scale'] as Map?)?['stops'] as List?) ?? const [];
       final choices = active['choices'] as List?;
-      if (field == 'push' && !stops.contains(value)) {
-        out[field] = 0;
+      if (field == 'push' && stops.isNotEmpty && !stops.contains(value)) {
+        // The engine takes the stops themselves (-2, 0, 1, 2). An in-between value used to be
+        // written as 0 here, which is a control that moves and changes nothing; take the nearest
+        // stop the person aimed at instead.
+        final aimed = (value as num?)?.toDouble() ?? 0;
+        out[field] = stops
+            .map((stop) => (stop as num).toDouble())
+            .reduce((best, stop) => (stop - aimed).abs() < (best - aimed).abs() ? stop : best);
       } else if (choices != null && !choices.any((choice) => (choice as Map)['id'] == value)) {
         out[field] = profileDefault(active);
       } else {

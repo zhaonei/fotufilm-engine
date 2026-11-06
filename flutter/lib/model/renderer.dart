@@ -74,6 +74,19 @@ class Renderer {
   /// The longest preview develop; past it the detail layer carries the resolution.
   static const maxPreviewEdge = 4096;
 
+  /// A phone's preview stops well below 4096. Its screen is around 1200 px across, so a develop
+  /// past ~2048 has nothing left to show while costing the square of the pixels: switching films
+  /// re-develops the whole print pipeline, which is exactly where that shows as a stall.
+  static const phonePreviewEdge = 2048;
+
+  static int get _previewCap => switch (defaultTargetPlatform) {
+        TargetPlatform.android || TargetPlatform.iOS => phonePreviewEdge,
+        _ => maxPreviewEdge,
+      };
+
+  /// Logged once, so a report can say what the editor was actually asking for.
+  static bool _edgesReported = false;
+
   bool _running = false;
   bool _foreground = false;
   bool _draft = false;
@@ -167,7 +180,11 @@ class Renderer {
     // `whole` picture (a print frame's) has no detail layer, so its preview carries them.
     final scale = view.magnified(photo) && !whole ? view.fitScale(photo) : view.scale(photo);
     final shown = (long * scale * view.devicePixelRatio).round();
-    final settled = math.min(long, math.min(maxPreviewEdge, math.max(256, shown)));
+    if (!_edgesReported) {
+      _edgesReported = true;
+      LogTape.record('preview edges: draft=$_draftEdge cap=$_previewCap');
+    }
+    final settled = math.min(long, math.min(_previewCap, math.max(256, shown)));
     return interactive ? math.min(_draftEdge, settled) : settled;
   }
 
