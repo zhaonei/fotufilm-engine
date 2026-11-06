@@ -207,6 +207,16 @@ jobs:
           sudo unzip -q /tmp/ndk.zip -d /opt/android-ndk
           sudo chown -R "$USER" /opt/android-ndk
 
+      - name: Point the SDK's ndk folder at the cached NDK
+        # app/build.gradle.kts pins ndkVersion 27.2.12479018. AGP looks for it under the SDK's
+        # ndk/ directory and would download it again; the symlink gives it the copy already here.
+        run: |
+          sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          sudo mkdir -p "$sdk/ndk"
+          sudo ln -sfn /opt/android-ndk/android-ndk-r27c "$sdk/ndk/27.2.12479018"
+          ls -l "$sdk/ndk"
+          head -3 "$sdk/ndk/27.2.12479018/source.properties"
+
       - name: Point the Swift SDK's sysroot at this NDK
         # tools/build-android-engine.sh does the same when the link is stale; done here so a
         # failure names the step, and so the NDK and the SDK agree before anything is compiled.
@@ -354,6 +364,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
+
+      - name: Cache Gradle's dependencies and wrapper
+        # flutter build drives the project's own Gradle wrapper: without this every run downloads
+        # the distribution and resolves AGP's dependencies again.
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('flutter/android/gradle/wrapper/gradle-wrapper.properties', 'flutter/android/app/build.gradle.kts') }}
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2

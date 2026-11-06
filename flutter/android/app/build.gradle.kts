@@ -12,7 +12,11 @@ plugins {
 android {
     namespace = "com.muastudio.fotufilm.flutter"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Pinned rather than flutter.ndkVersion: the app builds no native code through Gradle -- the
+    // engine's .so arrives prebuilt in FOTUFILM_ANDROID_ENGINE -- so all this decides is which NDK
+    // the SDK manager has to fetch. Flutter's default is another 600 MB download per run; 27.2 is
+    // the NDK the engine is built with and the one the workflow caches.
+    ndkVersion = "27.2.12479018"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
