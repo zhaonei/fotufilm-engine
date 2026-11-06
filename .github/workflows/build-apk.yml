@@ -17,10 +17,18 @@ on:
   push:
     branches: [android-jni-shell]
     paths:
+      # The editor itself. Leaving this out meant a commit that fixed the UI -- and only the UI --
+      # pushed cleanly and started nothing: the run list kept showing the commit before it.
+      - 'flutter/**'
+      # prepare.sh reads these, so they change what ships in assets/generated.
+      - 'web/src/generated/**'
+      - 'web/src/material-symbols.json'
+      - 'web/public/glyphs/**'
       - 'android-shell/**'
       - 'Sources/**'
       - 'tools/**'
       - 'Package.swift'
+      - 'version.env'
       - '.github/workflows/build-apk.yml'
 
 permissions:
