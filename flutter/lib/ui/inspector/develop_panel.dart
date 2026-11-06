@@ -34,6 +34,11 @@ List<Widget> developPanel(InspectorControls c) {
         'filmBlueLayer',
         'filmScanSoftness',
       ]),
+      // The film grain model averages the light through each pixel's patch of emulsion, so at a
+      // 2048 preview the grain averages away with the resolution. Saying so beats a slider that
+      // looks broken.
+      if ((c.edit['profile'] as Map?)?['grainModel'] == 'film')
+        Note('胶片颗粒按每个像素覆盖的胶片面积取平均：预览缩放会把它平均掉，请导出后或按 100% 查看。'),
       PillButton(tr('New Grain Pattern'), expand: true, onPressed: c.editor.newGrainPattern),
     ]),
     if (c.available.any(separation.take(4).contains))

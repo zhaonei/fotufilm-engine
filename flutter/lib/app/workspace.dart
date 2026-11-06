@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart' show Material, MaterialType;
 import 'package:flutter/widgets.dart';
 
+import '../debug/log_tape.dart';
 import '../model/editor.dart';
 import '../model/file_types.dart';
 import '../model/film_packs.dart';
@@ -95,7 +96,7 @@ class _WorkspaceState extends State<Workspace> {
         };
     if (!lost()) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && lost()) _focus.requestFocus();
+      if (mounted && lost()) _focusEditor();
     });
   }
 
@@ -130,7 +131,7 @@ class _WorkspaceState extends State<Workspace> {
     final open = editor.library.open;
     if (_libraryOpen == open) return;
     setState(() => _libraryOpen = open);
-    if (!open) _focus.requestFocus();
+    if (!open) _focusEditor();
   }
 
   Future<void> _open() async {
@@ -152,6 +153,18 @@ class _WorkspaceState extends State<Workspace> {
     if (editor.active != null) showExportDialog(context, editor);
   }
 
+  /// Gives the keys back to the editor, but only when the node is in the tree: requestFocus on a
+  /// FocusNode whose context is null throws inside the focus manager, which on an empty canvas
+  /// meant an error on every touch.
+  void _focusEditor() {
+    if (!mounted || _focus.context == null) return;
+    try {
+      _focus.requestFocus();
+    } catch (e) {
+      LogTape.record('focus: $e');
+    }
+  }
+
   /// A click outside the viewer gives the keys back to the editor.
   void _pointerDown(PointerDownEvent event) {
     final viewer = FocusManager.instance.primaryFocus?.context;
@@ -159,7 +172,7 @@ class _WorkspaceState extends State<Workspace> {
     final box = viewer.findRenderObject();
     if (box is! RenderBox || !box.attached) return;
     if (!(box.localToGlobal(Offset.zero) & box.size).contains(event.position)) {
-      _focus.requestFocus();
+      _focusEditor();
     }
   }
 

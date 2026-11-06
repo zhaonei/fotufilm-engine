@@ -30,10 +30,9 @@ class AppSettings extends ChangeNotifier {
     // Whether a message that wants attention shows as a banner over the picture. Off by default:
     // everything goes to the tape, and nothing is drawn over the photograph.
     'logBanners': false,
-    // Magnified, develop the preview up to maxPreviewEdge instead of the phone cap. Android has no
-    // native presenter, so there is no 1:1 detail layer: without this, zooming only enlarges the
-    // 2048 px preview. Costs a slower settle while zoomed in.
-    'fineZoomPreview': true,
+    // Magnified, develop the preview up to maxPreviewEdge instead of the phone cap. Off: it made a
+    // settle take 24 s on a heavy stock, which is worse than the softness it fixes.
+    'fineZoomPreview': false,
     // Exporting keeps the photograph and its edit, so it can be developed on.
     'forgetAfterExport': false,
     // A photograph opened next replaces what was open: its copy, its edit and its history go.
