@@ -10,7 +10,8 @@
 import 'dart:async';
 import 'dart:ui' show PlatformDispatcher;
 
-import 'package:flutter/foundation.dart' show FlutterError;
+import 'package:flutter/foundation.dart' show FlutterError, defaultTargetPlatform, kIsWeb, TargetPlatform;
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter/widgets.dart';
 
 import 'app/app.dart';
@@ -33,6 +34,24 @@ void main(List<String> arguments) {
   // (assets/generated/controls.json, which pubspec had stopped bundling) meant no widget tree at
   // all: the app started to a permanent black screen with nothing but a bare exception in logcat.
   runApp(Boot(arguments: arguments));
+}
+
+/// What the app is using on the phone, so storage growth is visible rather than guessed at:
+/// the imports it keeps (the library's own files), the export cache, and the engine's unpacked
+/// resources. Only Android answers; the call is a no-op anywhere else.
+Future<void> _reportStorage() async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+  try {
+    final sizes =
+        await const MethodChannel('fotufilm/files').invokeMapMethod<String, dynamic>('storage');
+    if (sizes == null) return;
+    String mb(Object? bytes) =>
+        '${(((bytes as num?) ?? 0) / 1048576).toStringAsFixed(1)} MB';
+    LogTape.record('storage: imports ${mb(sizes['imports'])}, exports ${mb(sizes['exports'])}, '
+        'resources ${mb(sizes['resources'])}, cache ${mb(sizes['cache'])}');
+  } catch (e) {
+    LogTape.record('storage sizes unavailable: $e');
+  }
 }
 
 /// Anything that escapes a framework callback reaches logcat, where `adb logcat` can see it.
@@ -137,6 +156,7 @@ class _BootState extends State<Boot> {
       // A browser engine answers in sRGB; the desktop engine's Display P3 is converted for drawing.
       ColourConversion.enabled = editor.engine?.picturesAreDisplayP3 ?? true;
       Driver.start(editor, _boundary);
+      unawaited(_reportStorage());
       // What arrived, in logcat: the first question a quiet render bug asks is whether the
       // catalogue and the engine's film list are actually populated.
       LogTape.record(

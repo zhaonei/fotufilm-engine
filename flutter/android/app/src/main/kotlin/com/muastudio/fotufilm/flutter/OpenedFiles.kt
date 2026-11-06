@@ -54,6 +54,7 @@ class OpenedFiles(private val activity: Activity, messenger: BinaryMessenger) {
                     } else {
                         copying.execute {
                             val where = runCatching { publish(File(path), name, mime) }
+                                .onSuccess { runCatching { File(path).delete() } }
                             main.post {
                                 where.fold({ result.success(it) }, { e ->
                                     result.error("publish-failed", e.message ?: "$e", null)
@@ -72,6 +73,7 @@ class OpenedFiles(private val activity: Activity, messenger: BinaryMessenger) {
                             val where = runCatching {
                                 File(path).listFiles()?.filter { it.isFile }?.forEach { file ->
                                     runCatching { publish(file, file.name, mime) }
+                                        .onSuccess { runCatching { file.delete() } }
                                 }
                                 publishedFolder(mime)
                             }
@@ -83,6 +85,16 @@ class OpenedFiles(private val activity: Activity, messenger: BinaryMessenger) {
                         }
                     }
                 }
+                // What the app is using, so growth can be seen rather than guessed at.
+                "storage" -> result.success(
+                    mapOf(
+                        "imports" to sizeOf(importsDir()),
+                        "exports" to sizeOf(exportsDir()),
+                        "resources" to sizeOf(File(activity.filesDir, "fotufilm-resources")),
+                        "cache" to sizeOf(activity.cacheDir),
+                        "importsAt" to importsDir().path,
+                    )
+                )
                 else -> result.notImplemented()
             }
         }
@@ -111,7 +123,10 @@ class OpenedFiles(private val activity: Activity, messenger: BinaryMessenger) {
      *  it is to the engine). */
     private fun copy(uri: Uri): String {
         val name = displayName(uri)?.replace('/', '_') ?: "photo"
-        val folder = File(activity.cacheDir, "opened/${System.nanoTime()}").apply { mkdirs() }
+        // filesDir, not cacheDir: the library remembers this path (photo_library.dart keeps it in
+        // settings), and Android deletes cacheDir whenever storage runs short -- which would leave
+        // library entries pointing at files that no longer exist.
+        val folder = File(importsDir(), System.nanoTime().toString()).apply { mkdirs() }
         val target = File(folder, name)
         activity.contentResolver.openInputStream(uri)!!.use { input ->
             target.outputStream().use { input.copyTo(it, 1 shl 20) }
@@ -125,6 +140,12 @@ class OpenedFiles(private val activity: Activity, messenger: BinaryMessenger) {
 
     /** The engine's exports land here first; the cache needs no permission on any API level. */
     private fun exportsDir(): File = File(activity.cacheDir, "exports").apply { mkdirs() }
+
+    /** Imported photographs. Their own folder each, the library keeps the file's path. */
+    private fun importsDir(): File = File(activity.filesDir, "imports").apply { mkdirs() }
+
+    private fun sizeOf(dir: File): Long =
+        dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
 
     private fun isPicture(mime: String) = mime.startsWith("image/")
 
