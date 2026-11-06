@@ -12,6 +12,7 @@ import 'dart:developer' as developer;
 
 // ValueListenable lives in foundation; widgets.dart does not re-export it.
 import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter/widgets.dart';
 
 /// The lines, newest last, capped so a long session cannot grow without bound.
@@ -23,6 +24,9 @@ class LogTape {
   static final ValueNotifier<String?> _flash = ValueNotifier<String?>(null);
 
   static List<String> get lines => List<String>.unmodifiable(_lines);
+
+  /// Every line, oldest first, as one block: what the copy button puts on the clipboard.
+  static String get text => _lines.join('\n');
   static ValueListenable<int> get revision => _revision;
   static ValueListenable<String?> get flash => _flash;
 
@@ -60,7 +64,10 @@ class LogTapeLayer extends StatefulWidget {
 
 class _LogTapeLayerState extends State<LogTapeLayer> {
   bool _open = false;
+  bool _copied = false;
   Timer? _dismiss;
+  Timer? _copiedFor;
+  final ScrollController _scroll = ScrollController();
 
   @override
   void initState() {
@@ -72,7 +79,28 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
   void dispose() {
     LogTape.flash.removeListener(_onFlash);
     _dismiss?.cancel();
+    _copiedFor?.cancel();
+    _scroll.dispose();
     super.dispose();
+  }
+
+  /// Puts the whole tape on the clipboard, to paste into a message.
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: LogTape.text));
+    _copiedFor?.cancel();
+    setState(() => _copied = true);
+    _copiedFor = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _copied = false);
+    });
+  }
+
+  void _toggleTape() {
+    setState(() => _open = !_open);
+    if (!_open) return;
+    // The last line is usually the reason the tape was opened.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) _scroll.jumpTo(_scroll.position.maxScrollExtent);
+    });
   }
 
   void _onFlash() {
@@ -124,6 +152,15 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
                   const Text('日志', style: TextStyle(color: _ink, fontSize: 13)),
                   const Spacer(),
                   GestureDetector(
+                    onTap: _copy,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      child: Text(_copied ? '已复制' : '复制',
+                          style: TextStyle(
+                              color: _copied ? const Color(0xFF9AD08A) : _ink, fontSize: 12)),
+                    ),
+                  ),
+                  GestureDetector(
                     onTap: LogTape.clear,
                     child: const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -143,21 +180,21 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
                 child: ValueListenableBuilder<int>(
                   valueListenable: LogTape.revision,
                   builder: (context, _, __) {
-                    final lines = LogTape.lines;
-                    if (lines.isEmpty) {
+                    if (LogTape.lines.isEmpty) {
                       return const Padding(
                         padding: EdgeInsets.all(10),
                         child: Text('暂无日志', style: TextStyle(color: _muted, fontSize: 12)),
                       );
                     }
-                    // Newest first: the reason for opening this is almost always the last line.
-                    return ListView.builder(
+                    // One selectable block instead of a row per line: this is text meant to be
+                    // handed to someone else, so it has to be selectable and copyable whole.
+                    // Oldest first, and opening the tape scrolls to the newest line.
+                    return SingleChildScrollView(
+                      controller: _scroll,
                       padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-                      itemCount: lines.length,
-                      itemBuilder: (context, i) => Padding(
-                        padding: const EdgeInsets.only(bottom: 3),
-                        child: Text(lines[lines.length - 1 - i],
-                            style: const TextStyle(color: _ink, fontSize: 10.5, height: 1.3)),
+                      child: SelectableText(
+                        LogTape.text,
+                        style: const TextStyle(color: _ink, fontSize: 10.5, height: 1.35),
                       ),
                     );
                   },
@@ -172,7 +209,7 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
         right: 8,
         bottom: 8,
         child: GestureDetector(
-          onTap: () => setState(() => _open = !_open),
+          onTap: _toggleTape,
           child: DecoratedBox(
             decoration: BoxDecoration(
                 color: _open ? const Color(0x33FFFFFF) : const Color(0x22000000)),
