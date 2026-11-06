@@ -12,6 +12,7 @@ import 'dart:developer' as developer;
 
 // ValueListenable lives in foundation; widgets.dart does not re-export it.
 import 'package:flutter/foundation.dart' show ValueListenable, ValueNotifier;
+import 'package:flutter/material.dart' show SelectableText;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter/widgets.dart';
 

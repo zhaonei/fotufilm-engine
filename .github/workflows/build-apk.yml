@@ -242,6 +242,23 @@ jobs:
           path: build/halide-linux-install
           key: halide-${{ steps.halide-pin.outputs.sha }}-${{ hashFiles('tools/halide-vulkan-*.patch', 'tools/halide-runtime-prefix-map.patch') }}-llvm21
 
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.41.9'
+          cache: true
+
+      - name: Analyse the Dart sources before the expensive steps
+        # A missing import in one Dart file used to surface only after the Halide kernels and the
+        # engine had been built -- 38 minutes to learn that SelectableText lives in material.dart.
+        # The analyser answers the same question in about a minute; warnings and infos do not fail
+        # the job, only errors do.
+        working-directory: flutter
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-warnings --no-fatal-infos 2>&1 | tail -30
+
       - name: Build Halide with the Vulkan patches
         # Same preparation as tools/build-halide-linux.sh -- a shared clone of the pin and the
         # five Vulkan patches -- but cmake runs here. That script passes only
@@ -374,13 +391,6 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('flutter/android/gradle/wrapper/gradle-wrapper.properties', 'flutter/android/app/build.gradle.kts') }}
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          flutter-version: '3.41.9'
-          cache: true
 
       - name: Accept the SDK licences
         # The Flutter Gradle plugin picks the platform/build-tools/NDK versions it wants; accepting
