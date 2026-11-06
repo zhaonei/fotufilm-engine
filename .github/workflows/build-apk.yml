@@ -367,12 +367,12 @@ jobs:
           find "$engine" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2
           du -sh "$engine"
 
-      - name: Engine lever check (does halation move a pixel?)
-        # The engine ships its own A/B tool: `fotufilm <a> <b> --diff <out>` renders two images and
-        # reports the numbers the difference amounts to. Rendering the same frame at two halation
-        # returns and diffing them answers "is this effect wired up" with a number instead of an
-        # impression -- the same code the phone runs, on the host. Diagnostic only: it must never
-        # stop an APK being built.
+      - name: Engine lever check (does each film lever move a pixel?)
+        # The engine ships its own A/B tool: `fotufilm <a> <b> --diff` renders two frames and
+        # prints what the difference amounts to. android-shell/tools/lever-check.sh renders a
+        # baseline and then one render per lever at its extreme -- halation, grain model, mottle,
+        # push, adjacency, diffusion, a lens filter, the print lamp -- and diffs each against the
+        # baseline. Same engine code the phone runs, on the host, no device. Diagnostic only.
         continue-on-error: true
         env:
           HALIDE_ROOT: ${{ env.HALIDE_ROOT }}
@@ -384,13 +384,7 @@ jobs:
           swift build -c release --product fotufilm 2>&1 | tail -8 || true
           bin="$(swift build -c release --show-bin-path 2>/dev/null)/fotufilm"
           [ -x "$bin" ] || { echo "::warning::fotufilm CLI did not build; skipping the lever check"; exit 0; }
-          src=android-shell/tools/lever-check.png
-          echo "--- halation return 1% ---"
-          "$bin" "$src" /tmp/low.tif --halation-return 1 2>&1 | tail -3
-          echo "--- halation return 80% ---"
-          "$bin" "$src" /tmp/high.tif --halation-return 80 2>&1 | tail -3
-          echo "--- difference between them ---"
-          "$bin" /tmp/low.tif /tmp/high.tif --diff /tmp/diff.png 2>&1 | tail -12
+          android-shell/tools/lever-check.sh "$bin" android-shell/tools/lever-check.png /tmp/lever-check
 
       - name: Check no tr() sits in a const expression
         # Dart rejects a method call inside a const expression and reports one line per build;
