@@ -37,6 +37,16 @@ android {
         versionName = flutter.versionName
     }
 
+    packaging {
+        jniLibs {
+            // Compress the .so files and let the installer extract them (extractNativeLibs=true).
+            // Stored-uncompressed libraries have to be page-aligned inside the APK, and anything
+            // that rewrites the zip after signing -- a re-sign in MT Manager, say -- loses that
+            // alignment, after which the loader cannot map them and the app dies at launch.
+            useLegacyPackaging = true
+        }
+    }
+
     // The engine, its Swift runtime and codecs, and the films and camera profiles it reads, from
     // tools/build-android-engine.sh; build output, so outside the source tree.
     val engine = setting("FOTUFILM_ANDROID_ENGINE") ?: "../../build/android-engine"

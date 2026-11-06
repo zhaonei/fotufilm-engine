@@ -501,6 +501,14 @@ jobs:
           done
           [ "$missing" = 0 ] || exit 1
 
+          # The engine's libraries must be deflated, not stored: a stored-uncompressed .so has to
+          # be page-aligned inside the zip, and any rewrite after signing (a re-sign in a file
+          # manager) loses that alignment and the app dies on launch.
+          method="$(unzip -v "$apk" | awk '/lib\/arm64-v8a\/libfotufilm.so/ {print $2}')"
+          echo "libfotufilm.so stored as: ${method:-unknown}"
+          [ "$method" = "Defl" ] ||
+            { echo "::error::the engine is stored uncompressed; a re-signed copy would crash on launch"; exit 1; }
+
           # v1 (JAR) signature files are what an OEM installer reads its "developer certificate"
           # from; AGP leaves them out unless enableV1Signing is set.
           for entry in 'META-INF/.*\.SF' 'META-INF/.*\.RSA'; do
