@@ -119,6 +119,9 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
 
   void _onFlash() {
     _dismiss?.cancel();
+    // Rebuild first: dismissing sets flash to null and used to return before this line, so the
+    // banner stayed on screen with its timer already cancelled -- a close button that did nothing.
+    if (mounted) setState(() {});
     if (LogTape.flash.value == null) return;
     // Long enough to read a sentence, short enough not to sit in the way.
     _dismiss = Timer(const Duration(seconds: 5), () {
