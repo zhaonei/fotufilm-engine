@@ -8,7 +8,6 @@
 //   l10n/     the interface in Chinese
 //   ui/       theme (colours, sizes, type), kit (controls), workspace and inspector
 import 'dart:async';
-import 'dart:developer' as developer;
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/foundation.dart' show FlutterError;
@@ -17,6 +16,7 @@ import 'package:flutter/widgets.dart';
 import 'app/app.dart';
 import 'app/host_window.dart';
 import 'debug/debug.dart';
+import 'debug/log_tape.dart';
 import 'l10n/zh.dart';
 import 'model/catalogue.dart';
 import 'model/cef_profile.dart';
@@ -38,12 +38,11 @@ void main(List<String> arguments) {
 /// Anything that escapes a framework callback reaches logcat, where `adb logcat` can see it.
 void _reportErrors() {
   FlutterError.onError = (details) {
-    developer.log('framework: ${details.exceptionAsString()}',
-        name: 'fotufilm', error: details.exception, stackTrace: details.stack);
+    LogTape.record('framework: ${details.exceptionAsString()}', urgent: true);
     FlutterError.presentError(details);
   };
   PlatformDispatcher.instance.onError = (error, stack) {
-    developer.log('uncaught: $error', name: 'fotufilm', error: error, stackTrace: stack);
+    LogTape.record('uncaught: $error', urgent: true);
     return true;
   };
   // What a broken panel shows instead of a white rectangle: the failure and where it happened.
@@ -132,18 +131,17 @@ class _BootState extends State<Boot> {
       Driver.start(editor, _boundary);
       // What arrived, in logcat: the first question a quiet render bug asks is whether the
       // catalogue and the engine's film list are actually populated.
-      developer.log(
+      LogTape.record(
           'catalogue ${catalogue.controls.length} controls, ${catalogue.filmFormats.length} '
           'formats; ${editor.stocks.length} stocks; engine capabilities '
-          '${editor.engine?.capabilities.keys.join(",") ?? "-"}',
-          name: 'fotufilm');
+          '${editor.engine?.capabilities.keys.join(",") ?? "-"}');
 
       _showStage('Opening photographs…');
       await editor.openPaths(await HostWindow.takeOpenedFiles(editor.openPaths,
           arguments: widget.arguments));
       _showStage('');
     } catch (error, stack) {
-      developer.log('boot failed: $error', name: 'fotufilm', error: error, stackTrace: stack);
+      LogTape.record('boot failed: $error', urgent: true);
       if (!mounted) return;
       setState(() {
         _failure = error;

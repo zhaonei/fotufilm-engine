@@ -8,7 +8,8 @@
 // edits as they were when it was asked for, and a photograph closed meanwhile stays loaded until
 // its export is done. A movie, and every export in a browser, holds the editor until it is done.
 import 'dart:async';
-import 'dart:developer' as developer;
+
+import '../debug/log_tape.dart';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -351,7 +352,7 @@ class ExportTool {
   /// a develop the view asks for does not cancel it. Cancelling is not a failure.
   Future<T?> _run<T>(String status, Future<T> Function() body) async {
     if (editor.exporting) {
-      developer.log('export skipped: another export is running ($status)', name: 'fotufilm');
+      LogTape.record('export skipped: another export is running ($status)', urgent: true);
       return null;
     }
     editor
@@ -366,6 +367,7 @@ class ExportTool {
       return null;
     } catch (e) {
       editor.error = '$e';
+      LogTape.record('export failed: $e', urgent: true);
       return null;
     } finally {
       editor
@@ -491,10 +493,10 @@ class ExportTool {
     final doc = editor.active, engine = _engine;
     if (doc == null || engine == null || editor.exporting) {
       // Silence here is what made the Export button look dead: no dialog, no error, no clue.
-      developer.log(
+      LogTape.record(
           'export skipped: photo=${doc == null ? 'none' : 'open'} '
           'engine=${engine == null ? 'none' : 'ok'} exporting=${editor.exporting}',
-          name: 'fotufilm');
+          urgent: true);
       return null;
     }
     if (doc.isMovie) return exportMovie(path: path);
@@ -502,7 +504,7 @@ class ExportTool {
     final filename = stillFilename(doc.name, doc.edit, type);
     path ??= await _chooseFile(filename, type);
     if (path == null) {
-      developer.log('export stopped: no destination chosen for $filename', name: 'fotufilm');
+      LogTape.record('export stopped: no destination chosen for $filename', urgent: true);
       return null;
     }
     final destination = path;
@@ -533,10 +535,10 @@ class ExportTool {
     final engine = _engine;
     final docs = _batch;
     if (engine == null || docs.isEmpty || editor.exporting) {
-      developer.log(
+      LogTape.record(
           'export all skipped: engine=${engine == null ? 'none' : 'ok'} '
           'photos=${docs.length} exporting=${editor.exporting}',
-          name: 'fotufilm');
+          urgent: true);
       return null;
     }
     directory ??= await _chooseFolder();

@@ -1,8 +1,9 @@
 // The editor's state and actions: the engine and its films, the open photographs and their edit
 // histories, and the workspace (panels, zoom, histogram). What the engine develops and when is the
 // Renderer's business (renderer.dart).
-import 'dart:developer' as developer;
 import 'dart:async';
+
+import '../debug/log_tape.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -326,9 +327,9 @@ class EditorModel extends ChangeNotifier implements RenderHost {
     final prepared = await (via ?? engine!).call('prepare');
     // Which backend the kernels run on: 'vulkan' means the AOT Vulkan kernels and the phone's GPU,
     // anything else means the CPU path. This is the line that answers "is it really using Vulkan".
-    developer.log(
-        'engine backend=${prepared.json['backend'] ?? '?'} films=${prepared.json['stocks']?.length ?? 0}',
-        name: 'fotufilm');
+    LogTape.record(
+        'engine backend=${prepared.json['backend'] ?? '?'} '
+        'films=${prepared.json['stocks']?.length ?? 0}');
     final ids = ((prepared.json['stocks'] as List?) ?? const []).cast<String>().toSet();
     stocks = [
       for (final entry in ((prepared.json['catalogue'] as List?) ?? const []).cast<Json>())

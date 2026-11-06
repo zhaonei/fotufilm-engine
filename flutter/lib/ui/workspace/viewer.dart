@@ -7,6 +7,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import '../../debug/log_tape.dart';
 import '../../model/editor.dart';
 import '../theme/theme.dart';
 import 'histogram_panel.dart';
@@ -75,6 +76,9 @@ class EditorViewer extends StatelessWidget {
                   progress: editor.startup,
                   compact: editor.layout.compact),
               ViewerStatus(editor: editor),
+              // Last in the stack: the log and its banner sit above everything, including the
+              // widgets that might be failing to build.
+              const Positioned.fill(child: LogTapeLayer()),
             ]);
           }),
         ),

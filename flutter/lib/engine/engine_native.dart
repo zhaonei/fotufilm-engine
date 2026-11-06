@@ -3,7 +3,6 @@
 // started at the first export, makes the background calls on the same engine, so an export runs
 // beside the editor's develops; a few more, started at the first thumbnail, draw thumbnails
 // side by side.
-import 'dart:developer' as developer;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
@@ -14,6 +13,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../debug/log_tape.dart';
 import 'engine.dart';
 import 'fotufilm_ffi.dart';
 
@@ -101,9 +101,10 @@ class NativeEngine implements EngineConnection {
       false,
     ));
     return completer.future.whenComplete(() {
-      if (watch.elapsedMilliseconds > 200) {
-        developer.log('engine $method took ${watch.elapsedMilliseconds} ms',
-            name: 'fotufilm');
+      final ms = watch.elapsedMilliseconds;
+      if (ms > 200) {
+        // A stall in the interface is a slow host call; over a second it also says so on screen.
+        LogTape.record('engine $method took $ms ms', urgent: ms > 1000);
       }
     });
   }
