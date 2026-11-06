@@ -381,12 +381,28 @@ class EditorModel extends ChangeNotifier implements RenderHost {
       LogTape.record('自检：请先打开一张照片');
       return;
     }
+    // Film parameters act on a film. On a photograph still on Normal -- no stock -- every lever
+    // below is inert by design, which is what the first run of this check measured. A film is
+    // installed for the duration of the check only; the photograph's own edit is untouched.
+    final base = <String, dynamic>{...doc.edit};
+    var film = base['stock'] as String?;
+    if (film == null) {
+      if (stocks.isEmpty) {
+        LogTape.record('自检：没有任何胶片可测');
+        return;
+      }
+      film = stocks.first['id'] as String?;
+      base['stock'] = film;
+      base['medium'] = mediumOnFilm(base, stockById(film));
+      LogTape.record('自检：这张照片还没装胶片，临时用 ${stocks.first['name']}');
+    }
+
     Future<List<int>?> shot(Map<String, Object?> controls, {double evDelta = 0}) async {
-      final edit = <String, dynamic>{...doc.edit};
+      final edit = <String, dynamic>{...base};
       if (evDelta != 0) {
         edit['params'] = <String, dynamic>{
-          ...?(doc.edit['params'] as Map?)?.cast<String, dynamic>(),
-          'ev': (((doc.edit['params'] as Map?)?['ev'] as num?)?.toDouble() ?? 0) + evDelta,
+          ...?(base['params'] as Map?)?.cast<String, dynamic>(),
+          'ev': (((base['params'] as Map?)?['ev'] as num?)?.toDouble() ?? 0) + evDelta,
         };
       }
       final request = renderRequest(
@@ -424,7 +440,7 @@ class EditorModel extends ChangeNotifier implements RenderHost {
       return differing;
     }
 
-    LogTape.record('自检开始（${doc.name}，256px；胶片=${doc.edit['stock'] ?? '无'}）');
+    LogTape.record('自检开始（${doc.name}，256px；胶片=$film）');
     final base = await shot(const {});
     if (base == null) {
       LogTape.record('自检：基线渲染没有返回图像');
@@ -441,36 +457,63 @@ class EditorModel extends ChangeNotifier implements RenderHost {
         ? '自检[工具] 曝光 +1EV：✓ 变化 $control 字节 → 这台工具能测出差异'
         : '自检[工具] 曝光 +1EV：✗ 连曝光都没变化 → 是自检本身坏了，先别信下面任何一行');
 
-    const levers = <String, Map<String, Object?>>{
-      '光晕档位 +4': {'halation': 4.0},
-      '光晕返回率 50%': {'halationReturn': 0.5},
-      '防光晕层 0': {'antiHalation': 0.0},
-      '颗粒模型 Film': {'grainModel': 'film'},
-      '颗粒尺寸 3': {'filmGrainSize': 3.0},
-      '彩色颗粒 0': {'filmColourGrain': 0.0},
-      '颗粒团簇 最大': {'grainMottle': 'maximum'},
-      '扫描柔度 3': {'filmScanSoftness': 3.0},
-      '过期 20 年': {'expired': 20.0},
-      '推冲 +1 档': {'push': 1.0},
-      '成色剂 2': {'couplers': 2.0},
-      '边缘对比 2': {'couplerSelf': 2.0},
-      '层间串色到顶': {'couplerReach': 3.0},
-      '印相灯 3400K': {'printerLamp': 3400.0},
-      '印相曝光 +4 档': {'printerExposure': 4.0},
-      '相纸号数 5': {'screenGrade': 5.0},
-      '基础雾度 100': {'halationHaze': 100.0},
-      '片基厚度 2': {'baseThickness': 2.0},
-    };
-    for (final entry in levers.entries) {
-      final variant = await shot(entry.value);
-      if (variant == null) {
-        LogTape.record('自检 ${entry.key}：无图像（引擎拒收该参数）');
+    // Each lever is measured against a baseline that makes it meaningful. A grain sub-option does
+    // nothing under the clump model; a printer lamp does nothing on a screen medium; anti-halation
+    // has nothing to stop when the film's own return is 0.8%. Measuring them bare said "broken"
+    // where the honest answer was "not switched on".
+    final stockRow = stockById(film);
+    final filmMedium = stockRow?['filmMedium'] as String?;
+    final levers = <(String, Map<String, Object?>, Map<String, Object?>)>[
+      ('光晕档位 +4', const {}, const {'halation': 4.0}),
+      ('光晕返回率 50%', const {}, const {'halationReturn': 0.5}),
+      ('防光晕层 0（有光晕时）', const {'halation': 4.0, 'halationReturn': 0.5},
+          const {'antiHalation': 0.0}),
+      ('片基厚度 2（有光晕时）', const {'halation': 4.0, 'halationReturn': 0.5},
+          const {'baseThickness': 2.0}),
+      ('基础雾度 100（有光晕时）', const {'halation': 4.0, 'halationReturn': 0.5},
+          const {'halationHaze': 100.0}),
+      ('颗粒模型 Film', const {}, const {'grainModel': 'film'}),
+      ('颗粒尺寸 3（Film 模型）', const {'grainModel': 'film'}, const {'filmGrainSize': 3.0}),
+      ('彩色颗粒 0（Film 模型）', const {'grainModel': 'film'}, const {'filmColourGrain': 0.0}),
+      ('扫描柔度 3（Film 模型）', const {'grainModel': 'film'}, const {'filmScanSoftness': 3.0}),
+      ('颗粒团簇 最大', const {}, const {'grainMottle': 'maximum'}),
+      ('过期 20 年', const {}, const {'expired': 20.0}),
+      ('推冲 +1 档', const {}, const {'push': 1.0}),
+      ('成色剂 2', const {}, const {'couplers': 2.0}),
+      ('边缘对比 2', const {}, const {'couplerSelf': 2.0}),
+      ('层间串色到顶', const {}, const {'couplerReach': 3.0}),
+      if (filmMedium != null)
+        ('印相灯 3400K（印相介质）', {'medium': filmMedium, 'enlarger': true},
+            const {'printerLamp': 3400.0}),
+      if (filmMedium != null)
+        ('印相曝光 +4 档（印相介质）', {'medium': filmMedium, 'enlarger': true},
+            const {'printerExposure': 4.0}),
+      if (filmMedium != null)
+        ('相纸号数 5（印相介质）', {'medium': filmMedium}, const {'screenGrade': 5.0}),
+    ];
+
+    final baselines = <String, List<int>?>{};
+    Future<List<int>?> baselineFor(Map<String, Object?> context) async {
+      final key = '$context';
+      if (baselines.containsKey(key)) return baselines[key];
+      final shot0 = await shot(context);
+      baselines[key] = shot0;
+      return shot0;
+    }
+
+    for (final (name, context, values) in levers) {
+      final base0 = await baselineFor(context);
+      if (base0 == null) {
+        LogTape.record('自检 $name：基准渲染失败');
         continue;
       }
-      final differing = compare(base, variant);
-      LogTape.record(differing == 0
-          ? '自检 ${entry.key}：✗ 无变化'
-          : '自检 ${entry.key}：✓ 变化 $differing 字节');
+      final variant = await shot({...context, ...values});
+      if (variant == null) {
+        LogTape.record('自检 $name：无图像（引擎拒收）');
+        continue;
+      }
+      final differing = compare(base0, variant);
+      LogTape.record(differing == 0 ? '自检 $name：✗ 无变化' : '自检 $name：✓ 变化 $differing 字节');
     }
     LogTape.record('自检结束');
   }
