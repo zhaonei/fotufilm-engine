@@ -256,8 +256,11 @@ jobs:
         # the job, only errors do.
         working-directory: flutter
         run: |
+          # pipefail: without it the pipeline's status is tail's, and a failing analyser looked
+          # like a passing step -- which is how a parse error survived to the compiler.
+          set -o pipefail
           flutter pub get
-          flutter analyze --no-fatal-warnings --no-fatal-infos 2>&1 | tail -30
+          flutter analyze --no-fatal-warnings --no-fatal-infos 2>&1 | tail -40
 
       - name: Build Halide with the Vulkan patches
         # Same preparation as tools/build-halide-linux.sh -- a shared clone of the pin and the

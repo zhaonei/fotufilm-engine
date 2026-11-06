@@ -96,8 +96,8 @@ class KeptEdits {
       _timer?.cancel();
       _pending = null;
     }
-    _baselines.remove(doc);
-    _last.remove(doc);
+    _baselines[doc] = null;
+    _last[doc] = null;
     if (key != null) _save(key, null);
   }
 

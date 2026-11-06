@@ -6,9 +6,6 @@ import 'dart:async';
 import 'package:flutter/services.dart' show MethodChannel;
 
 import '../debug/log_tape.dart';
-
-/// The host's file channel: used only to drop an imported copy once it has been exported.
-const _forgetFile = MethodChannel('fotufilm/files');
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -50,6 +47,7 @@ import 'updates.dart';
 import 'video.dart';
 import 'view.dart';
 
+
 export 'catalogue.dart' show Json;
 export 'document.dart';
 export 'film_types.dart';
@@ -58,6 +56,9 @@ export 'photo_strip.dart';
 export 'settings.dart';
 export 'view.dart';
 export 'video.dart';
+
+/// The host's file channel: used only to drop an imported copy once it has been exported.
+const _forgetFile = MethodChannel('fotufilm/files');
 
 /// The inspector's panels: the four tabs, the roll's tab for scanned negatives, and the canvas
 /// tools the toolbar opens (editor-catalogue.js `inspectorPanels`, negative-document.js).
