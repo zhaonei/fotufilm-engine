@@ -185,7 +185,14 @@ class Renderer {
       _edgesReported = true;
       LogTape.record('preview edges: draft=$_draftEdge cap=$_previewCap');
     }
-    final settled = math.min(long, math.min(_previewCap, math.max(256, shown)));
+    // Magnified on a host with no presenter (Android), the 2048 preview is all there is: the
+    // detail layer that would carry real pixels needs the native presenter. Developing past the
+    // cap while zoomed gives the magnified view actual pixels to show -- grain among them -- at
+    // the cost of a slower settle. `fineZoomPreview` turns it off.
+    final wantsPixels = !whole && presenter == null && view.magnified(photo) &&
+        host.settings.get<bool>('fineZoomPreview') != false;
+    final cap = wantsPixels ? maxPreviewEdge : _previewCap;
+    final settled = math.min(long, math.min(cap, math.max(256, wantsPixels ? long : shown)));
     return interactive ? math.min(_draftEdge, settled) : settled;
   }
 

@@ -215,6 +215,8 @@ class EditorModel extends ChangeNotifier implements RenderHost {
   set error(String? message) {
     _error = message;
     _retry = null;
+    // The picture stays clear: what went wrong is a line in the tape, not a banner over it.
+    if (message != null) LogTape.record('error: $message');
   }
   String? _error;
 
