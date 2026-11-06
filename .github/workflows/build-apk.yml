@@ -506,8 +506,12 @@ jobs:
           # manager) loses that alignment and the app dies on launch.
           method="$(unzip -v "$apk" | awk '/lib\/arm64-v8a\/libfotufilm.so/ {print $2}')"
           echo "libfotufilm.so stored as: ${method:-unknown}"
-          [ "$method" = "Defl" ] ||
-            { echo "::error::the engine is stored uncompressed; a re-signed copy would crash on launch"; exit 1; }
+          # unzip prints method and a ratio suffix ("Defl:N", "Stored"), so match the prefix.
+          case "$method" in
+            Defl*) ;;
+            *) echo "::error::the engine is stored uncompressed (\"$method\"); a re-signed copy would crash on launch"
+               exit 1 ;;
+          esac
 
           # v1 (JAR) signature files are what an OEM installer reads its "developer certificate"
           # from; AGP leaves them out unless enableV1Signing is set.
