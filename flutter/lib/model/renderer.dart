@@ -52,12 +52,17 @@ abstract interface class RenderHost {
 }
 
 class Renderer {
-  Renderer({required this.engine, required this.catalogue, required this.host, this.presenter});
+  Renderer({required this.engine, required this.catalogue, required this.host, this.presenter,
+      this.fineZoomPreview = true});
 
   final EngineConnection engine;
   final Catalogue catalogue;
   final RenderHost host;
   final NativePresenter? presenter;
+
+  /// Whether a magnified view develops past the phone cap (see `_previewEdge`). RenderHost is the
+  /// editor's own interface and does not carry settings, so the choice arrives here.
+  final bool fineZoomPreview;
 
   /// The edge a slider's develops are held to while it moves.
   static const interactiveEdge = 1200;
@@ -189,8 +194,7 @@ class Renderer {
     // detail layer that would carry real pixels needs the native presenter. Developing past the
     // cap while zoomed gives the magnified view actual pixels to show -- grain among them -- at
     // the cost of a slower settle. `fineZoomPreview` turns it off.
-    final wantsPixels = !whole && presenter == null && view.magnified(photo) &&
-        host.settings.get<bool>('fineZoomPreview') != false;
+    final wantsPixels = fineZoomPreview && !whole && presenter == null && view.magnified(photo);
     final cap = wantsPixels ? maxPreviewEdge : _previewCap;
     final settled = math.min(long, math.min(cap, math.max(256, wantsPixels ? long : shown)));
     return interactive ? math.min(_draftEdge, settled) : settled;
