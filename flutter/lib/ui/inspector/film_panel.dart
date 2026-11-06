@@ -74,6 +74,22 @@ List<Widget> filmPanel(InspectorControls c) {
         'pressurePlate',
         'estimatedHalation',
       ]),
+      // Halation is a multiplier in stops (0 leaves the film exactly as it is), and how bright the
+      // halo is also depends on the film's own return, which most stocks state at well under one
+      // percent. Both have to move before anything shows, which looks like a dead slider.
+      if ((c.edit['profile'] as Map?)?['halation'] == null ||
+          ((c.edit['profile'] as Map?)!['halation'] as num? ?? 0) == 0)
+        const Note('光晕的档位为 0 时等于关闭；本胶卷的返回率很低，需要同时抬高 Halation Return 才会显现。'),
+      QuietButton(
+        label: tr('Boost Halation'),
+        onPressed: () => editor.change({
+          'profile': {
+            ...?c.edit['profile'] as Map?,
+            'halation': 2.0,
+            'halationReturn': 0.08,
+          }
+        }),
+      ),
     ]),
   ];
 }

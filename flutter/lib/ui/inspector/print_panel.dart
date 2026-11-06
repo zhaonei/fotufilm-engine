@@ -104,6 +104,9 @@ List<Widget> printPanel(InspectorControls c) {
           'printerYellow',
           'printerPreflash',
         ]),
+        // A lamp and its filter pack only exist on the print road: they change how the negative
+        // is exposed onto paper, so a photograph that is printed to screen barely moves.
+        const Note('印相灯源与滤色片只作用于"负片→相纸"这条路；屏幕直出时几乎看不到变化。'),
       ),
     if (!fixed && editor.active != null) PrintFrameSection(editor: editor),
     Section(title: tr('Export'), children: [

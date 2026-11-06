@@ -42,6 +42,11 @@ List<Widget> developPanel(InspectorControls c) {
       PillButton(tr('New Grain Pattern'), expand: true, onPressed: c.editor.newGrainPattern),
     ]),
     if (c.available.any(separation.take(4).contains))
-      Section(title: tr('Colour Separation'), children: c.profileControls(separation)),
+      Section(title: tr('Colour Separation'), children: [
+        ...c.profileControls(separation),
+        // These act on adjacency between the emulsion's layers: a few percent of colour, most
+        // visible where colours meet, so a fitted preview shows them weakly by nature.
+        const Note('分色/成色剂影响的是乳剂层之间的串色与边缘，幅度本身很小：把滑块拉到头更容易看出，或导出后对比。'),
+      ]),
   ];
 }

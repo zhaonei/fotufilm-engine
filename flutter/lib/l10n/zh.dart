@@ -300,6 +300,7 @@ const Map<String, String> zhOf = {
   'Finished print': '成品照片',
   'Four-Corner Crop': '四角裁剪',
   'Grade': '调色',
+  'Boost Halation': '增强光晕',
   'Green–Blue': '绿至蓝',
   'HDR Highlights': 'HDR 高光',
   'Histogram': '直方图',
