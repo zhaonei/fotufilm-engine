@@ -441,8 +441,8 @@ class EditorModel extends ChangeNotifier implements RenderHost {
     }
 
     LogTape.record('自检开始（${doc.name}，256px；胶片=$film）');
-    final base = await shot(const {});
-    if (base == null) {
+    final controlImage = await shot(const {});
+    if (controlImage == null) {
       LogTape.record('自检：基线渲染没有返回图像');
       return;
     }
@@ -452,7 +452,7 @@ class EditorModel extends ChangeNotifier implements RenderHost {
       LogTape.record('自检：对照渲染失败');
       return;
     }
-    final control = compare(base, brighter);
+    final control = compare(controlImage, brighter);
     LogTape.record(control > 0
         ? '自检[工具] 曝光 +1EV：✓ 变化 $control 字节 → 这台工具能测出差异'
         : '自检[工具] 曝光 +1EV：✗ 连曝光都没变化 → 是自检本身坏了，先别信下面任何一行');
