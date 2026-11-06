@@ -94,7 +94,7 @@ class _SectionsDialogState extends State<_SectionsDialog> {
         ],
         children: [
           if (widget.preset) ...[
-            const FieldLabel(tr('Name')),
+            FieldLabel(tr('Name')),
             const SizedBox(height: 3),
             NameField(
               controller: _name,

@@ -329,6 +329,12 @@ jobs:
           find "$engine" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2
           du -sh "$engine"
 
+      - name: Check no tr() sits in a const expression
+        # Dart rejects a method call inside a const expression and reports one line per build;
+        # this finds every instance in a second, before the Flutter build spends minutes on it.
+        # It is the check that would have caught `const FieldLabel(tr('Name'))` on the first run.
+        run: python3 android-shell/tools/check-l10n-const.py flutter/lib
+
       - name: Set up Node.js
         # flutter/tool/prepare.sh reads the editor's control catalogue through node.
         uses: actions/setup-node@v4
