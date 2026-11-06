@@ -343,6 +343,12 @@ jobs:
         # It is the check that would have caught `const FieldLabel(tr('Name'))` on the first run.
         run: python3 android-shell/tools/check-l10n-const.py flutter/lib
 
+      - name: Check the Android host's Kotlin references resolve
+        # A dangling `ExportFiles(this, messenger)` in MainActivity cost a whole pipeline run: the
+        # engine and Halide were built first, and only then did :app:compileReleaseKotlin fail.
+        # This finds that class of mistake in a second, before anything expensive starts.
+        run: python3 android-shell/tools/check-kotlin-refs.py
+
       - name: Set up Node.js
         # flutter/tool/prepare.sh reads the editor's control catalogue through node.
         uses: actions/setup-node@v4

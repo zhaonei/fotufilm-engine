@@ -8,7 +8,6 @@ import io.flutter.embedding.engine.FlutterEngine
 /** The editor (lib/) in Flutter's activity, with the engine's films unpacked before Dart starts. */
 class MainActivity : FlutterActivity() {
     private var openedFiles: OpenedFiles? = null
-    private var exportFiles: ExportFiles? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         EngineResources.prepare(this)
@@ -17,10 +16,10 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // One handler for "fotufilm/files": it opens files, and it is also where an export
+        // lands (tempDir, publish, publishDir) because Android has no save dialog for
+        // file_selector. Registering a second object on the same channel would replace this one.
         openedFiles = OpenedFiles(this, flutterEngine.dartExecutor.binaryMessenger)
-        // Export has no save dialog on Android; the engine writes into the cache and this puts
-        // the file in Pictures/Fotufilm (model/export.dart calls "fotufilm/files").
-        exportFiles = ExportFiles(this, flutterEngine.dartExecutor.binaryMessenger)
     }
 
     @Deprecated("FlutterActivity is an Activity, not a ComponentActivity: no result launchers")

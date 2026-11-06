@@ -39,7 +39,7 @@ const dpxType = 'image/x-dpx';
 
 /// Where a finished export goes on Android. file_selector has no save dialog there --
 /// getSavePath() throws UnimplementedError -- so the engine writes into the app's cache and
-/// MainActivity's ExportFiles puts the file in Pictures/Fotufilm through MediaStore.
+/// the host's OpenedFiles puts the file in Pictures/Fotufilm through MediaStore.
 const _fileChannel = MethodChannel('fotufilm/files');
 
 bool get _androidExports => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
