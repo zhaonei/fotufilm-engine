@@ -169,8 +169,8 @@ class _HaloPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final direct = (halo['direct'] as num).toDouble();
     final scattered = (halo['scattered'] as num).toDouble();
-    final sigmas = [for (final s in halo['sigmas'] as List) (s as num).toDouble()];
-    final weights = [for (final w in halo['weights'] as List) (w as num).toDouble()];
+    final sigmas = [for (final s in (halo['sigmas'] as List?) ?? const []) (s as num).toDouble()];
+    final weights = [for (final w in (halo['weights'] as List?) ?? const []) (w as num).toDouble()];
     final values = List.filled(_n * _n, 0.0);
     var peak = 0.0;
     for (var y = 0; y < _n; y++) {

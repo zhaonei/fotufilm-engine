@@ -55,7 +55,7 @@ List<Widget> printPanel(InspectorControls c) {
           detail: c.catalogue.detail('digitalReference'),
           value: c.edit['digitalReference'] as String? ?? conversion['default'] as String,
           options: [
-            for (final choice in (conversion['choices'] as List).cast<Json>())
+            for (final choice in ((conversion['choices'] as List?) ?? const []).cast<Json>())
               PickerOption(choice['id'] as String, choice['name'] as String),
           ],
           onChanged: (v) => editor.change({'digitalReference': v}),

@@ -15,7 +15,7 @@ class SettingsSection {
 }
 
 List<SettingsSection> settingsSections(Catalogue catalogue) => [
-      for (final s in (catalogue.module['SETTINGS_SECTIONS'] as List).cast<Json>())
+      for (final s in ((catalogue.module['SETTINGS_SECTIONS'] as List?) ?? const []).cast<Json>())
         SettingsSection(s['id'] as String, s['title'] as String, s['group'] as String,
             s['groupTitle'] as String, s['byDefault'] == true),
     ];
@@ -68,7 +68,7 @@ class CopiedSettings {
   Json toJson() => {'sections': sections, 'edit': edit};
 
   static CopiedSettings fromJson(Map json) => CopiedSettings(
-      (json['sections'] as List).cast<String>(), Map<String, dynamic>.from(json['edit'] as Map));
+      ((json['sections'] as List?) ?? const []).cast<String>(), Map<String, dynamic>.from(json['edit'] as Map));
 }
 
 /// `edit` with the sections `settings` carries taken from its edit.
@@ -253,13 +253,13 @@ String lookFileName(List<Preset> presets) {
   final known = {for (final s in settingsSections(catalogue)) s.id};
   final ids = [for (final s in stocks) s['id'] as String];
   final presets = <(String, CopiedSettings)>[], missing = <(String, String)>[];
-  for (final entry in file['presets'] as List) {
+  for (final entry in (file['presets'] as List?) ?? const []) {
     final rawName = entry is Map ? entry['name'] : null;
     var name = rawName is String ? rawName.trim() : '';
     if (name.length > _nameLimit) name = name.substring(0, _nameLimit);
     final settings = entry is Map ? entry['settings'] : null;
     final sections = settings is Map && settings['sections'] is List
-        ? [for (final id in settings['sections'] as List) if (known.contains(id)) id as String]
+        ? [for (final id in (settings['sections'] as List?) ?? const []) if (known.contains(id)) id as String]
         : <String>[];
     final source = settings is Map ? settings['edit'] : null;
     if (name.isEmpty ||

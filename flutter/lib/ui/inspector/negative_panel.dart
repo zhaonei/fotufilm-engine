@@ -40,9 +40,9 @@ List<Widget> negativePanel(InspectorControls c) {
         ScanButton(
           suggestionName(s),
           quiet: true,
-          onPressed: c.edit['stock'] == ((s['films'] as List).first as Map)['id']
+          onPressed: c.edit['stock'] == _filmId(s)
               ? null
-              : () => editor.chooseStock(((s['films'] as List).first as Map)['id'] as String),
+              : () => editor.chooseStock(_filmId(s)),
         ),
     ]),
     Section(title: tr('Film Base'), children: [
@@ -89,4 +89,11 @@ List<Widget> negativePanel(InspectorControls c) {
             onPressed: lightFrame == null ? null : scans.removeLightFrame),
       ]),
   ];
+}
+
+/// The film a stock profile reports, if it reports one: entries without `films` used to throw a
+/// cast error here, which took the whole panel down.
+String? _filmId(Map stock) {
+  final films = (stock['films'] as List?) ?? const [];
+  return films.isEmpty ? null : (films.first as Map)['id'] as String?;
 }

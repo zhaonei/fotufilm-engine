@@ -49,7 +49,7 @@ List<Widget> exposePanel(InspectorControls c) {
         detail: sceneLight['detail'] as String?,
         value: c.edit['sceneLight'] as String,
         options: [
-          for (final choice in (sceneLight['choices'] as List).cast<Json>())
+          for (final choice in ((sceneLight['choices'] as List?) ?? const []).cast<Json>())
             PickerOption(choice['id'] as String, choice['label'] as String),
         ],
         onChanged: (v) => editor.change({'sceneLight': v}),

@@ -44,7 +44,8 @@ class Catalogue {
   /// entries stay whole maps -- the screens read `title`, `choices[].label` and `host.label`
   /// straight out of them.
   late final List<Json> _controls = [
-    for (final c in (module['EDITOR_CONTROLS'] as List).cast<Json>()) _localized(c),
+    for (final c in ((module['EDITOR_CONTROLS'] as List?) ?? const []).whereType<Json>())
+      _localized(c),
   ];
 
   List<Json> get controls => _controls;
@@ -55,7 +56,9 @@ class Catalogue {
       ...c,
       if (c['title'] is String) 'title': tr(c['title'] as String),
       if (c['choices'] is List)
-        'choices': [for (final choice in c['choices'] as List) _localizedChoice(choice)],
+        'choices': [
+          for (final choice in (c['choices'] as List).whereType<Map>()) _localizedChoice(choice)
+        ],
       if (host is Map && host['label'] is String)
         'host': {...host.cast<String, dynamic>(), 'label': tr(host['label'] as String)},
     };
@@ -69,9 +72,10 @@ class Catalogue {
       if (map['name'] is String) 'name': tr(map['name'] as String),
     };
   }
-  List<Json> get filmFormats => (module['FILM_FORMATS'] as List).cast<Json>();
-  Json get screenConversion => module['SCREEN_CONVERSION'] as Json;
-  Json get profileMenus => module['PROFILE_MENUS'] as Json;
+  List<Json> get filmFormats =>
+      ((module['FILM_FORMATS'] as List?) ?? const []).cast<Json>();
+  Json get screenConversion => (module['SCREEN_CONVERSION'] as Json?) ?? const {};
+  Json get profileMenus => (module['PROFILE_MENUS'] as Json?) ?? const {};
 
   Json control(String field) => controls.firstWhere((c) => c['field'] == field,
       orElse: () => throw StateError('Unknown editor control: $field'));
@@ -94,17 +98,19 @@ class Catalogue {
 
   SliderSpec catalogueSlider(String field, String group, [double step = 0.01]) {
     final c = control(field);
-    final scale = c['scale'] as Json;
+    // A control the engine reports without a scale still gets a slider, at neutral: a missing key
+    // here used to be a cast error, which took the whole inspector down with it.
+    final scale = (c['scale'] as Json?) ?? const <String, dynamic>{};
     return SliderSpec(
       key: field,
-      label: tr(c['title'] as String),
+      label: tr((c['title'] as String?) ?? field),
       detail: c['detail'] as String?,
       availability: c['availability'] as String?,
       group: tr(group),
       step: step,
-      min: (scale['min'] as num).toDouble(),
-      max: (scale['max'] as num).toDouble(),
-      def: (scale['neutral'] as num).toDouble(),
+      min: (scale['min'] as num?)?.toDouble() ?? 0,
+      max: (scale['max'] as num?)?.toDouble() ?? 1,
+      def: (scale['neutral'] as num?)?.toDouble() ?? 0,
       unit: _units[scale['unit']] ?? '',
     );
   }
@@ -145,7 +151,8 @@ class Catalogue {
         {
           ...c,
           'choices': [
-            for (final choice in (c['choices'] ?? profileMenus[c['field']]) as List)
+            for (final choice
+                in ((c['choices'] ?? profileMenus[c['field']]) as List?) ?? const [])
               _localizedChoice(choice)
           ],
         },
@@ -155,7 +162,7 @@ class Catalogue {
     final scale = c['scale'];
     if (scale is Map && scale['neutral'] != null) return scale['neutral'];
     final curve = c['curve'];
-    if (curve is Map) return [for (final _ in curve['handles'] as List) curve['neutral']];
+    if (curve is Map) return [for (final _ in (curve['handles'] as List?) ?? const []) curve['neutral']];
     if (c['kind'] == 'toggle') return c['restingOn'];
     final choices = c['choices'];
     if (choices is List && choices.isNotEmpty) return (choices.first as Map)['id'];
@@ -245,7 +252,8 @@ class Catalogue {
 
   /// The source illuminant the edit asks the film to be balanced for (editor-catalogue.js).
   num? sourceIlluminant(Json edit) {
-    final choices = (control('sceneLight')['choices'] as List).cast<Json>();
+    final choices =
+        ((control('sceneLight')['choices'] as List?) ?? const []).cast<Json>();
     final choice = choices.firstWhere((c) => c['id'] == edit['sceneLight'],
         orElse: () => choices.first);
     if (choice['id'] == 'custom') return (edit['params'] as Map)['sceneLightKelvin'] as num?;

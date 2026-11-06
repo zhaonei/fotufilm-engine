@@ -78,7 +78,7 @@ class InspectorControls {
         title: title,
         detail: detail,
         curve: curve,
-        values: [for (final v in value as List) (v as num).toDouble()],
+        values: [for (final v in (value as List?) ?? const []) (v as num).toDouble()],
         enabled: enabled,
         onChanged: (values) => editor.setProfile(field, values),
         onReset: () => set(Catalogue.profileDefault(c)),
@@ -103,7 +103,7 @@ class InspectorControls {
         value: value as num,
         enabled: enabled,
         options: [
-          for (final chip in (c['chips'] as List).cast<Json>())
+          for (final chip in ((c['chips'] as List?) ?? const []).cast<Json>())
             PickerOption(chip['value'] as num, chip['label'] as String),
         ],
         onChanged: set,

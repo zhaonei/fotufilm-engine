@@ -152,7 +152,9 @@ class NegativeScans {
     };
     return [
       for (final s in ((_doc?.negativeScan?['suggestions'] as List?) ?? const []).cast<Map>())
-        if (installed.contains(((s['films'] as List).first as Map)['id'])) s,
+        if (((s['films'] as List?) ?? const []).isNotEmpty &&
+            installed.contains((((s['films'] as List).first) as Map)['id']))
+          s,
     ].take(3).toList();
   }
 
@@ -193,7 +195,7 @@ class NegativeScans {
     try {
       final answer = await engine.call(
           'negativeSampleFilmBase', {'render': request, 'point': [point.dx, point.dy]});
-      final border = [for (final v in answer.value as List) (v as num).toDouble()];
+      final border = [for (final v in (answer.value as List?) ?? const []) (v as num).toDouble()];
       // The photograph or its edit moved on while the engine looked.
       if (!sampling || editor.active != doc || !identical(doc.edit, edit)) return;
       sampling = false;

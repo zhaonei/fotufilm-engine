@@ -13,12 +13,12 @@ class LensFilterCatalogue {
   final Json json;
 
   /// The filters the Add Filter menu offers.
-  List<Json> get choices => (json['choices'] as List).cast<Json>();
+  List<Json> get choices => ((json['choices'] as List?) ?? const []).cast<Json>();
 
   /// How an exposure is metered through absorbing filters.
-  List<Json> get meterings => (json['meterings'] as List).cast<Json>();
+  List<Json> get meterings => ((json['meterings'] as List?) ?? const []).cast<Json>();
 
-  List<String> get supported => (json['supported'] as List).cast<String>();
+  List<String> get supported => ((json['supported'] as List?) ?? const []).cast<String>();
 
   Json? choice(String id) => choices.where((c) => c['id'] == id).firstOrNull;
 

@@ -46,6 +46,39 @@ void _reportErrors() {
     developer.log('uncaught: $error', name: 'fotufilm', error: error, stackTrace: stack);
     return true;
   };
+  // What a broken panel shows instead of a white rectangle: the failure and where it happened.
+  // A blank panel used to be all a release build offered, which said nothing about the cause.
+  ErrorWidget.builder = (details) => _InlineError(details: details);
+}
+
+/// The widget ErrorWidget.builder puts where a subtree failed to build.
+class _InlineError extends StatelessWidget {
+  const _InlineError({required this.details});
+  final FlutterErrorDetails details;
+
+  @override
+  Widget build(BuildContext context) {
+    final trace = (details.stack?.toString() ?? '').split('\n').take(8).join('\n');
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Container(
+        color: const Color(0xFF2A1414),
+        padding: const EdgeInsets.all(10),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('部件构建失败：${details.exceptionAsString()}',
+                  style: const TextStyle(color: Color(0xFFE8B4A6), fontSize: 12)),
+              const SizedBox(height: 6),
+              Text(trace,
+                  style: const TextStyle(color: Color(0xFFB08C84), fontSize: 10, height: 1.3)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Loads what the editor needs while drawing something, then hands over to FotufilmApp.
@@ -97,6 +130,13 @@ class _BootState extends State<Boot> {
       // A browser engine answers in sRGB; the desktop engine's Display P3 is converted for drawing.
       ColourConversion.enabled = editor.engine?.picturesAreDisplayP3 ?? true;
       Driver.start(editor, _boundary);
+      // What arrived, in logcat: the first question a quiet render bug asks is whether the
+      // catalogue and the engine's film list are actually populated.
+      developer.log(
+          'catalogue ${catalogue.controls.length} controls, ${catalogue.filmFormats.length} '
+          'formats; ${editor.stocks.length} stocks; engine capabilities '
+          '${editor.engine?.capabilities.keys.join(",") ?? "-"}',
+          name: 'fotufilm');
 
       _showStage('Opening photographs…');
       await editor.openPaths(await HostWindow.takeOpenedFiles(editor.openPaths,

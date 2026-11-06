@@ -63,7 +63,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
   AppSettings get _settings => widget.editor.settings;
 
   List<PickerOption<String?>> _choices(String field) => [
-        for (final c in (widget.editor.catalogue.control(field)['choices'] as List).cast<Json>())
+        for (final c in ((widget.editor.catalogue.control(field)['choices'] as List?) ?? const []).cast<Json>())
           PickerOption(c['id'] as String, c['label'] as String),
       ];
 

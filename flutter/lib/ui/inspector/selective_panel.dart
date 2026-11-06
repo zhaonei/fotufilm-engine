@@ -14,7 +14,8 @@ List<Widget> selectivePanel(InspectorControls c) {
   final selection = tool.selection;
   final subject = tool.subject;
   // A subject selection's rim, or a colour or light selection's reach.
-  final reach = (spec[subject ? 'subjectSliders' : 'sliders'] as List).cast<Json>();
+  final reach =
+      ((spec[subject ? 'subjectSliders' : 'sliders'] as List?) ?? const []).cast<Json>();
   final params = (selection['params'] as Map?) ?? const {};
   Widget button(String label, VoidCallback? onPressed) =>
       Align(alignment: Alignment.centerLeft, child: PillButton(label, onPressed: onPressed));
@@ -32,7 +33,7 @@ List<Widget> selectivePanel(InspectorControls c) {
       button(spec[tool.sampling ? 'sampling' : 'sample'] as String,
           tool.canSample ? () => tool.setSampling(!tool.sampling) : null),
       if (subject)
-        Note(subjectsFound((spec['subjectsFound'] as List).cast<String>(), tool.subjects)),
+        Note(subjectsFound(((spec['subjectsFound'] as List?) ?? const []).cast<String>(), tool.subjects)),
       for (final s in reach)
         AdjustmentRow(
           key: ValueKey(s['key']),
