@@ -36,13 +36,21 @@ void main(List<String> arguments) {
 }
 
 /// Anything that escapes a framework callback reaches logcat, where `adb logcat` can see it.
+/// The first frames of a stack, for a line that has to stay readable on a phone.
+String _frames(StackTrace? stack) {
+  final lines = (stack?.toString() ?? '').split('\n').where((l) => l.trim().isNotEmpty);
+  return lines.take(3).join('\n');
+}
+
 void _reportErrors() {
   FlutterError.onError = (details) {
-    LogTape.record('framework: ${details.exceptionAsString()}', urgent: true);
+    LogTape.record('framework: ${details.exceptionAsString()}\n${_frames(details.stack)}',
+        urgent: true, flashText: 'framework: ${details.exceptionAsString()}');
     FlutterError.presentError(details);
   };
   PlatformDispatcher.instance.onError = (error, stack) {
-    LogTape.record('uncaught: $error', urgent: true);
+    LogTape.record('uncaught: $error\n${_frames(stack)}',
+        urgent: true, flashText: 'uncaught: $error');
     return true;
   };
   // What a broken panel shows instead of a white rectangle: the failure and where it happened.

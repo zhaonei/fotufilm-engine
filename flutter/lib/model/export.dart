@@ -12,7 +12,8 @@ import 'dart:async';
 import '../debug/log_tape.dart';
 
 import 'package:file_selector/file_selector.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:flutter/services.dart' show MethodChannel;
 
 import '../app/environment.dart';
 import '../engine/engine.dart';
@@ -35,6 +36,13 @@ const exportTypeLabels = {
 /// A Cineon Log scan's format: 10-bit printing density for grading, offered only for an edit
 /// whose output medium is Cineon Log (`ExportOptions.dpx`).
 const dpxType = 'image/x-dpx';
+
+/// Where a finished export goes on Android. file_selector has no save dialog there --
+/// getSavePath() throws UnimplementedError -- so the engine writes into the app's cache and
+/// MainActivity's ExportFiles puts the file in Pictures/Fotufilm through MediaStore.
+const _fileChannel = MethodChannel('fotufilm/files');
+
+bool get _androidExports => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
 /// Export Original's format: the camera RAW file itself.
 const originalType = 'original';
@@ -522,9 +530,14 @@ class ExportTool {
     return _queue(filename, [doc.handle], (engine, job) async {
       _report(job, 'Exporting $filename');
       final answer = await engine.callInBackground('export', request);
-      return SavedExport(
-          filename: answer.json['filename'] as String? ?? filename,
-          path: answer.json['path'] as String? ?? destination);
+      final name = answer.json['filename'] as String? ?? filename;
+      final saved = answer.json['path'] as String? ?? destination;
+      if (_androidExports) {
+        final where = await _publish(saved, name, type);
+        LogTape.record('exported to $where', urgent: true);
+        return SavedExport(filename: name, path: where);
+      }
+      return SavedExport(filename: name, path: saved);
     }, onStarted: onStarted);
   }
 
@@ -588,11 +601,22 @@ class ExportTool {
       ];
       if (problems.isNotEmpty) editor.showError(problems.join(' '));
       if (written.isEmpty) return null;
+      final source = answer.json['directory'] as String? ?? directory;
+      if (_androidExports) {
+        final where = await _publishDir(source, type);
+        LogTape.record('exported ${written.length} photos to $where', urgent: true);
+        return SavedExport(
+          filename: '${written.length} photos',
+          path: where,
+          count: written.length,
+          directory: where,
+        );
+      }
       return SavedExport(
         filename: '${written.length} photos',
         path: written.first['path'] as String,
         count: written.length,
-        directory: answer.json['directory'] as String? ?? directory,
+        directory: source,
       );
     }, onStarted: onStarted);
   }
@@ -714,6 +738,11 @@ class ExportTool {
     if (fixedDirectory case final dir? when dir.isNotEmpty) return '$dir/$filename';
     // A browser saves to its downloads.
     if (kIsWeb) return filename;
+    if (_androidExports) {
+      final dir = await _fileChannel.invokeMethod<String>('tempDir');
+      if (dir == null) return null;
+      return '$dir/$filename';
+    }
     final ext = filename.contains('.') ? filename.split('.').last : '';
     final location = await getSaveLocation(
       suggestedName: filename,
@@ -726,6 +755,30 @@ class ExportTool {
 
   Future<String?> _chooseFolder() async {
     if (fixedDirectory case final dir? when dir.isNotEmpty) return dir;
+    if (_androidExports) return _fileChannel.invokeMethod<String>('tempDir');
     return getDirectoryPath(confirmButtonText: 'Export');
+  }
+
+  /// Hands a finished file to the system, and says where it landed.
+  Future<String> _publish(String path, String name, String? mime) async {
+    try {
+      final where = await _fileChannel.invokeMethod<String>(
+          'publish', {'path': path, 'name': name, 'mime': mime ?? 'image/jpeg'});
+      return where ?? path;
+    } catch (e) {
+      LogTape.record('publish failed: $e', urgent: true);
+      return path;
+    }
+  }
+
+  Future<String> _publishDir(String directory, String? mime) async {
+    try {
+      final where = await _fileChannel
+          .invokeMethod<String>('publishDir', {'path': directory, 'mime': mime ?? 'image/jpeg'});
+      return where ?? directory;
+    } catch (e) {
+      LogTape.record('publish failed: $e', urgent: true);
+      return directory;
+    }
   }
 }

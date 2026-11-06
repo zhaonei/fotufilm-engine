@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Android 9 and older only: publishing an export to Pictures/Fotufilm there needs it.
+         From Android 10 the export goes through MediaStore, which asks for nothing. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
     <application
         android:label="Fotufilm"
         android:name="${applicationName}"

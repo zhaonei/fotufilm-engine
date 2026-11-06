@@ -538,6 +538,11 @@ class EditorModel extends ChangeNotifier implements RenderHost {
     } else {
       profile[field] = value;
     }
+    // The grain sub-options only act when the grain model is the film one; this line says what
+    // the engine is actually being told, which a slider that moves and changes nothing asks for.
+    if (field.startsWith('film') || field == 'grainModel' || field == 'grainMottle') {
+      LogTape.record('profile $field=$value (grainModel=${profile['grainModel']})');
+    }
     // Reach sets the pair couplings, so explicit ones give way (profile-settings.js).
     if (field == 'couplerReach') {
       profile.remove('couplerRedGreen');

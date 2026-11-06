@@ -18,6 +18,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 
+import '../debug/log_tape.dart';
 import '../engine/engine.dart';
 import '../engine/presenter.dart';
 import 'catalogue.dart';
@@ -170,15 +171,26 @@ class Renderer {
     return interactive ? math.min(_draftEdge, settled) : settled;
   }
 
-  Json _request(PhotoDocument doc, Json edit, {int? maxEdge, bool draft = false}) =>
-      renderRequest(
-        catalogue: catalogue,
-        handle: doc.handle,
-        edit: edit,
-        stock: host.stockById(edit['stock'] as String?),
-        maxEdge: maxEdge,
-        draft: draft,
-      );
+  /// The last profile block written to the tape, so a slider that does nothing can be told apart
+  /// from a slider whose value never reached the engine.
+  static String? _lastProfileSent;
+
+  Json _request(PhotoDocument doc, Json edit, {int? maxEdge, bool draft = false}) {
+    final request = renderRequest(
+      catalogue: catalogue,
+      handle: doc.handle,
+      edit: edit,
+      stock: host.stockById(edit['stock'] as String?),
+      maxEdge: maxEdge,
+      draft: draft,
+    );
+    final profile = jsonEncode((request['profileRequest'] as Json)['controls']);
+    if (profile != _lastProfileSent) {
+      _lastProfileSent = profile;
+      LogTape.record('profile sent: $profile');
+    }
+    return request;
+  }
 
   /// What a shown picture is developed from: the edit and the view's options, or the edit the
   /// options carry instead (the crop tool's, without the crop).

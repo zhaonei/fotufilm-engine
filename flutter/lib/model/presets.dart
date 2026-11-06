@@ -7,6 +7,9 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
+import 'package:flutter/services.dart' show MethodChannel;
 
 import 'edit.dart';
 import 'edit_settings.dart';
@@ -14,6 +17,8 @@ import 'editor.dart';
 import 'saved_edits.dart';
 
 export 'edit_settings.dart' show CopiedSettings, Preset, SettingsSection, pasteTitle;
+
+const _files = MethodChannel('fotufilm/files');
 
 class Presets {
   Presets(this.editor) {
@@ -195,9 +200,21 @@ class Presets {
   Future<void> export(List<String> ids) async {
     final chosen = [for (final p in list) if (ids.contains(p.id)) p];
     if (chosen.isEmpty) return;
-    final location = await getSaveLocation(
-        suggestedName: lookFileName(chosen), acceptedTypeGroups: _lookTypes);
-    if (location != null) await exportTo(location.path, ids);
+    final name = lookFileName(chosen);
+    // Android has no file_selector save panel: the file is written under the app's cache and then
+    // published to the system's Downloads/Pictures folder through the host's channel.
+    final path = await _savePath(name);
+    if (path != null) await exportTo(path, ids);
+  }
+
+  /// Where to write [name] on this platform, or null when the person backed out.
+  Future<String?> _savePath(String name) async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      final dir = await _files.invokeMethod<String>('tempDir');
+      return dir == null ? null : '$dir/$name';
+    }
+    final location = await getSaveLocation(suggestedName: name, acceptedTypeGroups: _lookTypes);
+    return location?.path;
   }
 
   Future<void> exportTo(String path, List<String> ids) async {

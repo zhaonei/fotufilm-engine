@@ -8,6 +8,7 @@ import io.flutter.embedding.engine.FlutterEngine
 /** The editor (lib/) in Flutter's activity, with the engine's films unpacked before Dart starts. */
 class MainActivity : FlutterActivity() {
     private var openedFiles: OpenedFiles? = null
+    private var exportFiles: ExportFiles? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         EngineResources.prepare(this)
@@ -17,6 +18,9 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         openedFiles = OpenedFiles(this, flutterEngine.dartExecutor.binaryMessenger)
+        // Export has no save dialog on Android; the engine writes into the cache and this puts
+        // the file in Pictures/Fotufilm (model/export.dart calls "fotufilm/files").
+        exportFiles = ExportFiles(this, flutterEngine.dartExecutor.binaryMessenger)
     }
 
     @Deprecated("FlutterActivity is an Activity, not a ComponentActivity: no result launchers")

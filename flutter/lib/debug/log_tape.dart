@@ -27,7 +27,10 @@ class LogTape {
   static ValueListenable<String?> get flash => _flash;
 
   /// Records a line: on the tape, in logcat, and -- for [urgent] -- on the screen.
-  static void record(String message, {bool urgent = false}) {
+  ///
+  /// [flashText] is what the banner shows when the line itself is too long for a banner, which a
+  /// message carrying a stack trace always is.
+  static void record(String message, {bool urgent = false, String? flashText}) {
     final now = DateTime.now();
     final stamp = '${now.hour.toString().padLeft(2, '0')}:'
         '${now.minute.toString().padLeft(2, '0')}:'
@@ -36,7 +39,7 @@ class LogTape {
     if (_lines.length > capacity) _lines.removeRange(0, _lines.length - capacity);
     _revision.value++;
     developer.log(message, name: 'fotufilm');
-    if (urgent) _flash.value = message;
+    if (urgent) _flash.value = flashText ?? message;
   }
 
   static void clear() {
