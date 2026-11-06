@@ -332,7 +332,18 @@ jobs:
           cmake --install "$BUILD" --prefix "$HALIDE_ROOT" > /dev/null
           test -f "$HALIDE_ROOT/include/Halide.h" || { echo "::error::Halide was not installed"; exit 1; }
 
+      - name: Cache the built engine
+        # The engine only changes when its sources do. Keying the whole built library on those means
+        # a change to the Flutter app alone -- the common case while tuning the interface -- skips
+        # the kernels, the codecs and the Swift compile entirely.
+        id: cache-engine
+        uses: actions/cache@v4
+        with:
+          path: flutter/build/android-engine
+          key: engine-${{ hashFiles('Sources/**', 'tools/build-android-engine.sh', 'tools/generate-halide-aot-android.sh', 'tools/build-android-codecs.sh', 'Package.swift') }}-${{ steps.halide-pin.outputs.sha }}
+
       - name: Generate the arm64 Vulkan AOT kernels
+        if: steps.cache-engine.outputs.cache-hit != 'true'
         run: |
           HALIDE_ROOT="$HALIDE_ROOT" tools/generate-halide-aot-android.sh "$FOTUFILM_ANDROID_KERNELS"
           find "$FOTUFILM_ANDROID_KERNELS" -maxdepth 1 -name '*.a' | sort | head
@@ -345,13 +356,14 @@ jobs:
           key: codecs-${{ hashFiles('tools/build-android-codecs.sh') }}-ndk-r27c
 
       - name: Build the arm64 codecs and FFmpeg
-        if: steps.cache-codecs.outputs.cache-hit != 'true'
+        if: steps.cache-codecs.outputs.cache-hit != 'true' && steps.cache-engine.outputs.cache-hit != 'true'
         run: |
           ANDROID_NDK_HOME="$ANDROID_NDK_HOME" FOTUFILM_ANDROID_DEPS="$FOTUFILM_ANDROID_DEPS" \
             tools/build-android-codecs.sh
           test -f "$FOTUFILM_ANDROID_DEPS/arm64/lib/libjpeg.a" || { echo "::error::codecs missing"; exit 1; }
 
       - name: Build libfotufilm.so (Swift engine + Halide kernels + codecs)
+        if: steps.cache-engine.outputs.cache-hit != 'true'
         run: |
           ANDROID_NDK_HOME="$ANDROID_NDK_HOME" \
           SWIFT_TOOLCHAIN="$SWIFT_TOOLCHAIN" \
@@ -366,25 +378,6 @@ jobs:
           echo "--- libraries riding with the engine ---"
           find "$engine" -maxdepth 1 -type f -printf '%10s  %f\n' | sort -k2
           du -sh "$engine"
-
-      - name: Engine lever check (does each film lever move a pixel?)
-        # The engine ships its own A/B tool: `fotufilm <a> <b> --diff` renders two frames and
-        # prints what the difference amounts to. android-shell/tools/lever-check.sh renders a
-        # baseline and then one render per lever at its extreme -- halation, grain model, mottle,
-        # push, adjacency, diffusion, a lens filter, the print lamp -- and diffs each against the
-        # baseline. Same engine code the phone runs, on the host, no device. Diagnostic only.
-        continue-on-error: true
-        env:
-          HALIDE_ROOT: ${{ env.HALIDE_ROOT }}
-          FOTUFILM_STOCKS: ${{ github.workspace }}/Sources/FotufilmCore/Stocks
-        run: |
-          export PATH="$SWIFT_TOOLCHAIN/usr/bin:$PATH"
-          export LD_LIBRARY_PATH="$HALIDE_ROOT/lib:${LD_LIBRARY_PATH:-}"
-          echo "--- building the command-line engine ---"
-          swift build -c release --product fotufilm 2>&1 | tail -8 || true
-          bin="$(swift build -c release --show-bin-path 2>/dev/null)/fotufilm"
-          [ -x "$bin" ] || { echo "::warning::fotufilm CLI did not build; skipping the lever check"; exit 0; }
-          android-shell/tools/lever-check.sh "$bin" android-shell/tools/lever-check.png /tmp/lever-check
 
       - name: Check no tr() sits in a const expression
         # Dart rejects a method call inside a const expression and reports one line per build;
