@@ -367,32 +367,48 @@ class EditorModel extends ChangeNotifier implements RenderHost {
   /// Opens photographs the system named by path (the Finder, the command line, the driver); one
   /// brings its folder into the strip. Film packs among them are installed instead.
   /// Forgets every open photograph except [keep]: called when a new one replaces them.
-  /// Renders the shown photograph twice per film lever -- once as it stands, once with that
-  /// lever pushed to an extreme -- and reports how many bytes of the developed PNG differ. Zero
-  /// means the lever never reached the pixels; a large number means it works and what the eye
-  /// saw was the film's own small value. This is the measurement the desktop cannot give us,
-  /// because the phone is the only place this request path runs.
+  /// Renders the shown photograph twice per lever -- once as it stands, once with that lever
+  /// pushed to an extreme -- and reports how many bytes of the developed PNG differ.
+  ///
+  /// The levers are written straight into the request's `profileRequest.controls`, after
+  /// renderRequest() has built it. Going through renderRequest alone filtered every one of them
+  /// out through `profileControlAvailable` (which asks the stock what it offers), so all eighteen
+  /// renders came out byte-identical: the harness was measuring nothing. Two levers that cannot
+  /// be filtered -- exposure, and the same request twice -- say whether the harness itself works.
   Future<void> runLeverCheck() async {
     final doc = active, engine = this.engine;
     if (doc == null || engine == null) {
       LogTape.record('自检：请先打开一张照片');
       return;
     }
-    Future<List<int>?> shot(Map<String, Object?> patch) async {
+    Future<List<int>?> shot(Map<String, Object?> controls, {double evDelta = 0}) async {
       final edit = <String, dynamic>{...doc.edit};
-      edit['profile'] = <String, dynamic>{
-        ...?(doc.edit['profile'] as Map?)?.cast<String, dynamic>(),
-        ...patch,
-      };
+      if (evDelta != 0) {
+        edit['params'] = <String, dynamic>{
+          ...?(doc.edit['params'] as Map?)?.cast<String, dynamic>(),
+          'ev': (((doc.edit['params'] as Map?)?['ev'] as num?)?.toDouble() ?? 0) + evDelta,
+        };
+      }
       final request = renderRequest(
         catalogue: catalogue,
         handle: doc.handle,
         edit: edit,
         stock: stockById(edit['stock'] as String?),
-        maxEdge: 192,
+        maxEdge: 256,
       );
+      final profile = <String, dynamic>{
+        ...(request['profileRequest'] as Json)['controls'] as Json,
+        ...controls,
+        'digitalReference': edit['digitalReference'] ?? 'auto-levels',
+        'halationModel': edit['halationModel'] ?? 'legacy',
+      };
+      final body = <String, dynamic>{
+        ...request,
+        'profileRequest': {...request['profileRequest'] as Json, 'controls': profile},
+        'original': false,
+      };
       try {
-        final answer = await engine.call('render', {...request, 'original': false});
+        final answer = await engine.call('render', body);
         return answer.bytes('preview');
       } catch (e) {
         LogTape.record('自检：渲染失败 $e');
@@ -400,12 +416,31 @@ class EditorModel extends ChangeNotifier implements RenderHost {
       }
     }
 
-    LogTape.record('自检开始（${doc.name}，192px 预览）');
+    int compare(List<int> a, List<int> b) {
+      var differing = 0;
+      for (var i = 0; i < a.length && i < b.length; i++) {
+        if (a[i] != b[i]) differing++;
+      }
+      return differing;
+    }
+
+    LogTape.record('自检开始（${doc.name}，256px；胶片=${doc.edit['stock'] ?? '无'}）');
     final base = await shot(const {});
     if (base == null) {
       LogTape.record('自检：基线渲染没有返回图像');
       return;
     }
+    // Can the harness see a change at all? Exposure is a param, not a profile control.
+    final brighter = await shot(const {}, evDelta: 1);
+    if (brighter == null) {
+      LogTape.record('自检：对照渲染失败');
+      return;
+    }
+    final control = compare(base, brighter);
+    LogTape.record(control > 0
+        ? '自检[工具] 曝光 +1EV：✓ 变化 $control 字节 → 这台工具能测出差异'
+        : '自检[工具] 曝光 +1EV：✗ 连曝光都没变化 → 是自检本身坏了，先别信下面任何一行');
+
     const levers = <String, Map<String, Object?>>{
       '光晕档位 +4': {'halation': 4.0},
       '光晕返回率 50%': {'halationReturn': 0.5},
@@ -419,7 +454,7 @@ class EditorModel extends ChangeNotifier implements RenderHost {
       '推冲 +1 档': {'push': 1.0},
       '成色剂 2': {'couplers': 2.0},
       '边缘对比 2': {'couplerSelf': 2.0},
-      '液层串色到顶': {'couplerReach': 3.0},
+      '层间串色到顶': {'couplerReach': 3.0},
       '印相灯 3400K': {'printerLamp': 3400.0},
       '印相曝光 +4 档': {'printerExposure': 4.0},
       '相纸号数 5': {'screenGrade': 5.0},
@@ -429,22 +464,13 @@ class EditorModel extends ChangeNotifier implements RenderHost {
     for (final entry in levers.entries) {
       final variant = await shot(entry.value);
       if (variant == null) {
-        LogTape.record('自检 ${entry.key}：无图像');
+        LogTape.record('自检 ${entry.key}：无图像（引擎拒收该参数）');
         continue;
       }
-      if (variant.length != base.length) {
-        LogTape.record('自检 ${entry.key}：尺寸化（${base.length} → ${variant.length} 字节）→ 有变化');
-        continue;
-      }
-      var differing = 0, biggest = 0;
-      for (var i = 0; i < base.length; i++) {
-        final d = (base[i] - variant[i]).abs();
-        if (d != 0) differing++;
-        if (d > biggest) biggest = d;
-      }
+      final differing = compare(base, variant);
       LogTape.record(differing == 0
-          ? '自检 ${entry.key}：✗ 完全没有变化（该参数未进入渲染）'
-          : '自检 ${entry.key}：✓ 变化 $differing 字节 / 峰值 $biggest');
+          ? '自检 ${entry.key}：✗ 无变化'
+          : '自检 ${entry.key}：✓ 变化 $differing 字节');
     }
     LogTape.record('自检结束');
   }
