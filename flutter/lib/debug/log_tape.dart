@@ -112,7 +112,7 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
       if (_open)
         Positioned(
           right: 12,
-          bottom: 44,
+          bottom: 36,
           width: 330,
           height: 300,
           child: DecoratedBox(
@@ -166,19 +166,23 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
             ]),
           ),
         ),
+      // A small gear in the corner rather than a labelled button: the tape is for the times
+      // something is wrong, not something to look at while editing. Tap to open, tap to close.
       Positioned(
-        right: 12,
-        bottom: 12,
+        right: 8,
+        bottom: 8,
         child: GestureDetector(
           onTap: () => setState(() => _open = !_open),
           child: DecoratedBox(
-            decoration: const BoxDecoration(color: _panel),
+            decoration: BoxDecoration(
+                color: _open ? const Color(0x33FFFFFF) : const Color(0x22000000)),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
               child: ValueListenableBuilder<int>(
                 valueListenable: LogTape.revision,
-                builder: (context, _, __) => Text('日志 ${LogTape.lines.length}',
-                    style: const TextStyle(color: _muted, fontSize: 11)),
+                builder: (context, _, __) => Text('⚙',
+                    style: TextStyle(
+                        color: _open ? _ink : const Color(0x66E8E2D8), fontSize: 15)),
               ),
             ),
           ),

@@ -603,6 +603,10 @@ class ExportTool {
       if (written.isEmpty) return null;
       final source = answer.json['directory'] as String? ?? directory;
       if (_androidExports) {
+        if (source == null) {
+          LogTape.record('export all: the engine reported no folder to publish', urgent: true);
+          return null;
+        }
         final where = await _publishDir(source, type);
         LogTape.record('exported ${written.length} photos to $where', urgent: true);
         return SavedExport(
