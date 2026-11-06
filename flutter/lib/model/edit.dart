@@ -86,7 +86,12 @@ Json renderRequest({
   String? haveOriginal,
 }) {
   final controls = catalogue.profileRequestControls(edit, stock);
+  // The official client sends these two alongside whatever the sliders changed, every time
+  // (web/src/render-session.js: controls = {...profileRequestControls(...), digitalReference,
+  // halationModel}). Sending only the former left halationModel absent, and the engine selects
+  // its halation path from that key.
   controls['digitalReference'] = edit['digitalReference'] ?? 'auto-levels';
+  controls['halationModel'] = edit['halationModel'] ?? 'legacy';
   return {
     'handle': handle,
     'previewQuality': draft ? 'interactive' : 'still',
