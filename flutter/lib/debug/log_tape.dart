@@ -41,16 +41,40 @@ class LogTape {
   ///
   /// [flashText] is what the banner shows when the line itself is too long for a banner, which a
   /// message carrying a stack trace always is.
+  static bool _recording = false;
+  static String? _lastFlash;
+  static DateTime? _lastFlashAt;
+
   static void record(String message, {bool urgent = false, String? flashText}) {
-    final now = DateTime.now();
-    final stamp = '${now.hour.toString().padLeft(2, '0')}:'
-        '${now.minute.toString().padLeft(2, '0')}:'
-        '${now.second.toString().padLeft(2, '0')}';
-    _lines.add('$stamp  $message');
-    if (_lines.length > capacity) _lines.removeRange(0, _lines.length - capacity);
-    _revision.value++;
-    developer.log(message, name: 'fotufilm');
-    if (urgent) _flash.value = flashText ?? message;
+    // An exception thrown while recording -- inside the tape's own widgets, say -- must not come
+    // back through FlutterError into record() again. That loop is what streamed identical banners.
+    if (_recording) return;
+    _recording = true;
+    try {
+      final now = DateTime.now();
+      final stamp = '${now.hour.toString().padLeft(2, '0')}:'
+          '${now.minute.toString().padLeft(2, '0')}:'
+          '${now.second.toString().padLeft(2, '0')}';
+      _lines.add('$stamp  $message');
+      if (_lines.length > capacity) _lines.removeRange(0, _lines.length - capacity);
+      _revision.value++;
+      developer.log(message, name: 'fotufilm');
+
+      // Silent unless asked: `showBanners` is off at launch and only the gear turns it on.
+      if (!urgent || !showBanners) return;
+      final text = flashText ?? message;
+      final nowMillis = DateTime.now();
+      if (text == _lastFlash &&
+          _lastFlashAt != null &&
+          nowMillis.difference(_lastFlashAt!) < const Duration(seconds: 3)) {
+        return;                       // the same line repeating is a loop, not news
+      }
+      _lastFlash = text;
+      _lastFlashAt = nowMillis;
+      _flash.value = text;
+    } finally {
+      _recording = false;
+    }
   }
 
   static void clear() {
@@ -136,8 +160,12 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
 
   @override
   Widget build(BuildContext context) {
+    // Read once. Reading the notifier twice and using `!` on the second read is how a banner
+    // could throw inside build: the error handler then recorded again, rebuilt, and threw again --
+    // an unbounded stream of identical red bars.
+    final flash = LogTape.flash.value;
     return Stack(children: [
-      if (LogTape.flash.value != null)
+      if (flash != null)
         Positioned(
           left: 12,
           right: 12,
@@ -148,7 +176,7 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
               padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
               child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Expanded(
-                  child: Text(LogTape.flash.value!,
+                  child: Text(flash,
                       style: const TextStyle(
                           color: Color(0xFFE8B4A6), fontSize: 12, height: 1.35)),
                 ),

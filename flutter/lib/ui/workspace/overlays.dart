@@ -93,43 +93,6 @@ class StatusPill extends StatelessWidget {
       );
 }
 
-class ErrorBanner extends StatelessWidget {
-  const ErrorBanner({super.key, required this.text, required this.onClose, this.onRetry});
-  final String text;
-  final VoidCallback onClose;
-  final VoidCallback? onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = Palette.of(context).dark;
-    final fg = dark ? const Color(0xFFF0C6B9) : const Color(0xFF733A2B);
-    return Positioned(
-      top: 10,
-      left: 10,
-      right: 10,
-      child: Appear(
-        key: ValueKey(text),
-        rise: -6,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
-          decoration: BoxDecoration(
-            color: dark ? const Color(0xFF402D2A) : const Color(0xFFFFF1ED),
-            border: Border.all(color: dark ? const Color(0xFF765045) : const Color(0xFFE7C0B4)),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Row(children: [
-            Expanded(
-              child: Text(text,
-                  style: editorText(context, size: TextSizes.label, color: fg, height: 1.45)),
-            ),
-            if (onRetry != null) QuietButton(label: 'Retry', size: 24, onPressed: onRetry),
-            QuietButton(icon: 'close', tooltip: tr('Dismiss'), onPressed: onClose, iconSize: 15),
-          ]),
-        ),
-      ),
-    );
-  }
-}
 
 class DropOverlay extends StatelessWidget {
   const DropOverlay({super.key});

@@ -66,10 +66,12 @@ Future<void> _reportStorage() async {
 
 /// Anything that escapes a framework callback reaches logcat, where `adb logcat` can see it.
 /// The first frames of a stack, for a line that has to stay readable on a phone.
-String _frames(StackTrace? stack) {
-  final lines = (stack?.toString() ?? '').split('\n').where((l) => l.trim().isNotEmpty);
-  return lines.take(3).join('\n');
-}
+/// The first frames of a stack, for the tape: enough to name the widget without filling the line.
+String _frames(StackTrace? stack) => (stack?.toString() ?? '')
+    .split('\n')
+    .where((line) => line.trimLeft().startsWith('#'))
+    .take(6)
+    .join('\n');
 
 void _reportErrors() {
   FlutterError.onError = (details) {
@@ -98,14 +100,14 @@ class _InlineError extends StatelessWidget {
     return Directionality(
       textDirection: TextDirection.ltr,
       child: Container(
-        color: const Color(0xFF2A1414),
+        color: const Color(0xFF1A1A1A),
         padding: const EdgeInsets.all(10),
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text('部件构建失败：${details.exceptionAsString()}',
-                  style: const TextStyle(color: Color(0xFFE8B4A6), fontSize: 12)),
+                  style: const TextStyle(color: Color(0xFFB9B3A8), fontSize: 12)),
               const SizedBox(height: 6),
               Text(trace,
                   style: const TextStyle(color: Color(0xFFB08C84), fontSize: 10, height: 1.3)),
@@ -166,9 +168,11 @@ class _BootState extends State<Boot> {
           await (Catalogue.load(), IconLibrary.load(), ColourConversion.load(), AppSettings.load())
               .wait;
       importCefProfile(settings);
-      // The banner over the picture is the person's choice, remembered between runs.
-      LogTape.showBanners = settings.get<bool>('logBanners') ?? true;
-      LogTape.persistBanners = (on) => settings.set('logBanners', on);
+      // Silent at launch, every launch. The gear's switch turns banners on for the session; the
+      // interface is clean unless someone asks for the messages. A stored preference from an
+      // earlier build is deliberately ignored: it was what kept them coming.
+      LogTape.showBanners = false;
+      LogTape.persistBanners = null;
       final editor = EditorModel(catalogue, settings: settings);
 
       _showStage('Starting the engine…');
