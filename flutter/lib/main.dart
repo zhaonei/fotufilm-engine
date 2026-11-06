@@ -135,7 +135,11 @@ class _BootState extends State<Boot> {
 
   final AppLifecycleListener _lifecycle = AppLifecycleListener(
     onPause: () => unawaited(_tidyScratch()),
-    onDetach: () => unawaited(_tidyScratch()),
+    onDetach: () {
+      // Swiped away: the run's queue of messages goes with it, and the next launch starts empty.
+      LogTape.clear();
+      unawaited(_tidyScratch());
+    },
   );
 
   @override
@@ -162,6 +166,9 @@ class _BootState extends State<Boot> {
           await (Catalogue.load(), IconLibrary.load(), ColourConversion.load(), AppSettings.load())
               .wait;
       importCefProfile(settings);
+      // The banner over the picture is the person's choice, remembered between runs.
+      LogTape.showBanners = settings.get<bool>('logBanners') ?? true;
+      LogTape.persistBanners = (on) => settings.set('logBanners', on);
       final editor = EditorModel(catalogue, settings: settings);
 
       _showStage('Starting the engine…');

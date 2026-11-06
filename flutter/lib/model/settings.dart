@@ -27,6 +27,8 @@ class AppSettings extends ChangeNotifier {
   static const prefix = 'fotufilm.setting.';
 
   static const defaults = <String, Object?>{
+    // Whether a message that wants attention shows as a banner over the picture.
+    'logBanners': true,
     // Exporting keeps the photograph and its edit, so it can be developed on.
     'forgetAfterExport': false,
     // A photograph opened next replaces what was open: its copy, its edit and its history go.

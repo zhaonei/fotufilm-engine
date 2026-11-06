@@ -20,6 +20,12 @@ import 'package:flutter/widgets.dart';
 class LogTape {
   static const int capacity = 400;
 
+  /// Whether a line that wants attention also shows as a banner over the picture. The tape keeps
+  /// recording either way; this only decides whether it interrupts. The switch is in the tape's
+  /// own header, and main.dart ties it to a setting so it survives a restart.
+  static bool showBanners = true;
+  static void Function(bool on)? persistBanners;
+
   static final List<String> _lines = [];
   static final ValueNotifier<int> _revision = ValueNotifier<int>(0);
   static final ValueNotifier<String?> _flash = ValueNotifier<String?>(null);
@@ -85,6 +91,13 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
     super.dispose();
   }
 
+  /// Turns the banner over the picture on or off, and remembers the choice.
+  void _toggleBanners() {
+    setState(() => LogTape.showBanners = !LogTape.showBanners);
+    LogTape.persistBanners?.call(LogTape.showBanners);
+    if (!LogTape.showBanners) LogTape.dismissFlash();
+  }
+
   /// Puts the whole tape on the clipboard, to paste into a message.
   Future<void> _copy() async {
     await Clipboard.setData(ClipboardData(text: LogTape.text));
@@ -108,7 +121,7 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
     _dismiss?.cancel();
     if (LogTape.flash.value == null) return;
     // Long enough to read a sentence, short enough not to sit in the way.
-    _dismiss = Timer(const Duration(seconds: 8), () {
+    _dismiss = Timer(const Duration(seconds: 5), () {
       if (mounted) LogTape.dismissFlash();
     });
     if (mounted) setState(() {});
@@ -126,15 +139,27 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
           left: 12,
           right: 12,
           bottom: 56,
-          child: GestureDetector(
-            onTap: LogTape.dismissFlash,
-            child: DecoratedBox(
-              decoration: const BoxDecoration(color: Color(0xF02A1414)),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                child: Text(LogTape.flash.value!,
-                    style: const TextStyle(color: Color(0xFFE8B4A6), fontSize: 12, height: 1.35)),
-              ),
+          child: DecoratedBox(
+            decoration: const BoxDecoration(color: Color(0xF02A1414)),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                  child: Text(LogTape.flash.value!,
+                      style: const TextStyle(
+                          color: Color(0xFFE8B4A6), fontSize: 12, height: 1.35)),
+                ),
+                // Out of the way the moment it has been read: a banner over the picture is in the
+                // way of editing it, so it goes on one tap and on its own after a few seconds.
+                GestureDetector(
+                  onTap: LogTape.dismissFlash,
+                  behavior: HitTestBehavior.opaque,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                    child: Text('✕', style: TextStyle(color: _muted, fontSize: 14)),
+                  ),
+                ),
+              ]),
             ),
           ),
         ),
@@ -152,6 +177,16 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
                 child: Row(children: [
                   const Text('日志', style: TextStyle(color: _ink, fontSize: 13)),
                   const Spacer(),
+                  GestureDetector(
+                    onTap: _toggleBanners,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      child: Text(LogTape.showBanners ? '提示 开' : '提示 关',
+                          style: TextStyle(
+                              color: LogTape.showBanners ? _muted : const Color(0xFF9AD08A),
+                              fontSize: 12)),
+                    ),
+                  ),
                   GestureDetector(
                     onTap: _copy,
                     child: Padding(
