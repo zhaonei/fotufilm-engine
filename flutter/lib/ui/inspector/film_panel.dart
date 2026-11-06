@@ -79,14 +79,18 @@ List<Widget> filmPanel(InspectorControls c) {
       // percent. Both have to move before anything shows, which looks like a dead slider.
       if ((c.edit['profile'] as Map?)?['halation'] == null ||
           ((c.edit['profile'] as Map?)!['halation'] as num? ?? 0) == 0)
-        const Note('光晕的档位为 0 时等于关闭；本胶卷的返回率很低，需要同时抬高 Halation Return 才会显现。'),
+        const Note('光晕强度 = Halation Return × 档位倍数 × 胶卷系数：本胶卷返回率只有 0.8%，所以单拉档位几乎看不见；请用下方“增强光晕”或同时抬高 Halation Return。'),
       QuietButton(
         label: tr('Boost Halation'),
         onPressed: () => editor.change({
           'profile': {
             ...?c.edit['profile'] as Map?,
-            'halation': 2.0,
-            'halationReturn': 0.08,
+            // The engine multiplies three numbers: the film's return ratio, exp2(stops) and the
+            // stock's look scale. Stock returns sit at patent-floor densities -- 0.8% here -- so
+            // 0.008 x 1 x 1 is invisible by construction. +4 stops and a 25% return is 0.25 x 16
+            // = 4: unmistakable, and one Undo away from where it was.
+            'halation': 4.0,
+            'halationReturn': 0.25,
           }
         }),
       ),
