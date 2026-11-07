@@ -555,9 +555,17 @@ class EditorModel extends ChangeNotifier implements RenderHost {
           ...{'halation': 4.0, 'halationReturn': 0.5, 'estimatedHalation': true},
         // The illuminant sliders only exist once the source is Custom.
         if (field == 'sceneLightKelvin') 'sceneLight': 'custom',
-        // A printer or a screen shows its controls only on the road that has one.
+        // The base's return path -- anti-halation, base thickness, pressure plate -- is only
+        // walked by the layered transport; the legacy model ignores all three.
+        if (field == 'antiHalation' || field == 'baseThickness' || field == 'pressurePlate')
+          'halationModel': 'layered',
+        // A fringe radius needs a fringe to widen.
+        if (field == 'chromaticFringeRadius') 'chromaticFringeAmount': 1.0,
+        // A printer has to be switched on before its lamp exists. (`enlarger` is a menu, not a
+        // flag: sending it a boolean is what made "Invalid value for Enlarger" and lost a whole
+        // block of baselines.)
         if (section.contains('print') || section.contains('screen') || section.contains('labScan'))
-          ...{'enlarger': 'on', 'printerEnabled': true},
+          'printerEnabled': true,
       };
       // Print and screen controls need a medium that has a lamp or a screen, not a digital reference.
       final needsPrintRoad = section.contains('print') ||
