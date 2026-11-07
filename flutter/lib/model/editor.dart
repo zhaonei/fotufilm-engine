@@ -455,6 +455,12 @@ class EditorModel extends ChangeNotifier implements RenderHost {
     /// can be told apart from one the engine ignores.
     Set<String> uiSends(Map<String, Object?> profile, Map<String, Object?> params) {
       final edit = <String, dynamic>{...baseEdit};
+      // Without this the helper measured the photograph's unchanged profile and reported every
+      // film control as dropped.
+      edit['profile'] = <String, dynamic>{
+        ...?(baseEdit['profile'] as Map?)?.cast<String, dynamic>(),
+        ...profile,
+      };
       if (params.isNotEmpty) {
         edit['params'] = <String, dynamic>{
           ...?(baseEdit['params'] as Map?)?.cast<String, dynamic>(),
@@ -542,12 +548,23 @@ class EditorModel extends ChangeNotifier implements RenderHost {
       } else {
         continue;
       }
+      final section = '${c['section'] ?? ''}';
       final context = <String, Object?>{
         if (field.startsWith('film') && field != 'film') 'grainModel': 'film',
         if (field == 'antiHalation' || field == 'baseThickness' || field == 'halationHaze')
           ...{'halation': 4.0, 'halationReturn': 0.5, 'estimatedHalation': true},
+        // The illuminant sliders only exist once the source is Custom.
+        if (field == 'sceneLightKelvin') 'sceneLight': 'custom',
+        // A printer or a screen shows its controls only on the road that has one.
+        if (section.contains('print') || section.contains('screen') || section.contains('labScan'))
+          ...{'enlarger': 'on', 'printerEnabled': true},
       };
-      final medium = field.startsWith('printer') || field == 'screenGrade' ? filmMedium : null;
+      // Print and screen controls need a medium that has a lamp or a screen, not a digital reference.
+      final needsPrintRoad = section.contains('print') ||
+          section.contains('screen') ||
+          section.contains('labScan') ||
+          field.startsWith('printer');
+      final medium = needsPrintRoad ? filmMedium : null;
       await check('控件 ${c['title'] ?? field}', context, {field: value}, const {}, medium);
     }
     LogTape.record('自检结束');
