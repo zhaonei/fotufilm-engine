@@ -512,12 +512,35 @@ class EditorModel extends ChangeNotifier implements RenderHost {
         continue;
       }
       final variant = await shot({...context, ...values});
+      // What the interface itself would send, which is not the same thing: profileRequestControls()
+      // decides what reaches the engine and drops what it judges inapplicable, silently. If a lever
+      // works when written straight into the request but is missing here, dragging its slider in
+      // the panel can do nothing -- which is the complaint this check exists to answer.
+      final uiEdit = <String, dynamic>{
+        ...base,
+        'profile': <String, dynamic>{...context, ...values},
+      };
+      final uiRequest = renderRequest(
+        catalogue: catalogue,
+        handle: doc.handle,
+        edit: uiEdit,
+        stock: stockById(uiEdit['stock'] as String?),
+        maxEdge: 256,
+      );
+      final uiControls =
+          ((uiRequest['profileRequest'] as Json)['controls'] as Json).keys.toSet();
+      final wanted = {...context.keys, ...values.keys};
+      final dropped = wanted.where((key) => !uiControls.contains(key)).toList();
+      final uiNote = dropped.isEmpty ? 'UI 路径会发送' : 'UI 路径丢弃了 $dropped';
+
       if (variant == null) {
-        LogTape.record('自检 $name：无图像（引擎拒收）');
+        LogTape.record('自检 $name：引擎拒收 / $uiNote');
         continue;
       }
       final differing = compare(base0, variant);
-      LogTape.record(differing == 0 ? '自检 $name：✗ 无变化' : '自检 $name：✓ 变化 $differing 字节');
+      LogTape.record(differing == 0
+          ? '自检 $name：✗ 引擎无变化 / $uiNote'
+          : '自检 $name：✓ 变化 $differing 字节 / $uiNote');
     }
     LogTape.record('自检结束');
   }
