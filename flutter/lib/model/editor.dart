@@ -367,42 +367,50 @@ class EditorModel extends ChangeNotifier implements RenderHost {
   /// Opens photographs the system named by path (the Finder, the command line, the driver); one
   /// brings its folder into the strip. Film packs among them are installed instead.
   /// Forgets every open photograph except [keep]: called when a new one replaces them.
-  /// Renders the shown photograph twice per lever -- once as it stands, once with that lever
-  /// pushed to an extreme -- and reports how many bytes of the developed PNG differ.
+  /// Walks the whole control catalogue and asks the engine, for each control, whether moving it
+  /// to an extreme changes a single pixel -- and whether the interface would even send it.
   ///
-  /// The levers are written straight into the request's `profileRequest.controls`, after
-  /// renderRequest() has built it. Going through renderRequest alone filtered every one of them
-  /// out through `profileControlAvailable` (which asks the stock what it offers), so all eighteen
-  /// renders came out byte-identical: the harness was measuring nothing. Two levers that cannot
-  /// be filtered -- exposure, and the same request twice -- say whether the harness itself works.
+  /// Nothing here is hand-picked: the list comes from `catalogue.controls` and `catalogue.sliders`,
+  /// so a control added upstream is covered the next time this runs. Each line reads
+  ///
+  ///   自检 <control>：✓ 变化 N 字节 / UI 路径会发送     the whole path works
+  ///   自检 <control>：✗ 引擎无变化 / UI 路径会发送     the engine ignores it
+  ///   自检 <control>：✗ … / UI 路径丢弃了 [field]      the request builder drops it
   Future<void> runLeverCheck() async {
     final doc = active, engine = this.engine;
     if (doc == null || engine == null) {
       LogTape.record('自检：请先打开一张照片');
       return;
     }
-    // Film parameters act on a film. On a photograph still on Normal -- no stock -- every lever
-    // below is inert by design, which is what the first run of this check measured. A film is
-    // installed for the duration of the check only; the photograph's own edit is untouched.
-    final base = <String, dynamic>{...doc.edit};
-    var film = base['stock'] as String?;
+    // Film settings act on a film. On Normal every one of them is inert by design, so a stock is
+    // installed for the check without touching the photograph's own edit.
+    final baseEdit = <String, dynamic>{...doc.edit};
+    var film = baseEdit['stock'] as String?;
     if (film == null) {
       if (stocks.isEmpty) {
         LogTape.record('自检：没有任何胶片可测');
         return;
       }
       film = stocks.first['id'] as String?;
-      base['stock'] = film;
-      base['medium'] = mediumOnFilm(base, stockById(film));
+      baseEdit['stock'] = film;
+      baseEdit['medium'] = mediumOnFilm(baseEdit, stockById(film));
       LogTape.record('自检：这张照片还没装胶片，临时用 ${stocks.first['name']}');
     }
+    final stockRow = stockById(film);
+    final filmMedium = stockRow?['filmMedium'] as String?;
+    final profileNow = (baseEdit['profile'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final current = <String, dynamic>{
+      ...profileNow,
+      'grainModel': profileNow['grainModel'] ?? stockRow?['grainModel'] ?? 'clump',
+    };
 
-    Future<List<int>?> shot(Map<String, Object?> controls, {double evDelta = 0}) async {
-      final edit = <String, dynamic>{...base};
-      if (evDelta != 0) {
+    Future<List<int>?> shot(Map<String, Object?> profile, Map<String, Object?> params,
+        {String? medium}) async {
+      final edit = <String, dynamic>{...baseEdit};
+      if (params.isNotEmpty) {
         edit['params'] = <String, dynamic>{
-          ...?(base['params'] as Map?)?.cast<String, dynamic>(),
-          'ev': (((base['params'] as Map?)?['ev'] as num?)?.toDouble() ?? 0) + evDelta,
+          ...?(baseEdit['params'] as Map?)?.cast<String, dynamic>(),
+          ...params,
         };
       }
       final request = renderRequest(
@@ -410,137 +418,137 @@ class EditorModel extends ChangeNotifier implements RenderHost {
         handle: doc.handle,
         edit: edit,
         stock: stockById(edit['stock'] as String?),
-        maxEdge: 256,
+        maxEdge: 192,
       );
-      final profile = <String, dynamic>{
+      final controls = <String, dynamic>{
         ...(request['profileRequest'] as Json)['controls'] as Json,
-        ...controls,
+        ...profile,
         'digitalReference': edit['digitalReference'] ?? 'auto-levels',
         'halationModel': edit['halationModel'] ?? 'legacy',
       };
-      final body = <String, dynamic>{
-        ...request,
-        'profileRequest': {...request['profileRequest'] as Json, 'controls': profile},
-        'original': false,
-      };
       try {
-        final answer = await engine.call('render', body);
+        final answer = await engine.call('render', {
+          ...request,
+          'profileRequest': {
+            ...request['profileRequest'] as Json,
+            'controls': controls,
+            if (medium != null) 'medium': medium,
+          },
+          'original': false,
+        });
         return answer.bytes('preview');
       } catch (e) {
-        LogTape.record('自检：渲染失败 $e');
         return null;
       }
     }
 
     int compare(List<int> a, List<int> b) {
       var differing = 0;
-      for (var i = 0; i < a.length && i < b.length; i++) {
+      final n = a.length < b.length ? a.length : b.length;
+      for (var i = 0; i < n; i++) {
         if (a[i] != b[i]) differing++;
       }
       return differing;
     }
 
-    LogTape.record('自检开始（${doc.name}，256px；胶片=$film）');
-    final controlImage = await shot(const {});
-    if (controlImage == null) {
-      LogTape.record('自检：基线渲染没有返回图像');
-      return;
-    }
-    // Can the harness see a change at all? Exposure is a param, not a profile control.
-    final brighter = await shot(const {}, evDelta: 1);
-    if (brighter == null) {
-      LogTape.record('自检：对照渲染失败');
-      return;
-    }
-    final control = compare(controlImage, brighter);
-    LogTape.record(control > 0
-        ? '自检[工具] 曝光 +1EV：✓ 变化 $control 字节 → 这台工具能测出差异'
-        : '自检[工具] 曝光 +1EV：✗ 连曝光都没变化 → 是自检本身坏了，先别信下面任何一行');
-
-    // Each lever is measured against a baseline that makes it meaningful. A grain sub-option does
-    // nothing under the clump model; a printer lamp does nothing on a screen medium; anti-halation
-    // has nothing to stop when the film's own return is 0.8%. Measuring them bare said "broken"
-    // where the honest answer was "not switched on".
-    final stockRow = stockById(film);
-    final filmMedium = stockRow?['filmMedium'] as String?;
-    final levers = <(String, Map<String, Object?>, Map<String, Object?>)>[
-      ('光晕档位 +4', const {}, const {'halation': 4.0}),
-      ('光晕返回率 50%', const {}, const {'halationReturn': 0.5}),
-      // These three shape the returned light rather than its amount, and the stock's own measured
-      // profile pins that shape: with Estimated Halation Shape off there is nothing for them to
-      // move. The context turns it on as well as pushing the halo up.
-      ('防光晕层 0（估算形状+强光晕）',
-          const {'halation': 4.0, 'halationReturn': 0.5, 'estimatedHalation': true},
-          const {'antiHalation': 0.0}),
-      ('片基厚度 2（估算形状+强光晕）',
-          const {'halation': 4.0, 'halationReturn': 0.5, 'estimatedHalation': true},
-          const {'baseThickness': 2.0}),
-      ('基础雾度 100（估算形状+强光晕）',
-          const {'halation': 4.0, 'halationReturn': 0.5, 'estimatedHalation': true},
-          const {'halationHaze': 100.0}),
-      ('颗粒模型 Film', const {}, const {'grainModel': 'film'}),
-      ('颗粒尺寸 3（Film 模型）', const {'grainModel': 'film'}, const {'filmGrainSize': 3.0}),
-      ('彩色颗粒 0（Film 模型）', const {'grainModel': 'film'}, const {'filmColourGrain': 0.0}),
-      ('扫描柔度 3（Film 模型）', const {'grainModel': 'film'}, const {'filmScanSoftness': 3.0}),
-      ('颗粒团簇 最大', const {}, const {'grainMottle': 'maximum'}),
-      ('过期 20 年', const {}, const {'expired': 20.0}),
-      ('推冲 +1 档', const {}, const {'push': 1.0}),
-      ('成色剂 2', const {}, const {'couplers': 2.0}),
-      ('边缘对比 2', const {}, const {'couplerSelf': 2.0}),
-      ('层间串色到顶', const {}, const {'couplerReach': 3.0}),
-      if (filmMedium != null)
-        ('印相灯 3400K（印相介质）', {'medium': filmMedium}, const {'printerLamp': 3400.0}),
-      if (filmMedium != null)
-        ('印相曝光 +4 档（印相介质）', {'medium': filmMedium}, const {'printerExposure': 4.0}),
-      if (filmMedium != null)
-        ('相纸号数 5（印相介质）', {'medium': filmMedium}, const {'screenGrade': 5.0}),
-    ];
-
-    final baselines = <String, List<int>?>{};
-    Future<List<int>?> baselineFor(Map<String, Object?> context) async {
-      final key = '$context';
-      if (baselines.containsKey(key)) return baselines[key];
-      final shot0 = await shot(context);
-      baselines[key] = shot0;
-      return shot0;
-    }
-
-    for (final (name, context, values) in levers) {
-      final base0 = await baselineFor(context);
-      if (base0 == null) {
-        LogTape.record('自检 $name：基准渲染失败');
-        continue;
+    /// What the interface itself would send for this patch, so a lever the request builder drops
+    /// can be told apart from one the engine ignores.
+    Set<String> uiSends(Map<String, Object?> profile, Map<String, Object?> params) {
+      final edit = <String, dynamic>{...baseEdit};
+      if (params.isNotEmpty) {
+        edit['params'] = <String, dynamic>{
+          ...?(baseEdit['params'] as Map?)?.cast<String, dynamic>(),
+          ...params,
+        };
       }
-      final variant = await shot({...context, ...values});
-      // What the interface itself would send, which is not the same thing: profileRequestControls()
-      // decides what reaches the engine and drops what it judges inapplicable, silently. If a lever
-      // works when written straight into the request but is missing here, dragging its slider in
-      // the panel can do nothing -- which is the complaint this check exists to answer.
-      final uiEdit = <String, dynamic>{
-        ...base,
-        'profile': <String, dynamic>{...context, ...values},
-      };
-      final uiRequest = renderRequest(
+      final request = renderRequest(
         catalogue: catalogue,
         handle: doc.handle,
-        edit: uiEdit,
-        stock: stockById(uiEdit['stock'] as String?),
-        maxEdge: 256,
+        edit: edit,
+        stock: stockById(edit['stock'] as String?),
+        maxEdge: 192,
       );
-      final uiControls =
-          ((uiRequest['profileRequest'] as Json)['controls'] as Json).keys.toSet();
-      final wanted = {...context.keys, ...values.keys};
-      final dropped = wanted.where((key) => !uiControls.contains(key)).toList();
-      final uiNote = dropped.isEmpty ? 'UI 路径会发送' : 'UI 路径丢弃了 $dropped';
+      return ((request['profileRequest'] as Json)['controls'] as Json).keys.toSet();
+    }
 
+    double extreme(num min, num max, num neutral) =>
+        (neutral - min).abs() > (max - neutral).abs() ? min.toDouble() : max.toDouble();
+
+    final baselines = <String, List<int>?>{};
+    Future<List<int>?> baseline(Map<String, Object?> profile, String? medium) async {
+      final key = '$profile|$medium';
+      if (!baselines.containsKey(key)) {
+        baselines[key] = await shot(profile, const {}, medium: medium);
+      }
+      return baselines[key];
+    }
+
+    Future<void> check(String name, Map<String, Object?> context, Map<String, Object?> lever,
+        Map<String, Object?> params, String? medium) async {
+      final base0 = await baseline(context, medium);
+      if (base0 == null) {
+        LogTape.record('自检 $name：基准渲染失败');
+        return;
+      }
+      final variant = await shot({...context, ...lever}, params, medium: medium);
+      final dropped = <String>[];
+      if (lever.keys.isNotEmpty) {
+        final sent = uiSends({...context, ...lever}, params);
+        dropped.addAll(lever.keys.where((key) => !sent.contains(key)));
+      }
+      final uiNote = dropped.isEmpty ? 'UI 路径会发送' : 'UI 路径丢弃了 $dropped';
       if (variant == null) {
         LogTape.record('自检 $name：引擎拒收 / $uiNote');
-        continue;
+        return;
       }
       final differing = compare(base0, variant);
       LogTape.record(differing == 0
           ? '自检 $name：✗ 引擎无变化 / $uiNote'
           : '自检 $name：✓ 变化 $differing 字节 / $uiNote');
+    }
+
+    LogTape.record('自检开始（${doc.name}，192px；胶片=$film）');
+    final control0 = await shot(const {}, const {'ev': 1.0});
+    final base0 = await baseline(const {}, null);
+    LogTape.record(control0 == null || base0 == null || compare(base0, control0) == 0
+        ? '自检[工具] 曝光 +1EV：✗ 连曝光都没变化 → 下面的结果不可信'
+        : '自检[工具] 曝光 +1EV：✓ 变化 ${compare(base0, control0)} 字节 → 这台工具能测出差异');
+
+    // The editor's own sliders (params), straight from the catalogue.
+    for (final spec in catalogue.sliders) {
+      await check('参数 ${spec.label}',
+          const {}, <String, Object?>{}, {spec.key: extreme(spec.min, spec.max, spec.def)}, null);
+    }
+
+    // Every catalogue control, with the settings that give it something to act on.
+    for (final c in catalogue.controls) {
+      final field = c['field'] as String;
+      final kind = c['kind'] as String?;
+      if (kind == 'takeover') continue;
+      final scale = c['scale'] as Map?;
+      final choices = (c['choices'] as List?)?.cast<Map>() ?? const [];
+      final chips = (c['chips'] as List?)?.cast<Map>() ?? const [];
+      Object? value;
+      if (scale != null) {
+        value = extreme(
+          (scale['min'] as num?) ?? 0, (scale['max'] as num?) ?? 1, (scale['neutral'] as num?) ?? 0);
+      } else if (chips.isNotEmpty) {
+        value = chips.last['value'];
+      } else if (choices.isNotEmpty) {
+        final ids = [for (final ch in choices) ch['id']];
+        value = ids.firstWhere((id) => id != current[field], orElse: () => ids.last);
+      } else if (kind == 'toggle') {
+        value = current[field] != true;
+      } else {
+        continue;
+      }
+      final context = <String, Object?>{
+        if (field.startsWith('film') && field != 'film') 'grainModel': 'film',
+        if (field == 'antiHalation' || field == 'baseThickness' || field == 'halationHaze')
+          ...{'halation': 4.0, 'halationReturn': 0.5, 'estimatedHalation': true},
+      };
+      final medium = field.startsWith('printer') || field == 'screenGrade' ? filmMedium : null;
+      await check('控件 ${c['title'] ?? field}', context, {field: value}, const {}, medium);
     }
     LogTape.record('自检结束');
   }
