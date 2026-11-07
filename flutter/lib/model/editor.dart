@@ -466,11 +466,17 @@ class EditorModel extends ChangeNotifier implements RenderHost {
     final levers = <(String, Map<String, Object?>, Map<String, Object?>)>[
       ('光晕档位 +4', const {}, const {'halation': 4.0}),
       ('光晕返回率 50%', const {}, const {'halationReturn': 0.5}),
-      ('防光晕层 0（有光晕时）', const {'halation': 4.0, 'halationReturn': 0.5},
+      // These three shape the returned light rather than its amount, and the stock's own measured
+      // profile pins that shape: with Estimated Halation Shape off there is nothing for them to
+      // move. The context turns it on as well as pushing the halo up.
+      ('防光晕层 0（估算形状+强光晕）',
+          const {'halation': 4.0, 'halationReturn': 0.5, 'estimatedHalation': true},
           const {'antiHalation': 0.0}),
-      ('片基厚度 2（有光晕时）', const {'halation': 4.0, 'halationReturn': 0.5},
+      ('片基厚度 2（估算形状+强光晕）',
+          const {'halation': 4.0, 'halationReturn': 0.5, 'estimatedHalation': true},
           const {'baseThickness': 2.0}),
-      ('基础雾度 100（有光晕时）', const {'halation': 4.0, 'halationReturn': 0.5},
+      ('基础雾度 100（估算形状+强光晕）',
+          const {'halation': 4.0, 'halationReturn': 0.5, 'estimatedHalation': true},
           const {'halationHaze': 100.0}),
       ('颗粒模型 Film', const {}, const {'grainModel': 'film'}),
       ('颗粒尺寸 3（Film 模型）', const {'grainModel': 'film'}, const {'filmGrainSize': 3.0}),
@@ -483,11 +489,9 @@ class EditorModel extends ChangeNotifier implements RenderHost {
       ('边缘对比 2', const {}, const {'couplerSelf': 2.0}),
       ('层间串色到顶', const {}, const {'couplerReach': 3.0}),
       if (filmMedium != null)
-        ('印相灯 3400K（印相介质）', {'medium': filmMedium, 'enlarger': true},
-            const {'printerLamp': 3400.0}),
+        ('印相灯 3400K（印相介质）', {'medium': filmMedium}, const {'printerLamp': 3400.0}),
       if (filmMedium != null)
-        ('印相曝光 +4 档（印相介质）', {'medium': filmMedium, 'enlarger': true},
-            const {'printerExposure': 4.0}),
+        ('印相曝光 +4 档（印相介质）', {'medium': filmMedium}, const {'printerExposure': 4.0}),
       if (filmMedium != null)
         ('相纸号数 5（印相介质）', {'medium': filmMedium}, const {'screenGrade': 5.0}),
     ];
