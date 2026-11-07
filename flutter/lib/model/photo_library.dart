@@ -161,6 +161,14 @@ class PhotoLibrary extends ChangeNotifier {
 
   void _saveFolders() =>
       editor.settings.set(_foldersKey, [for (final f in folders) f.toJson()]);
+  /// Drops everything kept about the file at [path].
+  void forgetPath(String path) {
+    _loadRecords();
+    final key = keyOf(path);
+    if (key != null && records.remove(key) != null) _saveRecords();
+    thumbnails.forget(path);
+  }
+
   void _saveRecords() => editor.settings.set(_recordsKey, records);
 
   LibraryFolder? folderById(String id) => folders.where((f) => f.id == id).firstOrNull;

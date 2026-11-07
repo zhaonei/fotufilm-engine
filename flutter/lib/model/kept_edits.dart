@@ -84,6 +84,15 @@ class KeptEdits {
     if (job != null) _save(job.key, job.text);
   }
 
+  /// Erases what is kept for [doc], for a photograph the app is done with.
+  void forget(PhotoDocument doc) {
+    final key = doc.identity;
+    if (key == null) return;
+    _baselines[doc] = null;
+    _last[doc] = null;
+    _save(key, null);
+  }
+
   /// Keeps the edit of a photograph other than the one shown (a paste onto several).
   void keep(PhotoDocument doc) {
     final key = doc.identity;

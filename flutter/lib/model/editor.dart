@@ -2,6 +2,8 @@
 // histories, and the workspace (panels, zoom, histogram). What the engine develops and when is the
 // Renderer's business (renderer.dart).
 import 'dart:async';
+
+import 'package:flutter/services.dart' show MethodChannel;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -345,12 +347,30 @@ class EditorModel extends ChangeNotifier implements RenderHost {
 
   /// Opens photographs the system named by path (the Finder, the command line, the driver); one
   /// brings its folder into the strip. Film packs among them are installed instead.
+  /// Forgets every open photograph except [keep]: the imported copy, what was kept of its edit,
+  /// and its library entry. A tool for the picture in front of you, not a library.
+  Future<void> forgetOthers({Set<PhotoDocument> keep = const {}}) async {
+    for (final doc in documents.where((d) => !keep.contains(d)).toList()) {
+      keptEdits.forget(doc);
+      library.forgetPath(doc.path);
+      try {
+        await const MethodChannel('fotufilm/files')
+            .invokeMethod<bool>('deleteImport', {'path': doc.path});
+      } catch (_) {}
+      final index = documents.indexOf(doc);
+      if (index >= 0) await closeDocument(index);
+    }
+  }
+
   Future<void> openPaths(List<String> paths) async {
     final packs = paths.where(isFilmPack).toList();
     if (packs.isNotEmpty) await filmPacks.importPaths(packs);
     final photos = paths.where((path) => !isFilmPack(path)).toList();
     if (photos.isEmpty) return;
+    final before = {...documents};
     await strip.open([for (final path in photos) PhotoFile(path.split('/').last, path: path)]);
+    // What was open before this call is replaced, not accumulated.
+    await forgetOthers(keep: {...documents}.difference(before));
   }
 
   /// Opens photographs: by path where the engine reads files itself, otherwise by their bytes.

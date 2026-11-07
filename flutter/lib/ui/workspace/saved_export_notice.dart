@@ -1,6 +1,7 @@
 // What an export just saved: a dark card at the window's foot with Open (the system's viewer for
 // it), Show in Finder and Dismiss. Export All saved many files, so only Show in Finder is offered
 // for it. In a browser the export is a download, so only Dismiss is.
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/widgets.dart';
 
 import '../../app/host_window.dart';
@@ -15,6 +16,12 @@ class SavedExportNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A desktop card: Open hands the file to the system viewer and Show in Finder reveals it, and
+    // neither exists on Android, where the export already sits in Download/Fotufilm. Drawing it
+    // there left a panel that ignored every tap and could not be dismissed.
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return const SizedBox.shrink();
+    }
     final saved = editor.exporter.saved;
     if (saved == null) return const SizedBox.shrink();
     return Positioned(

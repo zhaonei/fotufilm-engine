@@ -8,6 +8,8 @@
 //   ui/       theme (colours, sizes, type), kit (controls), workspace and inspector
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, TargetPlatform;
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter/widgets.dart';
 
 import 'app/app.dart';
@@ -18,6 +20,18 @@ import 'model/cef_profile.dart';
 import 'model/editor.dart';
 import 'ui/kit/icons.dart';
 import 'ui/workspace/picture.dart';
+
+/// Held for the life of the process: the listener unregisters when it is collected.
+late AppLifecycleListener _lifecycle;
+
+/// Clears the scratch space -- published exports and the engine's temporary decodes -- so nothing
+/// of a finished photograph is left behind. Settings and presets are untouched.
+Future<void> _tidyScratch() async {
+  if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+  try {
+    await const MethodChannel('fotufilm/files').invokeMethod<bool>('clearExports');
+  } catch (_) {}
+}
 
 Future<void> main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +44,11 @@ Future<void> main(List<String> arguments) async {
   final boundary = GlobalKey();
   runApp(RepaintBoundary(key: boundary, child: FotufilmApp(editor: editor)));
   await editor.start();
+  await _tidyScratch();
+  _lifecycle = AppLifecycleListener(
+    onDetach: () => unawaited(_tidyScratch()),
+    onPause: () => unawaited(_tidyScratch()),
+  );
   unawaited(resolveCefEdits(editor));
   // A browser engine answers in sRGB; the desktop engine's Display P3 is converted for drawing.
   ColourConversion.enabled = editor.engine?.picturesAreDisplayP3 ?? true;
