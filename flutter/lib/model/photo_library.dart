@@ -153,15 +153,6 @@ class PhotoLibrary extends ChangeNotifier {
     return null;
   }
 
-  /// Drops everything kept about the file at [path], for a photograph exported and forgotten.
-  void forgetPath(String path) {
-    _loadRecords();
-    final key = keyOf(path);
-    if (key != null && records.remove(key) != null) _saveRecords();
-    thumbnails.forget(path);
-    notifyListeners();
-  }
-
   /// A photo's stars, 0 for none.
   int ratingOf(String key) {
     _loadRecords();

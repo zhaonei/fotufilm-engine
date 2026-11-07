@@ -2,10 +2,6 @@
 // histories, and the workspace (panels, zoom, histogram). What the engine develops and when is the
 // Renderer's business (renderer.dart).
 import 'dart:async';
-
-import 'package:flutter/services.dart' show MethodChannel;
-
-import '../debug/log_tape.dart';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -47,7 +43,6 @@ import 'updates.dart';
 import 'video.dart';
 import 'view.dart';
 
-
 export 'catalogue.dart' show Json;
 export 'document.dart';
 export 'film_types.dart';
@@ -56,9 +51,6 @@ export 'photo_strip.dart';
 export 'settings.dart';
 export 'view.dart';
 export 'video.dart';
-
-/// The host's file channel: used only to drop an imported copy once it has been exported.
-const _forgetFile = MethodChannel('fotufilm/files');
 
 /// The inspector's panels: the four tabs, the roll's tab for scanned negatives, and the canvas
 /// tools the toolbar opens (editor-catalogue.js `inspectorPanels`, negative-document.js).
@@ -215,8 +207,6 @@ class EditorModel extends ChangeNotifier implements RenderHost {
   set error(String? message) {
     _error = message;
     _retry = null;
-    // The picture stays clear: what went wrong is a line in the tape, not a banner over it.
-    if (message != null) LogTape.record('error: $message');
   }
   String? _error;
 
@@ -313,13 +303,7 @@ class EditorModel extends ChangeNotifier implements RenderHost {
       final address = engine.address;
       if (address != null) presenter = await NativePresenter.attach(address);
       this.engine = engine;
-      renderer = Renderer(
-          engine: engine,
-          catalogue: catalogue,
-          host: this,
-          presenter: presenter,
-          fineZoomPreview: settings.get<bool>('fineZoomPreview') ?? true,
-        );
+      renderer = Renderer(engine: engine, catalogue: catalogue, host: this, presenter: presenter);
       // A screen with more or less light above white takes the photograph developed for it.
       presenter?.onHeadroomChange = () => renderer?.schedule();
       startup.value = StartupState.ready;
@@ -339,11 +323,6 @@ class EditorModel extends ChangeNotifier implements RenderHost {
   /// The engine's films (`prepare`'s catalogue), again after a film pack changes them.
   Future<void> loadStocks([EngineConnection? via]) async {
     final prepared = await (via ?? engine!).call('prepare');
-    // Which backend the kernels run on: 'vulkan' means the AOT Vulkan kernels and the phone's GPU,
-    // anything else means the CPU path. This is the line that answers "is it really using Vulkan".
-    LogTape.record(
-        'engine backend=${prepared.json['backend'] ?? '?'} '
-        'films=${prepared.json['stocks']?.length ?? 0}');
     final ids = ((prepared.json['stocks'] as List?) ?? const []).cast<String>().toSet();
     stocks = [
       for (final entry in ((prepared.json['catalogue'] as List?) ?? const []).cast<Json>())
@@ -366,30 +345,12 @@ class EditorModel extends ChangeNotifier implements RenderHost {
 
   /// Opens photographs the system named by path (the Finder, the command line, the driver); one
   /// brings its folder into the strip. Film packs among them are installed instead.
-  /// Forgets every open photograph except [keep]: called when a new one replaces them.
-  Future<void> forgetOthers({Set<PhotoDocument> keep = const {}}) async {
-    for (final doc in documents.where((d) => !keep.contains(d)).toList()) {
-      keptEdits.forget(doc);
-      library.forgetPath(doc.path);
-      try {
-        await _forgetFile.invokeMethod<bool>('deleteImport', {'path': doc.path});
-      } catch (_) {}
-      final index = documents.indexOf(doc);
-      if (index >= 0) await closeDocument(index);
-    }
-  }
-
   Future<void> openPaths(List<String> paths) async {
     final packs = paths.where(isFilmPack).toList();
     if (packs.isNotEmpty) await filmPacks.importPaths(packs);
     final photos = paths.where((path) => !isFilmPack(path)).toList();
     if (photos.isEmpty) return;
-    final before = {...documents};
     await strip.open([for (final path in photos) PhotoFile(path.split('/').last, path: path)]);
-    if (keepOnlyCurrentPhoto) {
-      // What was open before this call is replaced, not accumulated.
-      await forgetOthers(keep: {...documents}.difference(before));
-    }
   }
 
   /// Opens photographs: by path where the engine reads files itself, otherwise by their bytes.
@@ -478,31 +439,6 @@ class EditorModel extends ChangeNotifier implements RenderHost {
     if (index == activeIndex) return;
     endEdit();
     _activate(index);
-  }
-
-  /// Exports make a picture and nothing else: when this is on, the photograph the export came
-  /// from is forgotten afterwards -- its edit, its library entry, the copy taken in from the
-  /// picker -- so the app holds no trace of what it developed. Off, it behaves like a library.
-  bool get forgetAfterExport => settings.get<bool>('forgetAfterExport') ?? false;
-
-  /// Whether opening photographs replaces the ones already open. The app is a tool for the picture
-  /// in front of you: the previous one's copy, edit and history go when the next arrives.
-  bool get keepOnlyCurrentPhoto => settings.get<bool>('keepOnlyCurrentPhoto') ?? true;
-
-  Future<void> forgetExported(PhotoDocument doc) async {
-    if (!forgetAfterExport) return;
-    final path = doc.path;
-    keptEdits.forget(doc);
-    library.forgetPath(path);
-    var deleted = false;
-    try {
-      deleted = await _forgetFile.invokeMethod<bool>('deleteImport', {'path': path}) ?? false;
-    } catch (e) {
-      LogTape.record('forget: could not delete $path: $e');
-    }
-    final index = documents.indexOf(doc);
-    if (index >= 0) await closeDocument(index);
-    LogTape.record('forgot ${doc.name}: edit cleared, source ${deleted ? 'deleted' : 'kept'}');
   }
 
   Future<void> closeDocument(int index) async {
@@ -594,11 +530,6 @@ class EditorModel extends ChangeNotifier implements RenderHost {
       profile.remove(field);
     } else {
       profile[field] = value;
-    }
-    // The grain sub-options only act when the grain model is the film one; this line says what
-    // the engine is actually being told, which a slider that moves and changes nothing asks for.
-    if (field.startsWith('film') || field == 'grainModel' || field == 'grainMottle') {
-      LogTape.record('profile $field=$value (grainModel=${profile['grainModel']})');
     }
     // Reach sets the pair couplings, so explicit ones give way (profile-settings.js).
     if (field == 'couplerReach') {

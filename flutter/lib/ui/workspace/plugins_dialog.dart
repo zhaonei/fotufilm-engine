@@ -8,7 +8,6 @@ import '../../model/plugins.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
 import 'app_dialogs.dart';
-import '../../l10n/zh.dart';
 
 class PluginsDialog extends StatefulWidget {
   const PluginsDialog({super.key, required this.editor, required this.onClose});
@@ -47,7 +46,7 @@ class _PluginsDialogState extends State<PluginsDialog> {
     return AppDialogCard(
       title: '$verb the Fotufilm plug-ins for ${joinedNames(names)}?',
       actions: [
-        PillButton(tr('Not Now'), onPressed: () {
+        PillButton('Not Now', onPressed: () {
           model.decline();
           widget.onClose();
         }),
@@ -114,7 +113,7 @@ class _PluginRow extends StatelessWidget {
                 : () => model.install(id),
           ),
           const SizedBox(width: 8),
-          PillButton(tr('Show Installed Plug-in'), onPressed: installed ? () => model.reveal(id) : null),
+          PillButton('Show Installed Plug-in', onPressed: installed ? () => model.reveal(id) : null),
         ]),
         if (result?.message != null) PaneNote(result!.message!),
         if (result?.error != null)

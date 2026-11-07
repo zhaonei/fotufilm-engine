@@ -7,7 +7,6 @@ import 'package:flutter/widgets.dart';
 import '../../model/editor.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
-import '../../l10n/zh.dart';
 
 class GradeDeck extends StatefulWidget {
   const GradeDeck({super.key, required this.editor});
@@ -122,7 +121,7 @@ class _GradeDeckState extends State<GradeDeck> {
         size.height / 2 - _get('Tint') * (size.height / 2 - _padInset));
     final warmth = _get('Warmth'), tint = _get('Tint');
     return KeyTarget(
-      label: tr('Color balance pad'),
+      label: 'Color balance pad',
       value: warmth == 0 && tint == 0 ? 'Neutral' : _cast(warmth, tint),
       onNudge: (direction, shift) {
         final step = shift ? _step / 10 : _step;

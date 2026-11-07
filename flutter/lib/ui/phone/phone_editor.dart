@@ -18,7 +18,6 @@ import '../workspace/import_menu.dart';
 import '../workspace/toolbar.dart' show moreOptionsKey, showMoreOptions;
 import '../workspace/viewer.dart';
 import 'deck_pages.dart';
-import '../../l10n/zh.dart';
 
 class PhoneEditor extends StatefulWidget {
   const PhoneEditor({super.key, required this.commands, required this.dropping});
@@ -137,7 +136,7 @@ class _TopBar extends StatelessWidget {
           Builder(
             builder: (anchor) => RoundButton(
               glyph: 'fotu.ui.add',
-              label: tr('Add media'),
+              label: 'Add media',
               onPressed: exporting
                   ? null
                   : () => showImportMenu(anchor, editor, commands.actions.open),
@@ -162,7 +161,7 @@ class _TopBar extends StatelessWidget {
             key: moreOptionsKey,
             builder: (anchor) => RoundButton(
               glyph: 'fotu.ui.more',
-              label: tr('More options'),
+              label: 'More options',
               opensMenu: true,
               onPressed: () => showMoreOptions(anchor, commands),
             ),
@@ -320,7 +319,7 @@ class _Tabs extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
               child: Center(
-                child: Text(tr('Done'),
+                child: Text('Done',
                     style: editorText(context,
                         size: TextSizes.section, weight: FontWeight.w700, color: palette.accent)),
               ),

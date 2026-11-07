@@ -73,7 +73,7 @@ Json parseEdit(String text, Catalogue catalogue, Iterable<String?> stocks) {
       })) {
     throw const EditProblem('Invalid adjustment values.');
   }
-  final sceneLights = ((catalogue.control('sceneLight')['choices'] as List?) ?? const []).cast<Json>();
+  final sceneLights = (catalogue.control('sceneLight')['choices'] as List).cast<Json>();
   if (edit['sceneLight'] != null && !sceneLights.any((c) => c['id'] == edit['sceneLight'])) {
     throw const EditProblem('Invalid source illuminant.');
   }
@@ -96,15 +96,15 @@ Json parseEdit(String text, Catalogue catalogue, Iterable<String?> stocks) {
   if (edit['mediumFollowsFilm'] != null && edit['mediumFollowsFilm'] is! bool) {
     throw const EditProblem('Invalid output medium.');
   }
-  final frameNumbers = ((catalogue.control('printFrameNumber')['choices'] as List?) ?? const []).cast<Json>();
-  final frameCounts = ((catalogue.control('printFrameCount')['choices'] as List?) ?? const []).cast<Json>();
+  final frameNumbers = (catalogue.control('printFrameNumber')['choices'] as List).cast<Json>();
+  final frameCounts = (catalogue.control('printFrameCount')['choices'] as List).cast<Json>();
   if ((edit['printFrameEdgePrinting'] != null && edit['printFrameEdgePrinting'] is! bool) ||
       (edit['printFrameNumber'] != null &&
           !frameNumbers.any((c) => c['value'] == edit['printFrameNumber'])) ||
       (edit['printFrameCount'] != null &&
           !frameCounts.any((c) => c['value'] == edit['printFrameCount'])) ||
       (edit['printFrameCamera'] != null &&
-          !((catalogue.control('printFrameCamera')['choices'] as List?) ?? const [])
+          !(catalogue.control('printFrameCamera')['choices'] as List)
               .any((c) => (c as Json)['id'] == edit['printFrameCamera']))) {
     throw const EditProblem('Invalid film border settings.');
   }
@@ -132,7 +132,7 @@ Json parseEdit(String text, Catalogue catalogue, Iterable<String?> stocks) {
   }
   final crop = edit['crop'];
   bool rectangular() {
-    final c = ((crop as List?) ?? const []).cast<List>();
+    final c = (crop as List).cast<List>();
     return c[0][0] == c[3][0] && c[1][0] == c[2][0] && c[0][1] == c[1][1] && c[2][1] == c[3][1];
   }
 
@@ -167,7 +167,7 @@ Json parseEdit(String text, Catalogue catalogue, Iterable<String?> stocks) {
           value >= (scale['admittedMin'] ?? scale['min']) &&
           value <= (scale['admittedMax'] ?? scale['max']),
       _ when curve != null => value is List &&
-          value.length == ((curve['handles'] as List?) ?? const []).length &&
+          value.length == (curve['handles'] as List).length &&
           value.every((v) => _finite(v) && v >= curve['min'] && v <= curve['max']),
       _ when c['kind'] == 'toggle' => value is bool,
       _ when c['choices'] is List => (c['choices'] as List).any((choice) => choice['id'] == value),
@@ -214,7 +214,7 @@ Json restoreEdit(String text, Catalogue catalogue, List<Json> stocks) {
   final edit = parseEdit(text, catalogue, stocks.map((s) => s['id'] as String));
   final stock = stocks.where((s) => s['id'] == edit['stock']).firstOrNull;
   final profiled = edit['format'] != null ||
-      ((edit['filters'] as List?) ?? const []).isNotEmpty ||
+      (edit['filters'] as List).isNotEmpty ||
       (edit['profile'] as Map).isNotEmpty ||
       (edit['printFrame'] != null && edit['printFrame'] != 'none');
   if (fixedStockSettings(stock) && profiled) {

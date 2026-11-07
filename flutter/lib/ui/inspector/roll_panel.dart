@@ -6,7 +6,6 @@ import 'package:flutter/widgets.dart';
 import '../kit/kit.dart';
 import 'controls.dart';
 import 'scan_controls.dart';
-import '../../l10n/zh.dart';
 
 List<Widget> rollPanel(InspectorControls c) {
   final scans = c.editor.negatives;
@@ -18,10 +17,10 @@ List<Widget> rollPanel(InspectorControls c) {
   final disabled = measuring != null;
   final enough = frames.length >= 2;
   return [
-    Section(title: tr('Roll'), children: [
-      InfoRow(tr('Frames'), frames.isEmpty ? 'Not in a folder' : '${frames.length}'),
+    Section(title: 'Roll', children: [
+      InfoRow('Frames', frames.isEmpty ? 'Not in a folder' : '${frames.length}'),
     ]),
-    Section(title: tr('Colour Balance'), children: [
+    Section(title: 'Colour Balance', children: [
       InfoRow('Balanced on', roll != null ? 'Roll of ${roll['frames']} frames' : 'This frame'),
       if (measuring != null) ...[
         ScanProgress(
@@ -29,7 +28,7 @@ List<Widget> rollPanel(InspectorControls c) {
               '${measuring.total}',
           value: measuring.done / measuring.total,
         ),
-        ScanButton(tr('Cancel'), onPressed: scans.cancelMeasure),
+        ScanButton('Cancel', onPressed: scans.cancelMeasure),
       ] else
         ScanButton(roll != null ? 'Measure Roll Again' : 'Measure Roll',
             onPressed: disabled || !enough ? null : scans.measureRoll),

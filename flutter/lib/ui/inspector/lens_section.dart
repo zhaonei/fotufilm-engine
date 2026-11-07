@@ -10,7 +10,6 @@ import '../../model/editor.dart';
 import '../../model/lens.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
-import '../../l10n/zh.dart';
 
 class LensSection extends StatelessWidget {
   const LensSection({super.key, required this.editor});
@@ -38,7 +37,7 @@ class LensSection extends StatelessWidget {
     final amount = catalogue.catalogueSlider('lensAmount', 'Lens');
     final profileID = lens['profileID'] as String?;
     final raw = catalogue.control('rawCorrections');
-    return Section(title: tr('Lens'), children: [
+    return Section(title: 'Lens', children: [
       // The browser's RAW decoder corrects nothing, so it has no RAW Corrections to turn off.
       if (doc != null && doc.raw && !kIsWeb)
         SwitchRow(
@@ -93,7 +92,7 @@ class LensSection extends StatelessWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: QuietButton(
-            label: tr('Reset Lens'),
+            label: 'Reset Lens',
             onPressed: hasLensAdjustments(lens)
                 ? () => change({...defaultLens, 'enabled': lens['enabled']})
                 : null,
@@ -146,8 +145,8 @@ class _LensProfileLibraryState extends State<_LensProfileLibrary> {
   }
 
   Future<String?> _import() async {
-    final file = await openFile(acceptedTypeGroups: [
-      XTypeGroup(label: tr('Lens profiles'), extensions: ['json']),
+    final file = await openFile(acceptedTypeGroups: const [
+      XTypeGroup(label: 'Lens profiles', extensions: ['json']),
     ]);
     if (file == null) return null;
     final count = await widget.lenses.import(file);
@@ -166,7 +165,7 @@ class _LensProfileLibraryState extends State<_LensProfileLibrary> {
         Align(
           alignment: Alignment.centerLeft,
           child: QuietButton(
-            label: tr('Import Lens Profiles…'),
+            label: 'Import Lens Profiles…',
             onPressed: _busy ? null : () => _run(_import),
           ),
         ),
@@ -174,7 +173,7 @@ class _LensProfileLibraryState extends State<_LensProfileLibrary> {
           Align(
             alignment: Alignment.centerLeft,
             child: QuietButton(
-              label: tr('Remove Imported Profiles'),
+              label: 'Remove Imported Profiles',
               onPressed: _busy
                   ? null
                   : () => _run(() async {

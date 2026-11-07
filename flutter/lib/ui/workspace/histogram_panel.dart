@@ -9,7 +9,6 @@ import '../../model/catalogue.dart';
 import '../../model/histogram.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
-import '../../l10n/zh.dart';
 
 class HistogramPanel extends StatefulWidget {
   const HistogramPanel({super.key, required this.data, required this.onClose, this.labels});
@@ -206,7 +205,7 @@ class _HistogramPanelState extends State<HistogramPanel> {
       SizedBox(
         height: 14,
         child: Row(children: [
-          Expanded(child: Text(tr('Pixel count'), style: muted)),
+          Expanded(child: Text('Pixel count', style: muted)),
           for (final (i, (label, color)) in view.legend.indexed) ...[
             if (i > 0) const SizedBox(width: 8),
             Text(label, style: muted.copyWith(color: colors[color])),

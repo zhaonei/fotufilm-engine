@@ -11,7 +11,6 @@ import '../workspace/panel_layout.dart';
 import 'controls.dart';
 import 'panels.dart';
 import 'tone_curve_chart.dart';
-import '../../l10n/zh.dart';
 
 class EditorInspector extends StatefulWidget {
   const EditorInspector({super.key, required this.editor});
@@ -73,7 +72,7 @@ class _EditorInspectorState extends State<EditorInspector> {
               HelpButton(detail: _help[editor.panel], size: 16),
               if (editor.panel == Panel.crop || editor.panel == Panel.selective) ...[
                 const SizedBox(width: 6),
-                Text(tr('Canvas tool'),
+                Text('Canvas tool',
                     style: editorText(context,
                         size: TextSizes.label, color: Palette.of(context).muted)),
               ],

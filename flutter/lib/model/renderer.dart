@@ -18,7 +18,6 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 
-import '../debug/log_tape.dart';
 import '../engine/engine.dart';
 import '../engine/presenter.dart';
 import 'catalogue.dart';
@@ -52,17 +51,12 @@ abstract interface class RenderHost {
 }
 
 class Renderer {
-  Renderer({required this.engine, required this.catalogue, required this.host, this.presenter,
-      this.fineZoomPreview = true});
+  Renderer({required this.engine, required this.catalogue, required this.host, this.presenter});
 
   final EngineConnection engine;
   final Catalogue catalogue;
   final RenderHost host;
   final NativePresenter? presenter;
-
-  /// Whether a magnified view develops past the phone cap (see `_previewEdge`). RenderHost is the
-  /// editor's own interface and does not carry settings, so the choice arrives here.
-  final bool fineZoomPreview;
 
   /// The edge a slider's develops are held to while it moves.
   static const interactiveEdge = 1200;
@@ -79,19 +73,15 @@ class Renderer {
   /// The longest preview develop; past it the detail layer carries the resolution.
   static const maxPreviewEdge = 4096;
 
-  /// A phone's preview stops well below 4096. Its screen is around 1200 px across, so a develop
-  /// past ~2048 has nothing left to show while costing the square of the pixels -- but 2048 is
-  /// what was asked for: the picture is judged at this size, and the stall it costs is accepted
-  /// rather than traded for a softer preview.
+  /// A phone preview stops at 2048: its screen is around 1200 px across, so a develop past that
+  /// has nothing left to show while costing the square of the pixels -- the stall that switching
+  /// films shows. The desktop keeps 4096.
   static const phonePreviewEdge = 2048;
 
   static int get _previewCap => switch (defaultTargetPlatform) {
         TargetPlatform.android || TargetPlatform.iOS => phonePreviewEdge,
         _ => maxPreviewEdge,
       };
-
-  /// Logged once, so a report can say what the editor was actually asking for.
-  static bool _edgesReported = false;
 
   bool _running = false;
   bool _foreground = false;
@@ -186,40 +176,19 @@ class Renderer {
     // `whole` picture (a print frame's) has no detail layer, so its preview carries them.
     final scale = view.magnified(photo) && !whole ? view.fitScale(photo) : view.scale(photo);
     final shown = (long * scale * view.devicePixelRatio).round();
-    if (!_edgesReported) {
-      _edgesReported = true;
-      LogTape.record('preview edges: draft=$_draftEdge cap=$_previewCap');
-    }
-    // Magnified on a host with no presenter (Android), the 2048 preview is all there is: the
-    // detail layer that would carry real pixels needs the native presenter. Developing past the
-    // cap while zoomed gives the magnified view actual pixels to show -- grain among them -- at
-    // the cost of a slower settle. `fineZoomPreview` turns it off.
-    final wantsPixels = fineZoomPreview && !whole && presenter == null && view.magnified(photo);
-    final cap = wantsPixels ? maxPreviewEdge : _previewCap;
-    final settled = math.min(long, math.min(cap, math.max(256, wantsPixels ? long : shown)));
+    final settled = math.min(long, math.min(_previewCap, math.max(256, shown)));
     return interactive ? math.min(_draftEdge, settled) : settled;
   }
 
-  /// The last profile block written to the tape, so a slider that does nothing can be told apart
-  /// from a slider whose value never reached the engine.
-  static String? _lastProfileSent;
-
-  Json _request(PhotoDocument doc, Json edit, {int? maxEdge, bool draft = false}) {
-    final request = renderRequest(
-      catalogue: catalogue,
-      handle: doc.handle,
-      edit: edit,
-      stock: host.stockById(edit['stock'] as String?),
-      maxEdge: maxEdge,
-      draft: draft,
-    );
-    final profile = jsonEncode((request['profileRequest'] as Json)['controls']);
-    if (profile != _lastProfileSent) {
-      _lastProfileSent = profile;
-      LogTape.record('profile sent: $profile');
-    }
-    return request;
-  }
+  Json _request(PhotoDocument doc, Json edit, {int? maxEdge, bool draft = false}) =>
+      renderRequest(
+        catalogue: catalogue,
+        handle: doc.handle,
+        edit: edit,
+        stock: host.stockById(edit['stock'] as String?),
+        maxEdge: maxEdge,
+        draft: draft,
+      );
 
   /// What a shown picture is developed from: the edit and the view's options, or the edit the
   /// options carry instead (the crop tool's, without the crop).

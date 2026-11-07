@@ -18,7 +18,6 @@ import '../kit/kit.dart';
 import '../theme/theme.dart';
 import 'picture.dart';
 import 'strip_menu.dart';
-import '../../l10n/zh.dart';
 
 class PhotoStrip extends StatefulWidget {
   const PhotoStrip({super.key, required this.editor});
@@ -139,7 +138,7 @@ class _PhotoStripState extends State<PhotoStrip> {
               right: 0,
               child: QuietButton(
                 icon: 'locate',
-                tooltip: tr('Show Current Photo'),
+                tooltip: 'Show Current Photo',
                 size: 20,
                 iconSize: 14,
                 onPressed: () => _reveal(_shown!),

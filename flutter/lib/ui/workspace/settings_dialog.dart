@@ -11,7 +11,6 @@ import '../../model/new_photo.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
 import 'app_dialogs.dart';
-import '../../l10n/zh.dart';
 
 enum SettingsPane { general, output, filmModel }
 
@@ -63,7 +62,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
   AppSettings get _settings => widget.editor.settings;
 
   List<PickerOption<String?>> _choices(String field) => [
-        for (final c in ((widget.editor.catalogue.control(field)['choices'] as List?) ?? const []).cast<Json>())
+        for (final c in (widget.editor.catalogue.control(field)['choices'] as List).cast<Json>())
           PickerOption(c['id'] as String, c['label'] as String),
       ];
 
@@ -76,7 +75,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
     return [
       const PaneHeading('New Photos'),
       _SettingPicker(
-        label: tr('Starting Film'),
+        label: 'Starting Film',
         setting: 'startingFilm',
         settings: _settings,
         options: [
@@ -86,7 +85,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
         ],
       ),
       _SettingPicker(
-        label: tr('Film Format'),
+        label: 'Film Format',
         setting: 'startingFormat',
         settings: _settings,
         options: [
@@ -96,7 +95,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
         ],
       ),
       if (suggestion.available) ...[
-        _SettingSwitch(label: tr('Suggest a Film Automatically'), setting: 'autoFilm', settings: _settings),
+        _SettingSwitch(label: 'Suggest a Film Automatically', setting: 'autoFilm', settings: _settings),
         const PaneNote('Suggests a film when you open a photo, based on your previous choices. '
             'You can select a different film at any time.'),
         const SizedBox(height: 6),
@@ -109,16 +108,16 @@ class _SettingsDialogState extends State<SettingsDialog> {
       if (editor.updates.available) ...[
         const PaneHeading('Updates'),
         _SettingSwitch(
-            label: tr('Check for Updates Automatically'),
+            label: 'Check for Updates Automatically',
             setting: 'updateChecksAutomatically',
             settings: _settings),
-        _SettingSwitch(label: tr('Include Pre-releases'), setting: 'updatePrereleases', settings: _settings),
+        _SettingSwitch(label: 'Include Pre-releases', setting: 'updatePrereleases', settings: _settings),
       ],
       const PaneHeading('Reset'),
       const SizedBox(height: 6),
       Align(
         alignment: Alignment.centerLeft,
-        child: PillButton(tr('Reset All Settings'),
+        child: PillButton('Reset All Settings',
             variant: ButtonVariant.negative, onPressed: () => _confirmReset(context)),
       ),
       const PaneNote('Restores Fotufilm’s original settings. Your photographs and edits are not '
@@ -130,7 +129,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
     showModal(
       context,
       (close) => AlertCard(
-        title: tr('Reset All Settings?'),
+        title: 'Reset All Settings?',
         message: 'This restores Fotufilm’s original settings. Your photos and edits will not '
             'change.',
         primary: 'Reset',
@@ -165,7 +164,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
           'for wider compatibility. It applies to HEIC exports of films that deliver HDR, '
           'without a print frame.'),
       _SettingPicker(
-        label: tr('Photo Quality'),
+        label: 'Photo Quality',
         setting: 'photoQuality',
         settings: _settings,
         options: const [PickerOption('accurate', 'Accurate'), PickerOption('fast', 'Fast')],
@@ -187,7 +186,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
     return [
       const PaneHeading('Video'),
       _SettingPicker(
-        label: tr('Playback Quality'),
+        label: 'Playback Quality',
         setting: 'videoPlaybackQuality',
         settings: _settings,
         options: [for (final (id, name, _) in playbackQualities) PickerOption(id, name)],
@@ -195,7 +194,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
       const PaneNote(playbackQualityHelp),
       if (exporter.videoProcessingOffered) ...[
         _SettingPicker(
-          label: tr('Video Quality'),
+          label: 'Video Quality',
           setting: 'videoProcessing',
           settings: _settings,
           options: const [PickerOption('full', 'Full'), PickerOption('fast', 'Fast')],
@@ -210,7 +209,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
       ],
       if (bitrates.isNotEmpty) ...[
         _SettingPicker(
-          label: tr('Video File Size'),
+          label: 'Video File Size',
           setting: 'videoBitrate',
           settings: _settings,
           options: [
@@ -450,8 +449,8 @@ class _FilmPacksSectionState extends State<_FilmPacksSection> {
   }
 
   Future<void> _import() => _run(() async {
-        final files = await openFiles(acceptedTypeGroups: [
-          XTypeGroup(label: tr('Film packs'), extensions: [filmPackExtension]),
+        final files = await openFiles(acceptedTypeGroups: const [
+          XTypeGroup(label: 'Film packs', extensions: [filmPackExtension]),
         ]);
         if (files.isEmpty) return _notice;
         final notice = PackNotice.of(
@@ -484,7 +483,7 @@ class _FilmPacksSectionState extends State<_FilmPacksSection> {
                 ]),
               ),
               const SizedBox(width: 12),
-              PillButton(tr('Remove'),
+              PillButton('Remove',
                   onPressed: disabled
                       ? null
                       : () => _run(() async {
@@ -496,7 +495,7 @@ class _FilmPacksSectionState extends State<_FilmPacksSection> {
       const SizedBox(height: 6),
       Align(
         alignment: Alignment.centerLeft,
-        child: PillButton(tr('Import Film Pack…'), onPressed: disabled ? null : _import),
+        child: PillButton('Import Film Pack…', onPressed: disabled ? null : _import),
       ),
       if (_notice != null) PaneNote(_notice!),
     ]);

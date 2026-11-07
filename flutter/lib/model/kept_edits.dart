@@ -7,15 +7,10 @@ import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 
 import 'package:file_selector/file_selector.dart';
-import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, kIsWeb, TargetPlatform;
-import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter/widgets.dart' show AppLifecycleListener;
 
 import 'editor.dart';
 import 'saved_edits.dart';
-
-const _files = MethodChannel('fotufilm/files');
 
 class KeptEdits {
   KeptEdits(this.editor) {
@@ -89,18 +84,6 @@ class KeptEdits {
     if (job != null) _save(job.key, job.text);
   }
 
-  /// Erases what is kept for [doc]: the tool has exported it and is to remember nothing about it.
-  void forget(PhotoDocument doc) {
-    final key = doc.identity;
-    if (_pending?.key == key) {
-      _timer?.cancel();
-      _pending = null;
-    }
-    _baselines[doc] = null;
-    _last[doc] = null;
-    if (key != null) _save(key, null);
-  }
-
   /// Keeps the edit of a photograph other than the one shown (a paste onto several).
   void keep(PhotoDocument doc) {
     final key = doc.identity;
@@ -127,16 +110,9 @@ class KeptEdits {
   Future<void> saveFile() async {
     final doc = editor.active;
     if (doc == null) return;
-    // Android has no file_selector save panel; the host's channel hands back a cache path.
-    final name = fileName(doc.name);
-    final String? path;
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      final dir = await _files.invokeMethod<String>('tempDir');
-      path = dir == null ? null : '$dir/$name';
-    } else {
-      path = (await getSaveLocation(suggestedName: name, acceptedTypeGroups: _types))?.path;
-    }
-    if (path != null) await writeFile(path);
+    final location =
+        await getSaveLocation(suggestedName: fileName(doc.name), acceptedTypeGroups: _types);
+    if (location != null) await writeFile(location.path);
   }
 
   Future<void> writeFile(String path) async {

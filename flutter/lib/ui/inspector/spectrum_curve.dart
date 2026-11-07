@@ -39,9 +39,7 @@ class _SpectrumCurveState extends State<SpectrumCurve> {
   static const _plane = Size(280, 108);
   int? _dragged;
 
-  List<double> get _handles => [
-        for (final nm in (widget.curve['handles'] as List?) ?? const []) (nm as num).toDouble()
-      ];
+  List<double> get _handles => [for (final nm in widget.curve['handles'] as List) (nm as num).toDouble()];
   double get _min => (widget.curve['min'] as num).toDouble();
   double get _max => (widget.curve['max'] as num).toDouble();
 

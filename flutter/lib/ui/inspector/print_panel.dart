@@ -10,7 +10,6 @@ import '../workspace/export_dialog.dart';
 import 'controls.dart';
 import 'print_frame_section.dart';
 import 'receiver_bands.dart';
-import '../../l10n/zh.dart';
 
 const _matchFilm = 'match-film';
 const _screenCMY = ['screenCyan', 'screenMagenta', 'screenYellow'];
@@ -18,7 +17,7 @@ const _screenCMY = ['screenCyan', 'screenMagenta', 'screenYellow'];
 List<Widget> printPanel(InspectorControls c) {
   final editor = c.editor;
   return [
-    Section(title: tr('Output'), children: [
+    Section(title: 'Output', children: [
       ...printOutputControls(c),
       ...printAdjustControls(c),
       // The engine develops in Display P3, the space the web editor's canvas shows in the app.
@@ -26,7 +25,7 @@ List<Widget> printPanel(InspectorControls c) {
     ]),
     ?lampSection(c),
     if (!c.fixedSettings && editor.active != null) PrintFrameSection(editor: editor),
-    Section(title: tr('Export'), children: [
+    Section(title: 'Export', children: [
       Builder(
         builder: (context) => Align(
           alignment: Alignment.centerLeft,
@@ -57,7 +56,7 @@ List<Widget> printOutputControls(InspectorControls c) {
       editor: editor,
       offersBands: !c.fixedSettings && printMedium?['receiverBands'] == true,
       picker: PickerField<String>(
-        label: tr('Output medium'),
+        label: 'Output medium',
         enabled: c.hasFilm,
         value: c.edit['mediumFollowsFilm'] == true && canMatchFilm ? _matchFilm : medium,
         options: [

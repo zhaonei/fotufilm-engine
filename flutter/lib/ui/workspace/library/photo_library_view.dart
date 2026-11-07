@@ -14,7 +14,6 @@ import 'library_bar.dart';
 import 'library_dialogs.dart';
 import 'library_folders.dart';
 import 'photo_grid.dart';
-import '../../../l10n/zh.dart';
 
 class PhotoLibraryView extends StatefulWidget {
   const PhotoLibraryView({super.key, required this.editor});
@@ -186,7 +185,7 @@ class _PhotoLibraryViewState extends State<PhotoLibraryView> {
             label: 'Rename…',
             onSelected: () => showRenameDialog(context, targets.single.name, (name) => _rename(targets.single, name)),
           ),
-        MenuItem(label: tr('Move to Trash…'), onSelected: () => _confirmTrash(targets)),
+        MenuItem(label: 'Move to Trash…', onSelected: () => _confirmTrash(targets)),
       ],
     ]);
   }
@@ -395,18 +394,18 @@ class _Empty extends StatelessWidget {
         padding: const EdgeInsets.all(24),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           if (filtered) ...[
-            Text(tr('No photos match.'), style: text),
+            Text('No photos match.', style: text),
             const SizedBox(height: 12),
             Row(mainAxisSize: MainAxisSize.min, children: [PillButton('Clear Filters', onPressed: onClear)]),
           ] else if (folders)
-            Text(tr('No photos in this folder.'), style: text)
+            Text('No photos in this folder.', style: text)
           else ...[
             AppIcon('library', size: 36, color: palette.muted),
             const SizedBox(height: 12),
-            Text(tr('Add a folder to browse, rate and open its photos.'), style: text),
+            Text('Add a folder to browse, rate and open its photos.', style: text),
             const SizedBox(height: 12),
             Row(mainAxisSize: MainAxisSize.min, children: [
-              PillButton(tr('Add Folder'), variant: ButtonVariant.accent, onPressed: onAdd),
+              PillButton('Add Folder', variant: ButtonVariant.accent, onPressed: onAdd),
             ]),
           ],
         ]),
@@ -438,7 +437,7 @@ class _Notice extends StatelessWidget {
         const SizedBox(width: 12),
         GestureDetector(
           onTap: onDismiss,
-          child: Text(tr('Dismiss'),
+          child: Text('Dismiss',
               style: editorText(context, color: ink).copyWith(decoration: TextDecoration.underline)),
         ),
       ]),

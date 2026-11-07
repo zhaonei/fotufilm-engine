@@ -9,8 +9,6 @@
 // its export is done. A movie, and every export in a browser, holds the editor until it is done.
 import 'dart:async';
 
-import '../debug/log_tape.dart';
-
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart' show MethodChannel;
@@ -37,9 +35,9 @@ const exportTypeLabels = {
 /// whose output medium is Cineon Log (`ExportOptions.dpx`).
 const dpxType = 'image/x-dpx';
 
-/// Where a finished export goes on Android. file_selector has no save dialog there --
-/// getSavePath() throws UnimplementedError -- so the engine writes into the app's cache and
-/// the host's OpenedFiles puts the file in Pictures/Fotufilm through MediaStore.
+/// The host's file channel. Android has no file_selector save panel -- getSaveLocation() throws
+/// UnimplementedError there -- so the engine writes into the app's cache and the host publishes
+/// the file into the gallery (OpenedFiles.kt answers tempDir and publish).
 const _fileChannel = MethodChannel('fotufilm/files');
 
 bool get _androidExports => !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
@@ -359,10 +357,7 @@ class ExportTool {
   /// Runs an export: the editor waits and the renderer leaves the engine's work alone, so that
   /// a develop the view asks for does not cancel it. Cancelling is not a failure.
   Future<T?> _run<T>(String status, Future<T> Function() body) async {
-    if (editor.exporting) {
-      LogTape.record('export skipped: another export is running ($status)', urgent: true);
-      return null;
-    }
+    if (editor.exporting) return null;
     editor
       ..exporting = true
       ..error = null
@@ -375,7 +370,6 @@ class ExportTool {
       return null;
     } catch (e) {
       editor.error = '$e';
-      LogTape.record('export failed: $e', urgent: true);
       return null;
     } finally {
       editor
@@ -499,22 +493,12 @@ class ExportTool {
   /// `path`). Answers what was saved, or null when nothing was.
   Future<SavedExport?> exportPhoto({String? path, void Function()? onStarted}) async {
     final doc = editor.active, engine = _engine;
-    if (doc == null || engine == null || editor.exporting) {
-      // Silence here is what made the Export button look dead: no dialog, no error, no clue.
-      LogTape.record(
-          'export skipped: photo=${doc == null ? 'none' : 'open'} '
-          'engine=${engine == null ? 'none' : 'ok'} exporting=${editor.exporting}',
-          urgent: true);
-      return null;
-    }
+    if (doc == null || engine == null || editor.exporting) return null;
     if (doc.isMovie) return exportMovie(path: path);
     if (type == originalType) return exportOriginal(path: path, onStarted: onStarted);
     final filename = stillFilename(doc.name, doc.edit, type);
     path ??= await _chooseFile(filename, type);
-    if (path == null) {
-      LogTape.record('export stopped: no destination chosen for $filename', urgent: true);
-      return null;
-    }
+    if (path == null) return null;
     final destination = path;
     final request = {
       ..._request(doc, maxEdge: exportMaxEdge(sizeId(batch: false), cropSize(doc))),
@@ -530,16 +514,11 @@ class ExportTool {
     return _queue(filename, [doc.handle], (engine, job) async {
       _report(job, 'Exporting $filename');
       final answer = await engine.callInBackground('export', request);
-      final name = answer.json['filename'] as String? ?? filename;
-      final saved = answer.json['path'] as String? ?? destination;
-      if (_androidExports) {
-        final where = await _publish(saved, name, type);
-        LogTape.record('exported to $where', urgent: true);
-        // A tool, not a library: the photograph leaves nothing behind once it is written.
-        unawaited(editor.forgetExported(doc));
-        return SavedExport(filename: name, path: where);
-      }
-      return SavedExport(filename: name, path: saved);
+      final savedPath = answer.json['path'] as String? ?? destination;
+      // On Android the engine writes into the cache; the host then puts it in Pictures/Fotufilm.
+      final where = _androidExports ? await _publish(savedPath, filename, type) : savedPath;
+      return SavedExport(
+          filename: answer.json['filename'] as String? ?? filename, path: where);
     }, onStarted: onStarted);
   }
 
@@ -549,13 +528,7 @@ class ExportTool {
   Future<SavedExport?> exportAll({String? directory, void Function()? onStarted}) async {
     final engine = _engine;
     final docs = _batch;
-    if (engine == null || docs.isEmpty || editor.exporting) {
-      LogTape.record(
-          'export all skipped: engine=${engine == null ? 'none' : 'ok'} '
-          'photos=${docs.length} exporting=${editor.exporting}',
-          urgent: true);
-      return null;
-    }
+    if (engine == null || docs.isEmpty || editor.exporting) return null;
     directory ??= await _chooseFolder();
     if (directory == null) return null;
     final request = {
@@ -603,30 +576,11 @@ class ExportTool {
       ];
       if (problems.isNotEmpty) editor.showError(problems.join(' '));
       if (written.isEmpty) return null;
-      final source = answer.json['directory'] as String? ?? directory;
-      if (_androidExports) {
-        if (source == null) {
-          LogTape.record('export all: the engine reported no folder to publish', urgent: true);
-          return null;
-        }
-        final where = await _publishDir(source, type);
-        LogTape.record('exported ${written.length} photos to $where', urgent: true);
-        // Same rule as one photograph: what was exported leaves nothing behind.
-        for (final doc in docs) {
-          unawaited(editor.forgetExported(doc));
-        }
-        return SavedExport(
-          filename: '${written.length} photos',
-          path: where,
-          count: written.length,
-          directory: where,
-        );
-      }
       return SavedExport(
         filename: '${written.length} photos',
         path: written.first['path'] as String,
         count: written.length,
-        directory: source,
+        directory: answer.json['directory'] as String? ?? directory,
       );
     }, onStarted: onStarted);
   }
@@ -750,8 +704,7 @@ class ExportTool {
     if (kIsWeb) return filename;
     if (_androidExports) {
       final dir = await _fileChannel.invokeMethod<String>('tempDir');
-      if (dir == null) return null;
-      return '$dir/$filename';
+      return dir == null ? null : '$dir/$filename';
     }
     final ext = filename.contains('.') ? filename.split('.').last : '';
     final location = await getSaveLocation(
@@ -763,32 +716,20 @@ class ExportTool {
     return location?.path;
   }
 
-  Future<String?> _chooseFolder() async {
-    if (fixedDirectory case final dir? when dir.isNotEmpty) return dir;
-    if (_androidExports) return _fileChannel.invokeMethod<String>('tempDir');
-    return getDirectoryPath(confirmButtonText: 'Export');
-  }
-
-  /// Hands a finished file to the system, and says where it landed.
+  /// Hands a finished file to the system and returns where it landed.
   Future<String> _publish(String path, String name, String? mime) async {
     try {
-      final where = await _fileChannel.invokeMethod<String>(
-          'publish', {'path': path, 'name': name, 'mime': mime ?? 'image/jpeg'});
+      final where = await _fileChannel
+          .invokeMethod<String>('publish', {'path': path, 'name': name, 'mime': mime ?? 'image/jpeg'});
       return where ?? path;
-    } catch (e) {
-      LogTape.record('publish failed: $e', urgent: true);
+    } catch (_) {
       return path;
     }
   }
 
-  Future<String> _publishDir(String directory, String? mime) async {
-    try {
-      final where = await _fileChannel
-          .invokeMethod<String>('publishDir', {'path': directory, 'mime': mime ?? 'image/jpeg'});
-      return where ?? directory;
-    } catch (e) {
-      LogTape.record('publish failed: $e', urgent: true);
-      return directory;
-    }
+  Future<String?> _chooseFolder() async {
+    if (fixedDirectory case final dir? when dir.isNotEmpty) return dir;
+    if (_androidExports) return _fileChannel.invokeMethod<String>('tempDir');
+    return getDirectoryPath(confirmButtonText: 'Export');
   }
 }

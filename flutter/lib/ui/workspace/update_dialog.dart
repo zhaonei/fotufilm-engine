@@ -7,7 +7,6 @@ import '../../model/updates.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
 import 'app_dialogs.dart';
-import '../../l10n/zh.dart';
 
 class UpdateDialog extends StatelessWidget {
   const UpdateDialog({super.key, required this.editor, required this.onClose});
@@ -36,7 +35,7 @@ class UpdateDialog extends StatelessWidget {
     return AppDialogCard(
       title: 'Downloading Fotufilm ${download.version}…',
       width: 400,
-      actions: [PillButton(tr('Cancel'), onPressed: editor.updates.cancel)],
+      actions: [PillButton('Cancel', onPressed: editor.updates.cancel)],
       children: [
         const Text('The installer opens once the download matches the checksum its release '
             'published.'),
@@ -57,9 +56,9 @@ class UpdateDialog extends StatelessWidget {
         title: 'Fotufilm ${offer.version} is available',
         width: 640,
         actions: [
-          if (offer.notes != null) PillButton(tr('Release Notes'), onPressed: editor.updates.openNotes),
-          if (offer.allowSkip) PillButton(tr('Skip This Version'), onPressed: editor.updates.skip),
-          PillButton(tr('Not Now'), onPressed: onClose),
+          if (offer.notes != null) PillButton('Release Notes', onPressed: editor.updates.openNotes),
+          if (offer.allowSkip) PillButton('Skip This Version', onPressed: editor.updates.skip),
+          PillButton('Not Now', onPressed: onClose),
           PillButton('Download and Install…',
               variant: ButtonVariant.accent, onPressed: editor.updates.install),
         ],

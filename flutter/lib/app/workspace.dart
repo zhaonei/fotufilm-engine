@@ -9,7 +9,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart' show Material, MaterialType;
 import 'package:flutter/widgets.dart';
 
-import '../debug/log_tape.dart';
 import '../model/editor.dart';
 import '../model/file_types.dart';
 import '../model/film_packs.dart';
@@ -34,7 +33,6 @@ import 'commands.dart';
 import 'editor_shortcuts.dart';
 import 'host_window.dart';
 import 'native_menu.dart';
-import '../l10n/zh.dart';
 
 const imageExtensions = [
   'jpg', 'jpeg', 'png', 'tif', 'tiff', 'heic', 'heif', 'avif', 'exr', 'webp', //
@@ -101,7 +99,7 @@ class _WorkspaceState extends State<Workspace> {
         };
     if (!lost()) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && lost()) _focusEditor();
+      if (mounted && lost()) _focus.requestFocus();
     });
   }
 
@@ -136,7 +134,7 @@ class _WorkspaceState extends State<Workspace> {
     final open = editor.library.open;
     if (_libraryOpen == open) return;
     setState(() => _libraryOpen = open);
-    if (!open) _focusEditor();
+    if (!open) _focus.requestFocus();
   }
 
   Future<void> _open() async {
@@ -158,18 +156,6 @@ class _WorkspaceState extends State<Workspace> {
     if (editor.active != null) showExportDialog(context, editor);
   }
 
-  /// Gives the keys back to the editor, but only when the node is in the tree: requestFocus on a
-  /// FocusNode whose context is null throws inside the focus manager, which on an empty canvas
-  /// meant an error on every touch.
-  void _focusEditor() {
-    if (!mounted || _focus.context == null) return;
-    try {
-      _focus.requestFocus();
-    } catch (e) {
-      LogTape.record('focus: $e');
-    }
-  }
-
   /// A click outside the viewer gives the keys back to the editor.
   void _pointerDown(PointerDownEvent event) {
     final viewer = FocusManager.instance.primaryFocus?.context;
@@ -177,7 +163,7 @@ class _WorkspaceState extends State<Workspace> {
     final box = viewer.findRenderObject();
     if (box is! RenderBox || !box.attached) return;
     if (!(box.localToGlobal(Offset.zero) & box.size).contains(event.position)) {
-      _focusEditor();
+      _focus.requestFocus();
     }
   }
 
@@ -297,7 +283,7 @@ class _WorkspaceState extends State<Workspace> {
           bottom: 0,
           width: hit,
           child: _Resizer(
-            label: tr('Resize film list'),
+            label: 'Resize film list',
             onDrag: (dx) => layout.setWidth(PanelSide.film, layout.widths.film + dx),
             onEnd: layout.keepWidths,
             onReset: () => layout.setWidth(PanelSide.film, Metrics.filmWidth, keep: true),
@@ -310,7 +296,7 @@ class _WorkspaceState extends State<Workspace> {
           bottom: 0,
           width: hit,
           child: _Resizer(
-            label: tr('Resize darkroom panel'),
+            label: 'Resize darkroom panel',
             onDrag: (dx) =>
                 layout.setWidth(PanelSide.inspector, layout.widths.inspector - dx),
             onEnd: layout.keepWidths,
@@ -423,7 +409,7 @@ class _DockGrabber extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Semantics(
         button: true,
-        label: tr('Close panel'),
+        label: 'Close panel',
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onVerticalDragUpdate: (d) => onDrag(d.delta.dy),

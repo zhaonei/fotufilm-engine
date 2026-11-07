@@ -5,295 +5,36 @@
 //   app/      the window: workspace layout, commands and menus, the host window
 //   model/    the editor's state, what the engine develops, and the control catalogue
 //   engine/   the engine connection (native and browser) and the native presenter
-//   l10n/     the interface in Chinese
 //   ui/       theme (colours, sizes, type), kit (controls), workspace and inspector
 import 'dart:async';
-import 'dart:ui' show PlatformDispatcher;
 
-import 'package:flutter/foundation.dart' show FlutterError, defaultTargetPlatform, kIsWeb, TargetPlatform;
-import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter/widgets.dart';
 
 import 'app/app.dart';
 import 'app/host_window.dart';
 import 'debug/debug.dart';
-import 'debug/log_tape.dart';
-import 'l10n/zh.dart';
 import 'model/catalogue.dart';
 import 'model/cef_profile.dart';
 import 'model/editor.dart';
 import 'ui/kit/icons.dart';
 import 'ui/workspace/picture.dart';
 
-void main(List<String> arguments) {
+Future<void> main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
-  _reportErrors();
-  // runApp first, always. Everything the editor needs is loaded inside the app, so a missing asset
-  // or a failed engine start shows up as a readable screen instead of a black one. It used to be
-  // the other way round -- four loads awaited before runApp -- and one absent asset
-  // (assets/generated/controls.json, which pubspec had stopped bundling) meant no widget tree at
-  // all: the app started to a permanent black screen with nothing but a bare exception in logcat.
-  runApp(Boot(arguments: arguments));
-}
-
-/// Clears the scratch space -- published exports and the engine's temporary decodes -- on start-up
-/// and when the app goes to the background. Settings, presets and the photographs themselves are
-/// not touched.
-Future<void> _tidyScratch() async {
-  if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
-  try {
-    await const MethodChannel('fotufilm/files').invokeMethod<bool>('clearExports');
-  } catch (_) {}
-}
-
-/// What the app is using on the phone, so storage growth is visible rather than guessed at:
-/// the imports it keeps (the library's own files), the export cache, and the engine's unpacked
-/// resources. Only Android answers; the call is a no-op anywhere else.
-Future<void> _reportStorage() async {
-  if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
-  try {
-    final sizes =
-        await const MethodChannel('fotufilm/files').invokeMapMethod<String, dynamic>('storage');
-    if (sizes == null) return;
-    String mb(Object? bytes) =>
-        '${(((bytes as num?) ?? 0) / 1048576).toStringAsFixed(1)} MB';
-    LogTape.record('storage: imports ${mb(sizes['imports'])}, exports ${mb(sizes['exports'])}, '
-        'resources ${mb(sizes['resources'])}, cache ${mb(sizes['cache'])}');
-  } catch (e) {
-    LogTape.record('storage sizes unavailable: $e');
-  }
-}
-
-/// Anything that escapes a framework callback reaches logcat, where `adb logcat` can see it.
-/// The first frames of a stack, for a line that has to stay readable on a phone.
-/// The first frames of a stack, for the tape: enough to name the widget without filling the line.
-String _frames(StackTrace? stack) => (stack?.toString() ?? '')
-    .split('\n')
-    .where((line) => line.trimLeft().startsWith('#'))
-    .take(6)
-    .join('\n');
-
-void _reportErrors() {
-  FlutterError.onError = (details) {
-    LogTape.record('framework: ${details.exceptionAsString()}\n${_frames(details.stack)}',
-        urgent: true, flashText: 'framework: ${details.exceptionAsString()}');
-    FlutterError.presentError(details);
-  };
-  PlatformDispatcher.instance.onError = (error, stack) {
-    LogTape.record('uncaught: $error\n${_frames(stack)}',
-        urgent: true, flashText: 'uncaught: $error');
-    return true;
-  };
-  // What a broken panel shows instead of a white rectangle: the failure and where it happened.
-  // A blank panel used to be all a release build offered, which said nothing about the cause.
-  ErrorWidget.builder = (details) => _InlineError(details: details);
-}
-
-/// The widget ErrorWidget.builder puts where a subtree failed to build.
-class _InlineError extends StatelessWidget {
-  const _InlineError({required this.details});
-  final FlutterErrorDetails details;
-
-  @override
-  Widget build(BuildContext context) {
-    final trace = (details.stack?.toString() ?? '').split('\n').take(8).join('\n');
-    return Directionality(
-      textDirection: TextDirection.ltr,
-      child: Container(
-        color: const Color(0xFF1A1A1A),
-        padding: const EdgeInsets.all(10),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('部件构建失败：${details.exceptionAsString()}',
-                  style: const TextStyle(color: Color(0xFFB9B3A8), fontSize: 12)),
-              const SizedBox(height: 6),
-              Text(trace,
-                  style: const TextStyle(color: Color(0xFFB08C84), fontSize: 10, height: 1.3)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Loads what the editor needs while drawing something, then hands over to FotufilmApp.
-class Boot extends StatefulWidget {
-  const Boot({super.key, required this.arguments});
-  final List<String> arguments;
-
-  @override
-  State<Boot> createState() => _BootState();
-}
-
-class _BootState extends State<Boot> {
-  final GlobalKey _boundary = GlobalKey();
-  EditorModel? _editor;
-  Object? _failure;
-  StackTrace? _stack;
-  String _stage = 'Starting…';
-
-  final AppLifecycleListener _lifecycle = AppLifecycleListener(
-    onPause: () => unawaited(_tidyScratch()),
-    onDetach: () {
-      // Swiped away: the run's queue of messages goes with it, and the next launch starts empty.
-      LogTape.clear();
-      unawaited(_tidyScratch());
-    },
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_boot());
-  }
-
-  @override
-  void dispose() {
-    _lifecycle.dispose();
-    super.dispose();
-  }
-
-  void _showStage(String stage) {
-    if (mounted) setState(() => _stage = stage);
-  }
-
-  Future<void> _boot() async {
-    try {
-      await Future<void>.delayed(Duration.zero);
-      _showStage('Reading the control catalogue…');
-      final (catalogue, _, _, settings) =
-          await (Catalogue.load(), IconLibrary.load(), ColourConversion.load(), AppSettings.load())
-              .wait;
-      importCefProfile(settings);
-      // Silent at launch, every launch. The gear's switch turns banners on for the session; the
-      // interface is clean unless someone asks for the messages. A stored preference from an
-      // earlier build is deliberately ignored: it was what kept them coming.
-      LogTape.showBanners = false;
-      LogTape.persistBanners = null;
-      final editor = EditorModel(catalogue, settings: settings);
-
-      _showStage('Starting the engine…');
-      if (!mounted) return;
-      setState(() {
-        _editor = editor;
-      });
-      // The picture boundary is the debug driver's way in; it has to be in the tree first.
-      await WidgetsBinding.instance.endOfFrame;
-
-      await editor.start();
-      unawaited(resolveCefEdits(editor));
-      // A browser engine answers in sRGB; the desktop engine's Display P3 is converted for drawing.
-      ColourConversion.enabled = editor.engine?.picturesAreDisplayP3 ?? true;
-      Driver.start(editor, _boundary);
-      await _tidyScratch();
-      unawaited(_reportStorage());
-      // What arrived, in logcat: the first question a quiet render bug asks is whether the
-      // catalogue and the engine's film list are actually populated.
-      LogTape.record(
-          'catalogue ${catalogue.controls.length} controls, ${catalogue.filmFormats.length} '
-          'formats; ${editor.stocks.length} stocks; engine capabilities '
-          '${editor.engine?.capabilities.keys.join(",") ?? "-"}');
-
-      _showStage('Opening photographs…');
-      await editor.openPaths(await HostWindow.takeOpenedFiles(editor.openPaths,
-          arguments: widget.arguments));
-      _showStage('');
-    } catch (error, stack) {
-      LogTape.record('boot failed: $error', urgent: true);
-      if (!mounted) return;
-      setState(() {
-        _failure = error;
-        _stack = stack;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final failure = _failure;
-    if (failure != null) return _BootFailure(failure: failure, stack: _stack);
-    final editor = _editor;
-    if (editor == null) return _BootSplash(stage: tr(_stage));
-    return RepaintBoundary(key: _boundary, child: FotufilmApp(editor: editor));
-  }
-}
-
-/// What the screen shows while the catalogue, the icons and the engine are coming up.
-class _BootSplash extends StatelessWidget {
-  const _BootSplash({required this.stage});
-  final String stage;
-
-  @override
-  Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.ltr,
-      child: ColoredBox(
-        color: const Color(0xFF101010),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Fotufilm',
-                  style: TextStyle(color: Color(0xFFE8E2D8), fontSize: 26, letterSpacing: 2)),
-              const SizedBox(height: 14),
-              Text(stage, style: const TextStyle(color: Color(0xFF8A857C), fontSize: 13)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// What the screen shows when the editor could not start: the failure itself, on the phone, so a
-/// report can be made from the device without a cable.
-class _BootFailure extends StatelessWidget {
-  const _BootFailure({required this.failure, required this.stack});
-  final Object failure;
-  final StackTrace? stack;
-
-  @override
-  Widget build(BuildContext context) {
-    final trace = (stack?.toString() ?? '').split('\n').take(12).join('\n');
-    return Directionality(
-      textDirection: TextDirection.ltr,
-      child: ColoredBox(
-        color: const Color(0xFF101010),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('编辑器启动失败',
-                    style: TextStyle(color: Color(0xFFE8E2D8), fontSize: 20)),
-                const SizedBox(height: 10),
-                const Text('请把以下内容与 adb logcat -s fotufilm 的输出一起反馈。',
-                    style: TextStyle(color: Color(0xFF8A857C), fontSize: 13)),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('$failure',
-                            style: const TextStyle(color: Color(0xFFD98A7A), fontSize: 13)),
-                        const SizedBox(height: 12),
-                        Text(trace,
-                            style: const TextStyle(
-                                color: Color(0xFF7F7A72), fontSize: 11, height: 1.4)),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  final (catalogue, _, _, settings) =
+      await (Catalogue.load(), IconLibrary.load(), ColourConversion.load(), AppSettings.load())
+          .wait;
+  // What the previous desktop app kept comes over before the features read their settings.
+  importCefProfile(settings);
+  final editor = EditorModel(catalogue, settings: settings);
+  final boundary = GlobalKey();
+  runApp(RepaintBoundary(key: boundary, child: FotufilmApp(editor: editor)));
+  await editor.start();
+  unawaited(resolveCefEdits(editor));
+  // A browser engine answers in sRGB; the desktop engine's Display P3 is converted for drawing.
+  ColourConversion.enabled = editor.engine?.picturesAreDisplayP3 ?? true;
+  Driver.start(editor, boundary);
+  // Photographs from the Finder or the command line, then as they arrive.
+  await editor.openPaths(
+      await HostWindow.takeOpenedFiles(editor.openPaths, arguments: arguments));
 }

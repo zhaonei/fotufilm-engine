@@ -5,28 +5,27 @@ import 'package:flutter/widgets.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
 import 'controls.dart';
-import '../../l10n/zh.dart';
 
 List<Widget> cropPanel(InspectorControls c) {
   final editor = c.editor;
   final crop = editor.crop;
   final size = crop.cropSize;
   return [
-    Section(title: tr('Orientation'), children: [
+    Section(title: 'Orientation', children: [
       Row(children: [
-        Expanded(child: _ActionButton(icon: 'rotate', label: tr('Rotate Left'), onPressed: crop.rotateLeft)),
+        Expanded(child: _ActionButton(icon: 'rotate', label: 'Rotate Left', onPressed: crop.rotateLeft)),
         const SizedBox(width: 8),
         Expanded(child: _ActionButton(icon: 'flip', label: 'Flip', onPressed: crop.flip)),
       ]),
     ]),
-    Section(title: tr('Crop'), children: [
+    Section(title: 'Crop', children: [
       _ToggleButton(
-        label: tr('Four-Corner Crop'),
+        label: 'Four-Corner Crop',
         selected: crop.shape == 'corners',
         onPressed: crop.fourCorners,
       ),
       PickerField<String>(
-        label: tr('Aspect ratio'),
+        label: 'Aspect ratio',
         value: crop.ratio,
         options: [
           for (final r in crop.ratioChoices)
@@ -37,13 +36,13 @@ List<Widget> cropPanel(InspectorControls c) {
       _geometry(c, 'straighten'),
       InfoRow('Crop size', '${size.width.round()} × ${size.height.round()}'),
     ]),
-    Section(title: tr('Perspective'), children: [
+    Section(title: 'Perspective', children: [
       _geometry(c, 'perspectiveVertical', 'perspectiveV'),
       _geometry(c, 'perspectiveHorizontal', 'perspectiveH'),
     ]),
-    Section(title: tr('Finish'), children: [
-      PillButton(tr('Reset Crop'), expand: true, onPressed: crop.reset),
-      PillButton(tr('Done'), expand: true, variant: ButtonVariant.accent, onPressed: crop.done),
+    Section(title: 'Finish', children: [
+      PillButton('Reset Crop', expand: true, onPressed: crop.reset),
+      PillButton('Done', expand: true, variant: ButtonVariant.accent, onPressed: crop.done),
     ]),
   ];
 }

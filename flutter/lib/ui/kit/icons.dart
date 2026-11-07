@@ -33,7 +33,7 @@ class IconLibrary {
         await rootBundle.loadString('assets/generated/material-symbols.json')) as Map;
     final svgs = <String, String>{};
     for (final MapEntry(:key, :value) in symbols.entries) {
-      final paths = ((value['paths'] as List?) ?? const []).map((d) => '<path d="$d"/>').join();
+      final paths = (value['paths'] as List).map((d) => '<path d="$d"/>').join();
       svgs[key as String] =
           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="${value['viewBox']}" fill="currentColor">$paths</svg>';
     }

@@ -13,7 +13,6 @@ import 'editing_dialogs.dart';
 import 'panel_layout.dart';
 import 'picture.dart';
 import 'preset_list.dart';
-import '../../l10n/zh.dart';
 
 class FilmLibrary extends StatefulWidget {
   const FilmLibrary({super.key, required this.editor});
@@ -103,7 +102,7 @@ class _FilmLibraryState extends State<FilmLibrary> {
                 const SizedBox(width: 4),
                 QuietButton(
                   icon: 'plus',
-                  tooltip: tr('Save Preset…'),
+                  tooltip: 'Save Preset…',
                   onPressed:
                       editor.active == null ? null : () => showSavePresetDialog(context, editor),
                 ),
@@ -315,11 +314,11 @@ class _FilmTypePickerState extends State<_FilmTypePicker> with PointerTint {
     final palette = Palette.of(context);
     final filtered = widget.selected != FilmType.all;
     return HoverTip(
-      message: tr('Film type'),
+      message: 'Film type',
       child: Builder(
         builder: (anchor) => tinted(
           opensMenu: true,
-          label: tr('Film type'),
+          label: 'Film type',
           value: widget.selected.title,
           onTap: () => showMenu(anchor, alignEnd: true, width: 170, [
             for (final type in widget.types)

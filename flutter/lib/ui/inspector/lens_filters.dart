@@ -10,7 +10,6 @@ import '../../model/lens_filters.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
 import 'controls.dart';
-import '../../l10n/zh.dart';
 
 Widget lensFiltersSection(InspectorControls c) {
   final editor = c.editor;
@@ -20,7 +19,7 @@ Widget lensFiltersSection(InspectorControls c) {
   void change(Json value) => editor.change(value);
   final options = [for (final f in catalogue.choices) PickerOption(f['id'] as String, f['name'] as String)];
   final note = catalogue.note(filters);
-  return Section(title: tr('Filters'), children: [
+  return Section(title: 'Filters', children: [
     for (var i = 0; i < filters.length; i++)
       _FittedFilter(
         // The same filter twice keeps each row its own.
@@ -40,7 +39,7 @@ Widget lensFiltersSection(InspectorControls c) {
         onMove: (delta) => change({'filters': moveFilter(filters, i, delta)}),
       ),
     PickerField<String>(
-      label: tr('Add Filter'),
+      label: 'Add Filter',
       value: 'none',
       options: [const PickerOption('none', 'Add Filter…'), ...options],
       onChanged: (id) {
@@ -59,7 +58,7 @@ Widget lensFiltersSection(InspectorControls c) {
     if (filters.isNotEmpty)
       Align(
         alignment: Alignment.centerLeft,
-        child: QuietButton(label: tr('Take Them All Off'), onPressed: () => change({'filters': []})),
+        child: QuietButton(label: 'Take Them All Off', onPressed: () => change({'filters': []})),
       ),
     if (note != null) Note(note),
   ]);
@@ -100,7 +99,7 @@ class _FittedFilter extends StatelessWidget {
         ),
         const SizedBox(width: 6),
         QuietButton(
-          tooltip: tr('Move filter nearer the lens'),
+          tooltip: 'Move filter nearer the lens',
           onPressed: index == 0 ? null : () => onMove(-1),
           icon: 'chevronDown',
           iconSize: 16,
@@ -108,14 +107,14 @@ class _FittedFilter extends StatelessWidget {
         ),
         const SizedBox(width: 2),
         QuietButton(
-          tooltip: tr('Move filter further from the lens'),
+          tooltip: 'Move filter further from the lens',
           onPressed: index == count - 1 ? null : () => onMove(1),
           icon: 'chevronDown',
           iconSize: 16,
         ),
         const SizedBox(width: 2),
         QuietButton(
-          tooltip: tr('Take this filter off'),
+          tooltip: 'Take this filter off',
           onPressed: () => onReplace('none'),
           icon: 'minus',
           iconSize: 16,
@@ -169,8 +168,8 @@ class _HaloPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final direct = (halo['direct'] as num).toDouble();
     final scattered = (halo['scattered'] as num).toDouble();
-    final sigmas = [for (final s in (halo['sigmas'] as List?) ?? const []) (s as num).toDouble()];
-    final weights = [for (final w in (halo['weights'] as List?) ?? const []) (w as num).toDouble()];
+    final sigmas = [for (final s in halo['sigmas'] as List) (s as num).toDouble()];
+    final weights = [for (final w in halo['weights'] as List) (w as num).toDouble()];
     final values = List.filled(_n * _n, 0.0);
     var peak = 0.0;
     for (var y = 0; y < _n; y++) {

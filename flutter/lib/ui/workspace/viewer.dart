@@ -7,7 +7,6 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-import '../../debug/log_tape.dart';
 import '../../model/editor.dart';
 import '../theme/theme.dart';
 import 'histogram_panel.dart';
@@ -58,8 +57,12 @@ class EditorViewer extends StatelessWidget {
               // What Auto Adjust is doing.
               if (editor.status == null && editor.auto.status != null)
                 StatusPill(text: editor.auto.status!),
-              // No error banner: errors go to the tape (see LogTape), and the interface stays
-              // clear unless the editor could not start at all, which EmptyCanvas reports.
+              if (editor.error != null)
+                ErrorBanner(
+                  text: editor.error!,
+                  onClose: editor.dismissError,
+                  onRetry: editor.canRetry ? editor.retry : null,
+                ),
               if (editor.histogramOpen && doc != null)
                 HistogramPanel(
                   data: editor.histogram,
@@ -72,9 +75,6 @@ class EditorViewer extends StatelessWidget {
                   progress: editor.startup,
                   compact: editor.layout.compact),
               ViewerStatus(editor: editor),
-              // Last in the stack: the log and its banner sit above everything, including the
-              // widgets that might be failing to build.
-              const Positioned.fill(child: LogTapeLayer()),
             ]);
           }),
         ),

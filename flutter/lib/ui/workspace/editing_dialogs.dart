@@ -9,7 +9,6 @@ import '../../model/presets.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
 import 'dialogs.dart';
-import '../../l10n/zh.dart';
 
 AnchoredOverlay showCopySettingsDialog(BuildContext context, EditorModel editor) => showModal(
     context, (close) => _SectionsDialog(editor: editor, preset: false, onClose: close));
@@ -88,13 +87,13 @@ class _SectionsDialogState extends State<_SectionsDialog> {
               onPressed: () => setState(() => _sections = [for (final s in presets.allSections) s.id])),
           PillButton('Check None', onPressed: () => setState(() => _sections = [])),
           const Spacer(),
-          PillButton(tr('Cancel'), onPressed: widget.onClose),
+          PillButton('Cancel', onPressed: widget.onClose),
           PillButton(widget.preset ? 'Save' : 'Copy',
               variant: ButtonVariant.accent, onPressed: _ready ? _confirm : null),
         ],
         children: [
           if (widget.preset) ...[
-            FieldLabel(tr('Name')),
+            const FieldLabel('Name'),
             const SizedBox(height: 3),
             NameField(
               controller: _name,
@@ -104,7 +103,7 @@ class _SectionsDialogState extends State<_SectionsDialog> {
             ),
             if (replaces) ...[
               const SizedBox(height: 4),
-              Text(tr('Replaces the preset of this name.'),
+              Text('Replaces the preset of this name.',
                   style: editorText(context, size: TextSizes.label, color: palette.muted)),
             ],
             const SizedBox(height: 16),
@@ -220,8 +219,8 @@ class _PresetsDialogState extends State<_PresetsDialog> {
         title: 'Delete “${preset.name}”?',
         width: 360,
         actions: [
-          PillButton(tr('Cancel'), onPressed: () => setState(() => _doomed = null)),
-          PillButton(tr('Delete'), variant: ButtonVariant.negative, onPressed: () {
+          PillButton('Cancel', onPressed: () => setState(() => _doomed = null)),
+          PillButton('Delete', variant: ButtonVariant.negative, onPressed: () {
             editor.presets.delete(preset.id);
             setState(() => _doomed = null);
           }),
@@ -235,13 +234,13 @@ class _PresetsDialogState extends State<_PresetsDialog> {
     return DialogCard(
       title: 'Presets',
       actions: [
-        PillButton(tr('Import Looks…'), onPressed: () => importLooks(context, editor)),
+        PillButton('Import Looks…', onPressed: () => importLooks(context, editor)),
         PillButton('Export All…',
             onPressed: presets.list.isEmpty
                 ? null
                 : () => presets.export([for (final p in presets.list) p.id])),
         const Spacer(),
-        PillButton(tr('Done'), variant: ButtonVariant.accent, onPressed: widget.onClose),
+        PillButton('Done', variant: ButtonVariant.accent, onPressed: widget.onClose),
       ],
       children: [
         if (presets.list.isEmpty) const Note('No presets yet.'),
@@ -261,9 +260,9 @@ class _PresetsDialogState extends State<_PresetsDialog> {
                     ),
                     const SizedBox(width: 8),
                     if (_renaming == preset.id)
-                      PillButton(tr('Rename'), variant: ButtonVariant.accent, onPressed: _renamed)
+                      PillButton('Rename', variant: ButtonVariant.accent, onPressed: _renamed)
                     else
-                      PillButton(tr('Apply'),
+                      PillButton('Apply',
                           onPressed: usable
                               ? () {
                                   presets.applyPreset(preset.id);
@@ -272,14 +271,14 @@ class _PresetsDialogState extends State<_PresetsDialog> {
                               : null),
                     const SizedBox(width: 4),
                     QuietButton(
-                        icon: 'edited', tooltip: tr('Rename'), onPressed: () => _rename(preset)),
+                        icon: 'edited', tooltip: 'Rename', onPressed: () => _rename(preset)),
                     QuietButton(
                         icon: 'export',
-                        tooltip: tr('Export as a Look File…'),
+                        tooltip: 'Export as a Look File…',
                         onPressed: () => presets.export([preset.id])),
                     QuietButton(
                         icon: 'delete',
-                        tooltip: tr('Delete'),
+                        tooltip: 'Delete',
                         onPressed: () => setState(() => _doomed = preset)),
                   ]),
                 ),

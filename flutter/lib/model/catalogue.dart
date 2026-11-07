@@ -6,8 +6,6 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
-import '../l10n/zh.dart';
-
 typedef Json = Map<String, dynamic>;
 
 class SliderSpec {
@@ -39,37 +37,7 @@ class Catalogue {
   static Future<Catalogue> load() async =>
       Catalogue._(jsonDecode(await rootBundle.loadString('assets/generated/controls.json')) as Json);
 
-  /// The catalogue's English as the interface shows it: every title and menu choice goes through
-  /// tr() once, here, so no widget has to know about languages.
-  late final List<Json> _controls = [
-    for (final c in ((module['EDITOR_CONTROLS'] as List?) ?? const []).whereType<Json>())
-      _localized(c),
-  ];
-
-  List<Json> get controls => _controls;
-
-  static Json _localized(Json c) {
-    final host = c['host'];
-    return {
-      ...c,
-      if (c['title'] is String) 'title': tr(c['title'] as String),
-      if (c['choices'] is List)
-        'choices': [
-          for (final choice in (c['choices'] as List).whereType<Map>()) _localizedChoice(choice)
-        ],
-      if (host is Map && host['label'] is String)
-        'host': {...host.cast<String, dynamic>(), 'label': tr(host['label'] as String)},
-    };
-  }
-
-  static Json _localizedChoice(Object? choice) {
-    final map = (choice as Map).cast<String, dynamic>();
-    return {
-      ...map,
-      if (map['label'] is String) 'label': tr(map['label'] as String),
-      if (map['name'] is String) 'name': tr(map['name'] as String),
-    };
-  }
+  List<Json> get controls => (module['EDITOR_CONTROLS'] as List).cast<Json>();
   List<Json> get filmFormats => (module['FILM_FORMATS'] as List).cast<Json>();
   Json get screenConversion => module['SCREEN_CONVERSION'] as Json;
   Json get profileMenus => module['PROFILE_MENUS'] as Json;
@@ -101,7 +69,7 @@ class Catalogue {
     final scale = c['scale'] as Json;
     return SliderSpec(
       key: field,
-      label: tr((c['title'] as String?) ?? field),
+      label: c['title'] as String,
       detail: c['detail'] as String?,
       availability: c['availability'] as String?,
       group: group,
@@ -118,25 +86,25 @@ class Catalogue {
   late final List<SliderSpec> sliders = [
     catalogueSlider('cameraPreflash', 'Light', 0.005),
     catalogueSlider('sceneLightKelvin', 'Source Illuminant', 1),
-    SliderSpec(key: 'ev', label: tr('Exposure'), min: -3, max: 3, step: .05, def: 0, unit: 'EV',
+    SliderSpec(key: 'ev', label: 'Exposure', min: -3, max: 3, step: .05, def: 0, unit: 'EV',
         group: 'Light', detail: detail('exposure')),
-    SliderSpec(key: 'highlights', label: tr('Highlights'), min: -1, max: 1, step: .01, def: 0,
+    SliderSpec(key: 'highlights', label: 'Highlights', min: -1, max: 1, step: .01, def: 0,
         group: 'Light', detail: detail('highlights')),
-    SliderSpec(key: 'shadows', label: tr('Shadows'), min: -1, max: 1, step: .01, def: 0,
+    SliderSpec(key: 'shadows', label: 'Shadows', min: -1, max: 1, step: .01, def: 0,
         group: 'Light', detail: detail('shadows')),
-    SliderSpec(key: 'temperature', label: tr('Temperature'), min: 2000, max: 12000, step: 1,
+    SliderSpec(key: 'temperature', label: 'Temperature', min: 2000, max: 12000, step: 1,
         def: 6504, unit: 'K', group: 'White Balance'),
-    SliderSpec(key: 'tint', label: tr('Tint'), min: -100, max: 100, step: 1, def: 0,
+    SliderSpec(key: 'tint', label: 'Tint', min: -100, max: 100, step: 1, def: 0,
         group: 'White Balance', detail: detail('tint')),
-    SliderSpec(key: 'saturation', label: tr('Saturation'), min: 0, max: 2, step: .01, def: 1,
+    SliderSpec(key: 'saturation', label: 'Saturation', min: 0, max: 2, step: .01, def: 1,
         unit: '×', group: 'Color', detail: detail('saturation')),
-    SliderSpec(key: 'vibrance', label: tr('Vibrance'), min: -1, max: 1, step: .01, def: 0,
+    SliderSpec(key: 'vibrance', label: 'Vibrance', min: -1, max: 1, step: .01, def: 0,
         group: 'Color', detail: detail('vibrance')),
-    SliderSpec(key: 'grain', label: tr('Grain'), min: 0, max: 2, step: .01, def: 1, unit: '×',
+    SliderSpec(key: 'grain', label: 'Grain', min: 0, max: 2, step: .01, def: 1, unit: '×',
         group: 'Character', detail: detail('grain')),
     for (final band in const ['Shadows', 'Midtones', 'Highlights'])
       for (final axis in const ['Warmth', 'Tint', 'Level'])
-        SliderSpec(key: 'grade$band$axis', label: tr(axis), min: -1, max: 1, step: .01, def: 0,
+        SliderSpec(key: 'grade$band$axis', label: axis, min: -1, max: 1, step: .01, def: 0,
             group: band),
     catalogueSlider('blackPoint', 'Output Levels', 0.005),
     catalogueSlider('whitePoint', 'Output Levels', 0.005),
@@ -209,10 +177,6 @@ class Catalogue {
       case 'filmGrainSize' || 'filmColourGrain' || 'filmRedLayer' || 'filmGreenLayer' ||
             'filmBlueLayer' || 'filmScanSoftness':
         return (edit['profile'] as Map?)?['grainModel'] == 'film';
-      // Measured on the phone: these three change nothing unless the film has a layered
-      // construction and the layered halation model is chosen.
-      case 'antiHalation' || 'baseThickness' || 'pressurePlate':
-        return edit['halationModel'] == 'layered' && stock?['layeredTransport'] == true;
       default:
         return true;
     }
@@ -228,13 +192,8 @@ class Catalogue {
       final field = c['field'] as String;
       final stops = ((active['scale'] as Map?)?['stops'] as List?) ?? const [];
       final choices = active['choices'] as List?;
-      if (field == 'push' && stops.isNotEmpty && !stops.contains(value)) {
-        // The engine takes the stops themselves; a value in between used to be written as 0,
-        // which is a control that moves and changes nothing. Take the nearest stop instead.
-        final aimed = (value as num?)?.toDouble() ?? 0;
-        out[field] = stops
-            .map((stop) => (stop as num).toDouble())
-            .reduce((best, stop) => (stop - aimed).abs() < (best - aimed).abs() ? stop : best);
+      if (field == 'push' && !stops.contains(value)) {
+        out[field] = 0;
       } else if (choices != null && !choices.any((choice) => (choice as Map)['id'] == value)) {
         out[field] = profileDefault(active);
       } else {

@@ -97,7 +97,7 @@ class SelectiveTool extends ChangeNotifier {
 
   /// Colour and light, and subjects where the host detects them.
   List<Json> get choices => [
-        for (final c in ((spec['choices'] as List?) ?? const []).cast<Json>())
+        for (final c in (spec['choices'] as List).cast<Json>())
           if (c['native'] != true || editor.engine?.capabilities['subjectSelection'] == true) c,
       ];
 

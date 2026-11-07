@@ -13,7 +13,6 @@ import 'controls.dart';
 import 'grade_deck.dart';
 import 'lens_filters.dart';
 import 'lens_section.dart';
-import '../../l10n/zh.dart';
 
 final _gradeKeys = [
   for (final band in GradeDeck.bands)
@@ -41,7 +40,7 @@ List<Widget> exposePanel(InspectorControls c) {
 
 Section lightSection(InspectorControls c) {
   final negative = printsNegative(c.edit);
-  return Section(title: tr('Light'), children: [
+  return Section(title: 'Light', children: [
     ...c.sliders('Light', film: !negative),
     if (!negative)
       SwitchRow(
@@ -57,7 +56,7 @@ Section lightSection(InspectorControls c) {
 Section? sourceIlluminantSection(InspectorControls c) {
   if (printsNegative(c.edit)) return null;
   final sceneLight = c.catalogue.control('sceneLight');
-  return Section(title: tr('Source Illuminant'), children: [
+  return Section(title: 'Source Illuminant', children: [
     PickerField<String>(
       label: sceneLight['title'] as String,
       detail: sceneLight['detail'] as String?,
@@ -73,16 +72,16 @@ Section? sourceIlluminantSection(InspectorControls c) {
 }
 
 Section whiteBalanceSection(InspectorControls c) =>
-    Section(title: tr('White Balance'), children: c.sliders('White Balance'));
+    Section(title: 'White Balance', children: c.sliders('White Balance'));
 
-Section colorSection(InspectorControls c) => Section(title: tr('Color'), children: c.sliders('Color'));
+Section colorSection(InspectorControls c) => Section(title: 'Color', children: c.sliders('Color'));
 
 /// The grade deck with the print's output levels, and Reset Grade.
 Section gradeSection(InspectorControls c) {
   final editor = c.editor;
   final graded = _gradeKeys.any((k) => (c.params[k] as num? ?? 0) != 0) ||
       _levelsAtRest.entries.any((e) => (c.params[e.key] as num? ?? e.value) != e.value);
-  return Section(title: tr('Grade'), children: [
+  return Section(title: 'Grade', children: [
     GradeDeck(editor: editor),
     ...c.sliders('Output Levels'),
     c.editSwitch('gradeSpace', 'Encoded Grade'),
@@ -104,14 +103,14 @@ Section gradeSection(InspectorControls c) {
 /// The film's long exposure, for a film that has one.
 Section? longExposureSection(InspectorControls c) =>
     !printsNegative(c.edit) && c.available.contains('shutter')
-        ? Section(title: tr('Long Exposure'), children: c.profileControls(const ['shutter']))
+        ? Section(title: 'Long Exposure', children: c.profileControls(const ['shutter']))
         : null;
 
 /// Only a photograph that records light above white has any to keep.
 Section? hdrHighlightsSection(InspectorControls c) {
   final headroom = c.editor.active?.headroom ?? 1;
   if (printsNegative(c.edit) || headroom <= 1) return null;
-  return Section(title: tr('HDR Highlights'), children: [
+  return Section(title: 'HDR Highlights', children: [
     ...c.profileControls(const ['hdrRange', 'hdrRollOff']),
     Note('${_stops(math.log(headroom) / math.ln2)} stops above white recorded'),
   ]);

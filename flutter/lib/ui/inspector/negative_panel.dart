@@ -8,7 +8,6 @@ import '../../model/negatives.dart';
 import '../kit/kit.dart';
 import 'controls.dart';
 import 'scan_controls.dart';
-import '../../l10n/zh.dart';
 
 // The lights a scan can be made under (NegativeScanCrosstalk.Light).
 const _scanLights = [
@@ -38,7 +37,7 @@ List<Widget> negativePanel(InspectorControls c) {
 Section negativeFilmSection(InspectorControls c) {
   final editor = c.editor;
   final suggestions = editor.negatives.suggestions;
-  return Section(title: tr('Negative'), children: [
+  return Section(title: 'Negative', children: [
     InfoRow('Film', c.stock?['name'] as String? ?? 'Normal'),
     if (suggestions.isNotEmpty) const InfoRow('Base looks like', ''),
     for (final s in suggestions)
@@ -56,7 +55,7 @@ Section negativeFilmSection(InspectorControls c) {
 Section filmBaseSection(InspectorControls c) {
   final scans = c.editor.negatives;
   final negative = scans.negative ?? const {};
-  return Section(title: tr('Film Base'), children: [
+  return Section(title: 'Film Base', children: [
     InfoRow('Clear film', negative['border'] != null ? 'Sampled' : 'Estimated'),
     ScanButton(
       'Pick Clear Film',
@@ -74,15 +73,15 @@ Section filmBaseSection(InspectorControls c) {
 Section scanColourSection(InspectorControls c) {
   final scans = c.editor.negatives;
   final negative = scans.negative ?? const {};
-  return Section(title: tr('Colour Separation'), children: [
+  return Section(title: 'Colour Separation', children: [
     PickerField<String>(
-      label: tr('Scanned Under'),
+      label: 'Scanned Under',
       value: negative['scanLight'] as String? ?? 'white',
       options: _scanLights,
       onChanged: (v) => scans.read({'scanLight': v}),
     ),
     AdjustmentRow(
-      label: tr('Crosstalk Correction'),
+      label: 'Crosstalk Correction',
       detail: _crosstalkDetail,
       value: (negative['crosstalk'] as num? ?? 0).toDouble(),
       range: const SliderRange(min: 0, max: 1, step: .01, def: 0),
@@ -99,7 +98,7 @@ Section? lightSourceSection(InspectorControls c) {
   if (!scans.keepsLightFrames) return null;
   final lightFrame = scans.negative?['lightFrame'] as String?;
   final frames = scans.lightFrames;
-  return Section(title: tr('Light Source'), children: [
+  return Section(title: 'Light Source', children: [
     PickerField<String?>(
       value: frames.any((f) => f['id'] == lightFrame) ? lightFrame : null,
       options: [
@@ -109,7 +108,7 @@ Section? lightSourceSection(InspectorControls c) {
       onChanged: (id) => scans.read({'lightFrame': id}),
     ),
     ScanButton('Add Light Frame…', onPressed: scans.chooseLightFrame),
-    ScanButton(tr('Remove Light Frame'),
+    ScanButton('Remove Light Frame',
         onPressed: lightFrame == null ? null : scans.removeLightFrame),
   ]);
 }

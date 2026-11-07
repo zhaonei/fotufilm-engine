@@ -8,7 +8,6 @@ import '../../model/editor.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
 import '../workspace/dialogs.dart';
-import '../../l10n/zh.dart';
 
 /// The output medium's picker, and where the medium reads through bands, their settings.
 class MediumRow extends StatefulWidget {
@@ -33,9 +32,9 @@ class _MediumRowState extends State<MediumRow> {
         if (widget.offersBands) ...[
           const SizedBox(width: 4),
           HoverTip(
-            message: tr('Receiver bands'),
+            message: 'Receiver bands',
             child: _GlyphButton(
-              label: tr('Receiver bands'),
+              label: 'Receiver bands',
               expanded: _open,
               glyph: 'fotu.ui.settings',
               color: _open ? palette.accent : palette.muted,
@@ -110,7 +109,7 @@ class ReceiverBands extends StatelessWidget {
     final rows = <Widget>[
       if (sets.isNotEmpty)
         PickerField<String?>(
-          label: tr('Saved Bands'),
+          label: 'Saved Bands',
           value: saved?['name'] as String?,
           placeholder: 'Unsaved',
           options: [for (final s in sets) PickerOption(s['name'] as String, s['name'] as String)],
@@ -131,15 +130,15 @@ class ReceiverBands extends StatelessWidget {
           Text('nm', style: editorText(context, size: TextSizes.label)),
         ]),
       SwitchRow(
-        label: tr('Use for New Photos'),
+        label: 'Use for New Photos',
         value: sameBands(bands.starting, current),
         onChanged: (on) => bands.starting = on ? current : null,
       ),
       Wrap(spacing: 6, runSpacing: 6, children: [
-        PillButton(tr('Save Bands…'), onPressed: () => showBandSetDialog(context, editor)),
+        PillButton('Save Bands…', onPressed: () => showBandSetDialog(context, editor)),
         if (saved != null)
           PillButton('Delete Set', onPressed: () => bands.delete(saved['name'] as String)),
-        PillButton(tr('Reset Bands'), onPressed: moved ? () => apply(null) : null),
+        PillButton('Reset Bands', onPressed: moved ? () => apply(null) : null),
       ]),
     ];
     return Container(
@@ -202,14 +201,14 @@ class _BandSetDialogState extends State<_BandSetDialog> {
     final name = _name.text.trim();
     final replaces = bands.sets.any((s) => s['name'] == name);
     return DialogCard(
-      title: tr('Save Bands'),
+      title: 'Save Bands',
       width: 360,
       actions: [
-        PillButton(tr('Cancel'), onPressed: widget.onClose),
-        PillButton(tr('Save'), variant: ButtonVariant.accent, onPressed: name.isEmpty ? null : _save),
+        PillButton('Cancel', onPressed: widget.onClose),
+        PillButton('Save', variant: ButtonVariant.accent, onPressed: name.isEmpty ? null : _save),
       ],
       children: [
-        FieldLabel(tr('Name')),
+        FieldLabel('Name'),
         const SizedBox(height: 3),
         Container(
           height: Metrics.control + 4,

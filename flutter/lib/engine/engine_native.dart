@@ -13,7 +13,6 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
-import '../debug/log_tape.dart';
 import 'engine.dart';
 import 'fotufilm_ffi.dart';
 
@@ -87,10 +86,6 @@ class NativeEngine implements EngineConnection {
   @override
   Future<EngineReply> call(String method, [Map<String, dynamic> params = const {},
       Uint8List? payload]) {
-    // Every call crosses to the engine's own isolate, so the UI thread is never the one waiting.
-    // What it does cost is time, and a slow call is what a stall in the interface is made of;
-    // anything over 200 ms says so in logcat, with the method that took it.
-    final watch = Stopwatch()..start();
     final id = _next++;
     final completer = _pending[id] = Completer<EngineReply>();
     _commands.send((
@@ -100,13 +95,7 @@ class NativeEngine implements EngineConnection {
       payload == null ? null : TransferableTypedData.fromList([payload]),
       false,
     ));
-    return completer.future.whenComplete(() {
-      final ms = watch.elapsedMilliseconds;
-      if (ms > 200) {
-        // A stall in the interface is a slow host call; over a second it also says so on screen.
-        LogTape.record('engine $method took $ms ms', urgent: ms > 1000);
-      }
-    });
+    return completer.future;
   }
 
   @override

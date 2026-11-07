@@ -6,7 +6,6 @@ import '../../model/editor.dart';
 import '../kit/kit.dart';
 import 'controls.dart';
 import 'format_picker.dart';
-import '../../l10n/zh.dart';
 
 /// A chosen format goes back to the camera's or the film's; otherwise which one is followed.
 List<Widget> _following(EditorModel editor) {
@@ -31,13 +30,13 @@ List<Widget> _following(EditorModel editor) {
 
 List<Widget> filmPanel(InspectorControls c) {
   if (!c.hasFilm) {
-    return [
-      Section(title: tr('Normal'), children: [InfoRow('Stock', 'None')]),
+    return const [
+      Section(title: 'Normal', children: [InfoRow('Stock', 'None')]),
     ];
   }
   final fixed = c.fixedSettings;
   return [
-    Section(title: tr('Loaded Film'), children: [
+    Section(title: 'Loaded Film', children: [
       if (fixed) const Note('Fixed profile: film settings are off.'),
       InfoRow('Stock', c.stock?['name'] as String? ?? ''),
     ]),
@@ -51,10 +50,10 @@ List<Widget> filmPanel(InspectorControls c) {
 Section? filmFormatSection(InspectorControls c) {
   if (c.fixedSettings) return null;
   final editor = c.editor;
-  return Section(title: tr('Film Format'), children: [
+  return Section(title: 'Film Format', children: [
     FormatPicker(editor: editor),
     SwitchRow(
-      label: tr('Magnified Detail'),
+      label: 'Magnified Detail',
       value: editor.formatDetail,
       onChanged: editor.setFormatDetail,
     ),
@@ -64,11 +63,11 @@ Section? filmFormatSection(InspectorControls c) {
 
 Section? filmConditionSection(InspectorControls c) => c.fixedSettings
     ? null
-    : Section(title: tr('Film Condition'), children: c.profileControls(const ['expired']));
+    : Section(title: 'Film Condition', children: c.profileControls(const ['expired']));
 
-Section halationSection(InspectorControls c) => Section(title: tr('Halation'), children: [
+Section halationSection(InspectorControls c) => Section(title: 'Halation', children: [
       PickerField<String>(
-        label: tr('Halation Model'),
+        label: 'Halation Model',
         detail: c.catalogue.detail('halationModel'),
         value: c.edit['halationModel'] as String? ?? 'legacy',
         options: const [
@@ -88,15 +87,4 @@ Section halationSection(InspectorControls c) => Section(title: tr('Halation'), c
         'pressurePlate',
         'estimatedHalation',
       ]),
-      const Note('0 档 = 原样；点“增强光晕”可直接看到效果。'),
-      QuietButton(
-        label: tr('Boost Halation'),
-        onPressed: () => editor.change({
-          'profile': {
-            ...?c.edit['profile'] as Map?,
-            'halation': 4.0,
-            'halationReturn': 0.25,
-          }
-        }),
-      ),
     ]);

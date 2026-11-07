@@ -6,7 +6,6 @@ import '../../../model/library_model.dart';
 import '../../kit/kit.dart';
 import '../../theme/theme.dart';
 import 'library_folders.dart' show formatCount;
-import '../../../l10n/zh.dart';
 
 /// The grid's filters.
 typedef LibraryFilters = ({String search, String sort, int minRating, bool editedOnly});
@@ -123,7 +122,7 @@ class _LibraryBarState extends State<LibraryBar> {
         ),
         const SizedBox(width: 8),
         HoverTip(
-          message: tr('Thumbnail size'),
+          message: 'Thumbnail size',
           child: SizedBox(
             width: 88,
             child: TrackSlider(

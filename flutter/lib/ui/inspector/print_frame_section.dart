@@ -4,7 +4,6 @@ import 'package:flutter/widgets.dart';
 
 import '../../model/editor.dart';
 import '../kit/kit.dart';
-import '../../l10n/zh.dart';
 
 class PrintFrameSection extends StatelessWidget {
   const PrintFrameSection({super.key, required this.editor});
@@ -30,14 +29,14 @@ class PrintFrameSection extends StatelessWidget {
     final frameCount = editor.catalogue.control('printFrameCount');
     final camera = editor.catalogue.control('printFrameCamera');
     final printsEdge = editor.edit['printFrameEdgePrinting'] as bool? ?? true;
-    return Section(title: tr('Frame'), children: [
+    return Section(title: 'Frame', children: [
       PickerField<String>(
         label: control['title'] as String,
         detail: control['detail'] as String?,
         value: value,
         enabled: !frames.pending && error == null,
         options: [
-          for (final c in ((control['choices'] as List?) ?? const []).cast<Json>())
+          for (final c in (control['choices'] as List).cast<Json>())
             if (c['id'] == value || available.contains(c['id']))
               PickerOption(c['id'] as String, c['label'] as String),
         ],
@@ -65,7 +64,7 @@ class PrintFrameSection extends StatelessWidget {
             value: (editor.edit['printFrameNumber'] as num? ?? 1).toInt(),
             enabled: !frames.pending,
             options: [
-              for (final c in ((frameNumber['choices'] as List?) ?? const []).cast<Json>())
+              for (final c in (frameNumber['choices'] as List).cast<Json>())
                 PickerOption((c['value'] as num).toInt(), c['label'] as String),
             ],
             onChanged: (number) => editor.change({'printFrameNumber': number}),
@@ -79,7 +78,7 @@ class PrintFrameSection extends StatelessWidget {
           value: (editor.edit['printFrameCount'] as num? ?? 1).toInt(),
           enabled: !frames.pending,
           options: [
-            for (final c in ((frameCount['choices'] as List?) ?? const []).cast<Json>())
+            for (final c in (frameCount['choices'] as List).cast<Json>())
               PickerOption((c['value'] as num).toInt(), c['label'] as String),
           ],
           onChanged: (count) => editor.change({'printFrameCount': count}),
@@ -92,7 +91,7 @@ class PrintFrameSection extends StatelessWidget {
           value: editor.edit['printFrameCamera'] as String? ?? 'panoramic',
           enabled: !frames.pending,
           options: [
-            for (final c in ((camera['choices'] as List?) ?? const []).cast<Json>())
+            for (final c in (camera['choices'] as List).cast<Json>())
               PickerOption(c['id'] as String, c['label'] as String),
           ],
           onChanged: (choice) => editor.change({'printFrameCamera': choice}),

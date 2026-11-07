@@ -7,7 +7,6 @@ import '../../model/catalogue.dart';
 import '../kit/kit.dart';
 import '../theme/theme.dart';
 import 'app_dialogs.dart';
-import '../../l10n/zh.dart';
 
 class SupportDialog extends StatelessWidget {
   const SupportDialog({super.key, required this.onClose});
@@ -32,7 +31,7 @@ class SupportDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AppDialogCard(
-        title: tr('Browser support'),
+        title: 'Browser support',
         onDismiss: onClose,
         children: [
           for (final p in _copy)
