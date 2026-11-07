@@ -445,6 +445,27 @@ jobs:
           ./flutter/build-android.sh
           ls -lh build/flutter-host/Fotufilm.apk
 
+      - name: Re-sign the APK with v1 and v2 only
+        # AGP signs v1 + v2 + v3. VIVO's installer answers "软件包似乎无效 / 安装包缺乏开发者证书"
+        # for that combination while apksigner verifies all three, and a re-sign in MT Manager --
+        # which writes v1 + v2 -- installed. So the schemes are written here explicitly instead,
+        # from the keystore in the tree, and v3 is left out.
+        run: |
+          sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          BT="$(find "$sdk/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)"
+          JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
+          apk=build/flutter-host/Fotufilm.apk
+          "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" sign \
+            --ks android-shell/keystore/fotufilm-shell.jks \
+            --ks-pass pass:fotufilm --key-pass pass:fotufilm --ks-key-alias fotufilm \
+            --min-sdk-version 24 \
+            --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled false \
+            --out build/flutter-host/resigned.apk "$apk"
+          mv build/flutter-host/resigned.apk "$apk"
+          echo "--- schemes in the APK that ships ---"
+          "$JAVA_HOME/bin/java" -jar "$BT/lib/apksigner.jar" verify --min-sdk-version 18 -v "$apk" |
+            grep 'scheme ('
+
       - name: Check the APK an installer will read
         run: |
           sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
