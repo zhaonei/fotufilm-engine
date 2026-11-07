@@ -217,6 +217,11 @@ class Catalogue {
       case 'filmGrainSize' || 'filmColourGrain' || 'filmRedLayer' || 'filmGreenLayer' ||
             'filmBlueLayer' || 'filmScanSoftness':
         return (edit['profile'] as Map?)?['grainModel'] == 'film';
+      // Measured: these three change nothing unless the film has a layered construction and the
+      // layered halation model is chosen -- the base's return path is never walked otherwise.
+      // They are hidden rather than shown doing nothing.
+      case 'antiHalation' || 'baseThickness' || 'pressurePlate':
+        return edit['halationModel'] == 'layered' && stock?['layeredTransport'] == true;
       default:
         return true;
     }
