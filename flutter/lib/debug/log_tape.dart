@@ -26,9 +26,6 @@ class LogTape {
   static bool showBanners = true;
   static void Function(bool on)? persistBanners;
 
-  /// Set by main.dart: runs the on-device lever check and writes its lines to the tape. The tape
-  /// does not know the editor, so the action arrives as a hook.
-  static Future<void> Function()? selfCheck;
 
   static final List<String> _lines = [];
   static final ValueNotifier<int> _revision = ValueNotifier<int>(0);
@@ -212,17 +209,6 @@ class _LogTapeLayerState extends State<LogTapeLayer> {
                 child: Row(children: [
                   const Text('日志', style: TextStyle(color: _ink, fontSize: 13)),
                   const Spacer(),
-                  if (LogTape.selfCheck != null)
-                    GestureDetector(
-                      onTap: () {
-                        setState(() => _open = true);
-                        LogTape.selfCheck!.call();
-                      },
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        child: Text('自检', style: TextStyle(color: _ink, fontSize: 12)),
-                      ),
-                    ),
                   GestureDetector(
                     onTap: _toggleBanners,
                     child: Padding(

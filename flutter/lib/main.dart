@@ -174,7 +174,6 @@ class _BootState extends State<Boot> {
       LogTape.showBanners = false;
       LogTape.persistBanners = null;
       final editor = EditorModel(catalogue, settings: settings);
-      LogTape.selfCheck = editor.runLeverCheck;
 
       _showStage('Starting the engine…');
       if (!mounted) return;

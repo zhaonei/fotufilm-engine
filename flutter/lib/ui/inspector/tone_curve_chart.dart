@@ -1,5 +1,5 @@
-// The Output panel's tone curve: how the edit's film, output medium and grade carry each input
-// tone, per channel, over the photograph's own tones on the same input axis.
+// The inspector's tone curve, above its heading: how the edit's film, output medium and grade
+// carry each input tone, per channel, over the photograph's own tones on the same input axis.
 import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
@@ -12,8 +12,11 @@ import '../workspace/histogram_panel.dart' show histogramColors;
 import '../../l10n/zh.dart';
 
 class ToneCurveChart extends StatelessWidget {
-  const ToneCurveChart({super.key, required this.editor});
+  const ToneCurveChart({super.key, required this.editor, this.padding = EdgeInsets.zero});
   final EditorModel editor;
+
+  /// Around the chart while it is drawn; it takes no room while it has no curve.
+  final EdgeInsets padding;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -22,17 +25,20 @@ class ToneCurveChart extends StatelessWidget {
           final curve = (editor.toneCurve..follow()).curve;
           if (curve == null) return const SizedBox.shrink();
           final palette = Palette.of(context);
-          return Semantics(
-            label: tr('Tone curve'),
-            value: _description(curve),
-            child: AspectRatio(
-              aspectRatio: 280 / 168,
-              child: CustomPaint(
-                painter: _ToneCurvePainter(
-                  curve: curve,
-                  palette: palette,
-                  colors: histogramColors(palette.dark),
-                  labelStyle: editorText(context, size: 8, color: palette.muted),
+          return Padding(
+            padding: padding,
+            child: Semantics(
+              label: tr('Tone curve'),
+              value: _description(curve),
+              child: AspectRatio(
+                aspectRatio: 280 / 168,
+                child: CustomPaint(
+                  painter: _ToneCurvePainter(
+                    curve: curve,
+                    palette: palette,
+                    colors: histogramColors(palette.dark),
+                    labelStyle: editorText(context, size: 8, color: palette.muted),
+                  ),
                 ),
               ),
             ),

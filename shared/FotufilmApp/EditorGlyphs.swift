@@ -1,3 +1,6 @@
+#if canImport(FotufilmCore)
+import FotufilmCore
+#endif
 #if canImport(FotufilmEditModel)
 import FotufilmEditModel
 #endif
@@ -103,6 +106,19 @@ enum Glyph {
         case .frameLocal: return "fotu.tab.local"
         case .pipeline: return "fotu.tab.pipeline"
         }
+    }
+
+    /// Each grain model as its grain looks close up: the clump field's soft mottle, the film's
+    /// separate crystals.
+    static func grain(_ model: GrainModel) -> String {
+        "fotu.grain.\(model.rawValue)"
+    }
+
+    /// Each film format as its frame on its own stock: motion film runs down the strip, still film
+    /// across it, instant film is the print with its deep lower edge and sheet film carries its
+    /// notch code. `nil` is the film's own format, drawn as a cassette.
+    static func format(_ id: String?) -> String {
+        "fotu.format.\(id ?? "stock")"
     }
 
     /// The symbols at a slider's low and high ends. The glyph set draws a pair for every

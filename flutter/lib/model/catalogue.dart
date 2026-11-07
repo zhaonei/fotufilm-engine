@@ -39,10 +39,8 @@ class Catalogue {
   static Future<Catalogue> load() async =>
       Catalogue._(jsonDecode(await rootBundle.loadString('assets/generated/controls.json')) as Json);
 
-  /// The catalogue's English as the interface shows it: every title and every menu choice is put
-  /// through l10n/zh.dart's tr() once, here, so no widget has to know about languages. The
-  /// entries stay whole maps -- the screens read `title`, `choices[].label` and `host.label`
-  /// straight out of them.
+  /// The catalogue's English as the interface shows it: every title and menu choice goes through
+  /// tr() once, here, so no widget has to know about languages.
   late final List<Json> _controls = [
     for (final c in ((module['EDITOR_CONTROLS'] as List?) ?? const []).whereType<Json>())
       _localized(c),
@@ -72,10 +70,9 @@ class Catalogue {
       if (map['name'] is String) 'name': tr(map['name'] as String),
     };
   }
-  List<Json> get filmFormats =>
-      ((module['FILM_FORMATS'] as List?) ?? const []).cast<Json>();
-  Json get screenConversion => (module['SCREEN_CONVERSION'] as Json?) ?? const {};
-  Json get profileMenus => (module['PROFILE_MENUS'] as Json?) ?? const {};
+  List<Json> get filmFormats => (module['FILM_FORMATS'] as List).cast<Json>();
+  Json get screenConversion => module['SCREEN_CONVERSION'] as Json;
+  Json get profileMenus => module['PROFILE_MENUS'] as Json;
 
   Json control(String field) => controls.firstWhere((c) => c['field'] == field,
       orElse: () => throw StateError('Unknown editor control: $field'));
@@ -96,22 +93,24 @@ class Catalogue {
     'degrees': '°',
   };
 
+  /// What a value in a catalogue `unit` is written with: `EV`, `K`, `×`; nothing for most.
+  static String unitSymbol(Object? unit) => _units[unit] ?? '';
+
   SliderSpec catalogueSlider(String field, String group, [double step = 0.01]) {
     final c = control(field);
-    // A control the engine reports without a scale still gets a slider, at neutral: a missing key
-    // here used to be a cast error, which took the whole inspector down with it.
-    final scale = (c['scale'] as Json?) ?? const <String, dynamic>{};
+    final scale = c['scale'] as Json;
     return SliderSpec(
       key: field,
       label: tr((c['title'] as String?) ?? field),
       detail: c['detail'] as String?,
       availability: c['availability'] as String?,
-      group: group,   // a lookup key, compared in ui/inspector/controls.dart: not translated
+      group: group,
       step: step,
-      min: (scale['min'] as num?)?.toDouble() ?? 0,
-      max: (scale['max'] as num?)?.toDouble() ?? 1,
-      def: (scale['neutral'] as num?)?.toDouble() ?? 0,
-      unit: _units[scale['unit']] ?? '',
+      min: (scale['min'] as num).toDouble(),
+      max: (scale['max'] as num).toDouble(),
+      def: (scale['neutral'] as num).toDouble(),
+      // A percentage is kept as a fraction and written ×100.
+      unit: scale['unit'] == 'percent' ? '%' : unitSymbol(scale['unit']),
     );
   }
 
@@ -148,21 +147,14 @@ class Catalogue {
   late final List<Json> profileControls = [
     for (final c in controls)
       if (c['webTransform'] == 'profile')
-        {
-          ...c,
-          'choices': [
-            for (final choice
-                in ((c['choices'] ?? profileMenus[c['field']]) as List?) ?? const [])
-              _localizedChoice(choice)
-          ],
-        },
+        {...c, 'choices': c['choices'] ?? profileMenus[c['field']]},
   ];
 
   static Object? profileDefault(Json c) {
     final scale = c['scale'];
     if (scale is Map && scale['neutral'] != null) return scale['neutral'];
     final curve = c['curve'];
-    if (curve is Map) return [for (final _ in (curve['handles'] as List?) ?? const []) curve['neutral']];
+    if (curve is Map) return [for (final _ in curve['handles'] as List) curve['neutral']];
     if (c['kind'] == 'toggle') return c['restingOn'];
     final choices = c['choices'];
     if (choices is List && choices.isNotEmpty) return (choices.first as Map)['id'];
@@ -217,9 +209,8 @@ class Catalogue {
       case 'filmGrainSize' || 'filmColourGrain' || 'filmRedLayer' || 'filmGreenLayer' ||
             'filmBlueLayer' || 'filmScanSoftness':
         return (edit['profile'] as Map?)?['grainModel'] == 'film';
-      // Measured: these three change nothing unless the film has a layered construction and the
-      // layered halation model is chosen -- the base's return path is never walked otherwise.
-      // They are hidden rather than shown doing nothing.
+      // Measured on the phone: these three change nothing unless the film has a layered
+      // construction and the layered halation model is chosen.
       case 'antiHalation' || 'baseThickness' || 'pressurePlate':
         return edit['halationModel'] == 'layered' && stock?['layeredTransport'] == true;
       default:
@@ -238,9 +229,8 @@ class Catalogue {
       final stops = ((active['scale'] as Map?)?['stops'] as List?) ?? const [];
       final choices = active['choices'] as List?;
       if (field == 'push' && stops.isNotEmpty && !stops.contains(value)) {
-        // The engine takes the stops themselves (-2, 0, 1, 2). An in-between value used to be
-        // written as 0 here, which is a control that moves and changes nothing; take the nearest
-        // stop the person aimed at instead.
+        // The engine takes the stops themselves; a value in between used to be written as 0,
+        // which is a control that moves and changes nothing. Take the nearest stop instead.
         final aimed = (value as num?)?.toDouble() ?? 0;
         out[field] = stops
             .map((stop) => (stop as num).toDouble())
@@ -263,8 +253,7 @@ class Catalogue {
 
   /// The source illuminant the edit asks the film to be balanced for (editor-catalogue.js).
   num? sourceIlluminant(Json edit) {
-    final choices =
-        ((control('sceneLight')['choices'] as List?) ?? const []).cast<Json>();
+    final choices = (control('sceneLight')['choices'] as List).cast<Json>();
     final choice = choices.firstWhere((c) => c['id'] == edit['sceneLight'],
         orElse: () => choices.first);
     if (choice['id'] == 'custom') return (edit['params'] as Map)['sceneLightKelvin'] as num?;

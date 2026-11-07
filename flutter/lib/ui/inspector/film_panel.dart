@@ -30,7 +30,6 @@ List<Widget> _following(EditorModel editor) {
 }
 
 List<Widget> filmPanel(InspectorControls c) {
-  final editor = c.editor;
   if (!c.hasFilm) {
     return [
       Section(title: tr('Normal'), children: [InfoRow('Stock', 'None')]),
@@ -42,17 +41,32 @@ List<Widget> filmPanel(InspectorControls c) {
       if (fixed) const Note('Fixed profile: film settings are off.'),
       InfoRow('Stock', c.stock?['name'] as String? ?? ''),
     ]),
-    if (!fixed) Section(title: tr('Film Format'), children: [
-      FormatPicker(editor: editor),
-      SwitchRow(
-        label: tr('Magnified Detail'),
-        value: editor.formatDetail,
-        onChanged: editor.setFormatDetail,
-      ),
-      ..._following(editor),
-    ]),
-    if (!fixed) Section(title: tr('Film Condition'), children: c.profileControls(const ['expired'])),
-    Section(title: tr('Halation'), children: [
+    ?filmFormatSection(c),
+    ?filmConditionSection(c),
+    halationSection(c),
+  ];
+}
+
+/// The format chosen by eye; a fixed profile has none.
+Section? filmFormatSection(InspectorControls c) {
+  if (c.fixedSettings) return null;
+  final editor = c.editor;
+  return Section(title: tr('Film Format'), children: [
+    FormatPicker(editor: editor),
+    SwitchRow(
+      label: tr('Magnified Detail'),
+      value: editor.formatDetail,
+      onChanged: editor.setFormatDetail,
+    ),
+    ..._following(editor),
+  ]);
+}
+
+Section? filmConditionSection(InspectorControls c) => c.fixedSettings
+    ? null
+    : Section(title: tr('Film Condition'), children: c.profileControls(const ['expired']));
+
+Section halationSection(InspectorControls c) => Section(title: tr('Halation'), children: [
       PickerField<String>(
         label: tr('Halation Model'),
         detail: c.catalogue.detail('halationModel'),
@@ -61,7 +75,7 @@ List<Widget> filmPanel(InspectorControls c) {
           PickerOption('legacy', 'Legacy'),
           PickerOption('layered', 'Layered Transport'),
         ],
-        onChanged: (v) => editor.change({'halationModel': v}),
+        onChanged: (v) => c.editor.change({'halationModel': v}),
       ),
       ...c.profileControls(const [
         'halation',
@@ -74,24 +88,15 @@ List<Widget> filmPanel(InspectorControls c) {
         'pressurePlate',
         'estimatedHalation',
       ]),
-      // Halation is a multiplier in stops (0 leaves the film exactly as it is), and how bright the
-      // halo is also depends on the film's own return, which most stocks state at well under one
-      // percent. Both have to move before anything shows, which looks like a dead slider.
       const Note('0 档 = 原样；点“增强光晕”可直接看到效果。'),
       QuietButton(
         label: tr('Boost Halation'),
         onPressed: () => editor.change({
           'profile': {
             ...?c.edit['profile'] as Map?,
-            // The engine multiplies three numbers: the film's return ratio, exp2(stops) and the
-            // stock's look scale. Stock returns sit at patent-floor densities -- 0.8% here -- so
-            // 0.008 x 1 x 1 is invisible by construction. +4 stops and a 25% return is 0.25 x 16
-            // = 4: unmistakable, and one Undo away from where it was.
             'halation': 4.0,
             'halationReturn': 0.25,
           }
         }),
       ),
-    ]),
-  ];
-}
+    ]);
