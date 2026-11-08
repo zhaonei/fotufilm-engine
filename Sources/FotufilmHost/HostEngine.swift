@@ -414,8 +414,8 @@ public final class HostEngine {
         var options = try options(edit, stock: film ?? .noFilm, contentHeadroom: contentHeadroom)
         if film != nil { options.unexposedEdge = unexposedEdge }
         try develop(scene, width: width, height: height, film: film, options: options,
-                    frameIndex: frameIndex, realtime: realtime, draft: draft,
-                    exactMath: exactMath, into: target)
+                    frameIndex: frameIndex, realtime: realtime, exactMath: exactMath,
+                    draft: draft, into: target)
     }
 
     /// A video frame's decoded 8-bit Display P3 codes developed in one pass, as the Mac app plays
