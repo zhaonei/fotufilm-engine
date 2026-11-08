@@ -52,8 +52,10 @@ struct HalideGPUDeveloper: HostDeveloper {
         }
         // Metal and CUDA floor the light in the kernel; Vulkan leaves negative components for the
         // host's display conversion, as the browser's graph does.
+        let tidied = DispatchTime.now().uptimeNanoseconds
         for index in output.indices { output[index] = max(output[index], 0) }
         for index in 0..<(width * height) { output[index * 4 + 3] = 1 }
+        HostTimingNotes.shared.note("  floor/alpha \(width)x\(height)", since: tidied)
         output.withUnsafeBufferPointer { deliver($0, 0..<height, false) }
     }
 
@@ -61,12 +63,18 @@ struct HalideGPUDeveloper: HostDeveloper {
                               noFilm: Bool, options: FotufilmEngine.Options,
                               pace: HostDevelopPace,
                               shouldContinue: () -> Bool) throws -> [Float] {
+        // Where a develop's time goes, one note per stage: preparing the invocation (the film's
+        // tables and the grain), measuring the scene, the kernel, and the tidy-up. Guessing at
+        // which of them a stutter is made of is how a profiling round gets wasted.
+        let prepared = DispatchTime.now().uptimeNanoseconds
         var invocation = try FilmEngineInvocation(
             validating: stock, options: options, width: width, height: height,
             frameIndex: pace.frameIndex, noFilm: noFilm)
+        HostTimingNotes.shared.note("  invocation", since: prepared)
         if pace.realtime { invocation.featureMask |= FilmEngineFeature.realtime }
         if pace.exactMath { invocation.featureMask |= FilmEngineFeature.exactMath }
         // Whole-frame measurements, as the Mac's renderer takes them before developing.
+        let measured = DispatchTime.now().uptimeNanoseconds
         scene.withUnsafeBufferPointer { rows in
             if invocation.featureMask & FilmEngineFeature.flare != 0 {
                 invocation.flareMean = invocation.measuredAreaWeightedFlareMean(
@@ -78,18 +86,23 @@ struct HalideGPUDeveloper: HostDeveloper {
                 invocation.setToneBase(measurement)
             }
         }
+        HostTimingNotes.shared.note("  meter", since: measured)
         guard shouldContinue() else {
             throw HostEngine.Failure(description: "Cancelled.", cancelled: true)
         }
         var output = [Float](repeating: 0, count: width * height * 4)
+        let ran = DispatchTime.now().uptimeNanoseconds
         var status = Self.run(scene, width: width, height: height, invocation, light: false,
                               into: &output)
+        HostTimingNotes.shared.note("  kernel \(width)x\(height)", since: ran)
         // A develop whose realtime schedule this build does not carry (no film has none) runs on
         // the reference one, as the Mac's developer does.
         if status == -3, pace.realtime, shouldContinue() {
             invocation.featureMask &= ~FilmEngineFeature.realtime
+            let retried = DispatchTime.now().uptimeNanoseconds
             status = Self.run(scene, width: width, height: height, invocation, light: false,
                               into: &output)
+            HostTimingNotes.shared.note("  kernel retried \(width)x\(height)", since: retried)
         }
         guard status == 0 else {
             let cancelled = !shouldContinue()
@@ -106,6 +119,7 @@ struct HalideGPUDeveloper: HostDeveloper {
                                 options: FotufilmEngine.Options, model: LayeredTransport,
                                 pace: HostDevelopPace) throws -> [Float] {
         let n = width * height
+        let built = DispatchTime.now().uptimeNanoseconds
         var image = ImageBuffer(width: width, height: height)
         for i in 0..<n {
             for c in 0..<3 {
@@ -113,15 +127,18 @@ struct HalideGPUDeveloper: HostDeveloper {
                 image.planes[c][i] = value.isFinite ? value : 0
             }
         }
+        HostTimingNotes.shared.note("  layered planes", since: built)
         let name = name
         let execution = TransportExecution(
             render: { image, invocation, light in
                 try Self.render(image, invocation, light: light, name: name)
             },
             backend: .cpu)
+        let processed = DispatchTime.now().uptimeNanoseconds
         let developed = try LayeredTransportRenderer.process(
             image: image, stock: stock, options: options, model: model,
             frameIndex: pace.frameIndex, execution: execution)
+        HostTimingNotes.shared.note("  layered transport", since: processed)
         var output = [Float](repeating: 1, count: n * 4)
         for i in 0..<n {
             for c in 0..<3 { output[i * 4 + c] = developed.planes[c][i] }

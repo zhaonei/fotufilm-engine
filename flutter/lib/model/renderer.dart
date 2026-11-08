@@ -72,7 +72,12 @@ class Renderer {
   /// `edge * sqrt(budget / measured)`, damped here because the fixed part of a develop (the
   /// kernel's prepare, the frame's transfer) does not shrink with the edge.
   static const draftBudgetMilliseconds = 11.0;
-  static const smallestDraftEdge = 320;
+  static const smallestDraftEdge = 240;
+
+  /// How long the hand has to be still before the background pictures (the film rows, the format
+  /// tiles) may take the engine: a develop there costs a quarter of a second and cannot be
+  /// interrupted, so starting one 250 ms after a slider step is how a drag loses its next frame.
+  static const backgroundQuiet = 900;
 
   /// How far one step may take the edge, either way, so a noisy measurement rocks the resolution
   /// by a few percent rather than by half.
@@ -216,7 +221,10 @@ class Renderer {
     _dirty = true;
     _background?.cancel();
     if (_running) {
-      if (_foreground && !_draft && !holdCancel && !playing) engine.cancel();
+      // A draft in flight is left alone -- cancelling every one leaves the picture still until
+      // the hand stops. Anything else gives way, background thumbnails included: one of their
+      // develops is a quarter of a second the next step of a drag would spend queued behind it.
+      if (!(_foreground && _draft) && !holdCancel && !playing) engine.cancel();
       return;
     }
     _run();
@@ -246,6 +254,7 @@ class Renderer {
       }
     } finally {
       _running = false;
+      _lastForegroundAt = DateTime.now().millisecondsSinceEpoch;
     }
     _background = Timer(const Duration(milliseconds: 250), _runBackground);
   }
@@ -415,9 +424,20 @@ class Renderer {
 
   // ── Background ────────────────────────────────────────────────────────────────────────────
 
+  /// When the engine last finished the foreground's work.
+  int _lastForegroundAt = 0;
+
   Future<void> _runBackground() async {
     final doc = host.active;
     if (doc == null || _running || playing || doc.history.group != null) return;
+    // The hand comes first. A background develop is a quarter of a second the next step of a
+    // drag would spend queued behind it, and it cannot be interrupted.
+    final since = DateTime.now().millisecondsSinceEpoch - _lastForegroundAt;
+    if (since < backgroundQuiet) {
+      _background?.cancel();
+      _background = Timer(Duration(milliseconds: backgroundQuiet - since), _runBackground);
+      return;
+    }
     _running = true;
     _moreShown = false;
     try {

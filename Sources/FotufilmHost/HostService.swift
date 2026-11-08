@@ -1474,35 +1474,19 @@ public final class HostService {
 
     // MARK: Timing notes
 
-    /// What each call cost inside the engine, for the editor's log panel: appended as the develops
-    /// and the geometry run, carried in every answer (`"timings"`), and printed there when a note
-    /// is over the tape's threshold. Instrumentation only: nothing reads what it measures.
-    private var timingNotes: [(id: Int, name: String, ms: Double)] = []
-    private var timingID = 0
-    private let timingLock = NSLock()
-
     /// Records how long something took, in the ring the next answer carries.
     func note(_ name: String, since started: UInt64) {
-        note(name, milliseconds:
-                Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6)
+        HostTimingNotes.shared.note(name, since: started)
     }
 
     /// Records a measurement already made -- a develop's own clock, say.
     func note(_ name: String, milliseconds: Double) {
-        timingLock.lock()
-        defer { timingLock.unlock() }
-        timingID += 1
-        timingNotes.append((timingID, name, milliseconds))
-        if timingNotes.count > 48 { timingNotes.removeFirst(timingNotes.count - 48) }
+        HostTimingNotes.shared.note(name, milliseconds: milliseconds)
     }
 
     /// The notes the answer carries. Ids only ever climb, so the page prints each one once even
     /// though every answer restates the ring.
-    private func timingJSON() -> [[String: Any]] {
-        timingLock.lock()
-        defer { timingLock.unlock() }
-        return timingNotes.map { ["id": $0.id, "name": $0.name, "ms": $0.ms] }
-    }
+    private func timingJSON() -> [[String: Any]] { HostTimingNotes.shared.json() }
 
     // MARK: Answers
 
@@ -1536,5 +1520,37 @@ extension WebNativeEdit {
         var edit = self
         edit.profileRequest.format = sensor.gauge.id
         return edit
+    }
+}
+
+/// What the engine spent its time on, in one ring per process: the host's calls add to it as they
+/// run, every answer restates it as `"timings"`, and the editor's log tape prints the slow ones.
+/// The developers add to it too, so the stages inside a develop can be told apart. Instrumentation
+/// only -- nothing here reads what it measures, and nothing it measures changes what is computed.
+final class HostTimingNotes: @unchecked Sendable {
+    static let shared = HostTimingNotes()
+
+    private let lock = NSLock()
+    private var notes: [(id: Int, name: String, ms: Double)] = []
+    private var next = 0
+
+    private init() {}
+
+    func note(_ name: String, since started: UInt64) {
+        note(name, milliseconds: Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6)
+    }
+
+    func note(_ name: String, milliseconds: Double) {
+        lock.lock()
+        defer { lock.unlock() }
+        next += 1
+        notes.append((next, name, milliseconds))
+        if notes.count > 64 { notes.removeFirst(notes.count - 64) }
+    }
+
+    func json() -> [[String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return notes.map { ["id": $0.id, "name": $0.name, "ms": $0.ms] }
     }
 }
