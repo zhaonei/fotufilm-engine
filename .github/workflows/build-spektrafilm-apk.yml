@@ -28,7 +28,7 @@ on:
     branches: [android-jni-shell]
     paths:
       - '.github/workflows/build-spektrafilm-apk.yml'
-      - 'spektrafilm/**'
+      - 'spektrafilm-patches/**'
 
 permissions:
   contents: write
@@ -63,6 +63,12 @@ jobs:
           path: spektrafilm
           submodules: recursive
           fetch-depth: 1
+
+      - name: Apply our two fixes to the checked-out source
+        # The crash on switching editing categories, and the out-of-memory export. The script
+        # asserts every anchor it replaces, so an upstream change that moves the code stops the
+        # build here instead of producing an APK that silently lacks a fix.
+        run: python3 spektrafilm-patches/apply.py spektrafilm
 
       - name: Free disk space
         # The engine objects, LibRaw and the Gradle caches do not fit beside the image's extras.
