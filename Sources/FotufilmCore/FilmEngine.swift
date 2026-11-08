@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import FotufilmHalide
 
@@ -1601,6 +1602,9 @@ public struct FilmEngineInvocation {
                 filmBoost: filmBoost, toneKey: toneKey, shadowLift: shadowLift,
                 highlightHold: highlights - held)
         }
+        // How long the film's tables take to resolve: a cache hit is microseconds, and a miss is
+        // the whole spectral integration -- the difference a slider step feels.
+        let spectralStart = DispatchTime.now().uptimeNanoseconds
         if noFilm {
             // Nothing samples these: the variant compiles no spectral recovery, no film cube and
             // no paper cube. Deriving a stock's tables to hand a kernel that will not read them
@@ -1656,6 +1660,7 @@ public struct FilmEngineInvocation {
                     ^ options.lensFilters.signature) &* 0x100000001b3
             }
         }
+        EngineTiming.note("spectral tables", since: spectralStart)
         // Only a print that takes the hold reads the film's corners; any other leaves them zero.
         if featureMask & FilmEngineFeature.printDetail != 0 {
             let corners = Self.printDetailOffset + 4

@@ -1008,6 +1008,38 @@ public final class HostService {
     private func toneCurve(_ parameters: [String: Any]) throws -> Any {
         guard var render = parameters["render"] as? [String: Any] else { return NSNull() }
         render["viewport"] = nil
+        // The curve is a function of the request and the photograph, and the panel asks for it
+        // again on every edit: the answer costs a scene, a metering and a strip develop, and it
+        // never changes while the request does not.
+        let key = (try? JSONSerialization.data(withJSONObject: render, options: [.sortedKeys]))
+            ?? Data()
+        if let hit = Self.toneCurveAnswers.value(for: key) { return hit }
+        let answer = try computeToneCurve(render)
+        if !(answer is NSNull) { Self.toneCurveAnswers.insert(answer, for: key) }
+        return answer
+    }
+
+    /// A few answers, kept: the panel redraws at every edit, and a drag asks for the same curve.
+    private static let toneCurveAnswers = ToneCurveAnswers()
+
+    private final class ToneCurveAnswers: @unchecked Sendable {
+        private let lock = NSLock()
+        private var entries: [(key: Data, value: Any)] = []
+
+        func value(for key: Data) -> Any? {
+            lock.lock(); defer { lock.unlock() }
+            return entries.first { $0.key == key }?.value
+        }
+
+        func insert(_ value: Any, for key: Data) {
+            lock.lock(); defer { lock.unlock() }
+            entries.removeAll { $0.key == key }
+            entries.append((key, value))
+            if entries.count > 4 { entries.removeFirst() }
+        }
+    }
+
+    private func computeToneCurve(_ render: [String: Any]) throws -> Any {
         let prepared = try prepare(JSONSerialization.data(withJSONObject: render))
         guard prepared.negativeMeasure == nil,
               let film = engine.stock(prepared.edit.edit.stock) else { return NSNull() }
@@ -1385,7 +1417,16 @@ public final class HostService {
     private var scenes: [(image: Weak<HostImage>, key: String, scene: [Float])] = []
     /// The newest framed scene's key, which subject detection reads the photograph from.
     private var sceneKey: String?
-    private static let sceneLimit = (count: 4, bytes: 512 << 20)
+    /// Framed scenes kept, and how many bytes they may hold. A phone has less to spare than a
+    /// desktop, and is where the editor froze after a long session: three scenes at a hundred and
+    /// twenty-eight megabytes still covers the preview, the detail view and a strip's thumbnails.
+    private static let sceneLimit: (count: Int, bytes: Int) = {
+        #if os(Android)
+        return (count: 3, bytes: 128 << 20)
+        #else
+        return (count: 4, bytes: 512 << 20)
+        #endif
+    }()
     final class Weak<Object: AnyObject> {
         weak var object: Object?
         init(_ object: Object) { self.object = object }

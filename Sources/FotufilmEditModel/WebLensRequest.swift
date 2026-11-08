@@ -80,7 +80,37 @@ public struct WebLensCatalogueRequest: Decodable {
     public var shot: LensShot?
     public var profileID: String?
 
+    /// Validation builds a resampling table for every calibration of a profile, which a real
+    /// catalogue makes cost seconds, and it is a pure function of the profile. A lens slider asks
+    /// for a plan at every step, so the checked profile is kept.
     static func validated(_ profile: LensProfile) throws -> LensProfile {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let key = (try? encoder.encode(profile)) ?? Data()
+        if let hit = validatedCache.value(for: key) { return hit }
+        let checked = try check(profile)
+        validatedCache.insert(checked, for: key)
+        return checked
+    }
+
+    private static let validatedCache = ValidatedProfiles()
+
+    private final class ValidatedProfiles: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cache = BoundedCache<Data, LensProfile>(limit: 8)
+
+        func value(for key: Data) -> LensProfile? {
+            lock.lock(); defer { lock.unlock() }
+            return cache.value(for: key)
+        }
+
+        func insert(_ profile: LensProfile, for key: Data) {
+            lock.lock(); defer { lock.unlock() }
+            cache.insert(profile, for: key)
+        }
+    }
+
+    private static func check(_ profile: LensProfile) throws -> LensProfile {
         guard !profile.id.isEmpty, !profile.model.isEmpty,
               profile.cropFactor.isFinite, profile.cropFactor > 0,
               !profile.calibrations.isEmpty,

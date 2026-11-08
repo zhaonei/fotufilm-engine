@@ -224,6 +224,10 @@ public final class HostEngine {
     var filmPacks: HostFilmPackLibrary? = HostPlatform.current.filmPacks
 
     public init() throws {
+        // What the engine's own stages cost, on the host's tape (instrumentation only).
+        EngineTiming.sink = { name, milliseconds in
+            HostTimingNotes.shared.note(name, milliseconds: milliseconds)
+        }
         if let gpu = HostPlatform.current.developer {
             developer = gpu
         } else if FotufilmEngine.isHalideBackendAvailable {

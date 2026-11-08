@@ -36,42 +36,63 @@ enum AreaResample {
         guard targetWidth != width || targetHeight != height else { return rgba }
         let columns = taps(from: width, to: targetWidth)
         let rows = taps(from: height, to: targetHeight)
-        var horizontal = [Float](repeating: 0, count: targetWidth * height * 4)
-        rgba.withUnsafeBufferPointer { source in
-            horizontal.withUnsafeMutableBufferPointer { target in
-                let target = target
-                concurrent(height) { y in
-                    for (x, tap) in columns.enumerated() {
-                        var sum = SIMD4<Float>(repeating: 0)
-                        for (offset, weight) in tap.weights.enumerated() {
-                            let i = (y * width + tap.first + offset) * 4
-                            sum += SIMD4(source[i], source[i + 1], source[i + 2], source[i + 3])
-                                * weight
-                        }
-                        let o = (y * targetWidth + x) * 4
-                        target[o] = sum.x; target[o + 1] = sum.y
-                        target[o + 2] = sum.z; target[o + 3] = sum.w
-                    }
-                }
-            }
-        }
         var output = [Float](repeating: 0, count: targetWidth * targetHeight * 4)
-        horizontal.withUnsafeBufferPointer { source in
+        // The intermediate is worked in bands of output rows. The whole frame's worth was a
+        // hundred and forty megabytes of scratch at twenty-four megapixels, held beside the
+        // scene, the develop and the picture -- which a phone has no room for, and is what a
+        // long session freezing was made of. The arithmetic is untouched: same taps, same
+        // weights, summed in the same order.
+        let widestBand = max(1, (8 << 20) / (16 * max(1, targetWidth)))
+        rgba.withUnsafeBufferPointer { source in
             output.withUnsafeMutableBufferPointer { target in
-                let target = target
-                concurrent(targetHeight) { y in
-                    let tap = rows[y]
-                    for x in 0..<targetWidth {
-                        var sum = SIMD4<Float>(repeating: 0)
-                        for (offset, weight) in tap.weights.enumerated() {
-                            let i = ((tap.first + offset) * targetWidth + x) * 4
-                            sum += SIMD4(source[i], source[i + 1], source[i + 2], source[i + 3])
-                                * weight
-                        }
-                        let o = (y * targetWidth + x) * 4
-                        target[o] = sum.x; target[o + 1] = sum.y
-                        target[o + 2] = sum.z; target[o + 3] = sum.w
+                var first = 0
+                while first < targetHeight {
+                    let startRow = rows[first].first
+                    var last = first
+                    var endRow = rows[first].first + rows[first].weights.count - 1
+                    while last + 1 < targetHeight {
+                        let next = rows[last + 1]
+                        let nextEnd = next.first + next.weights.count - 1
+                        if nextEnd - startRow + 1 > widestBand { break }
+                        last += 1
+                        endRow = nextEnd
                     }
+                    let span = endRow - startRow + 1
+                    var band = [Float](repeating: 0, count: targetWidth * span * 4)
+                    band.withUnsafeMutableBufferPointer { scratch in
+                        concurrent(span) { row in
+                            let y = startRow + row
+                            for (x, tap) in columns.enumerated() {
+                                var sum = SIMD4<Float>(repeating: 0)
+                                for (offset, weight) in tap.weights.enumerated() {
+                                    let i = (y * width + tap.first + offset) * 4
+                                    sum += SIMD4(source[i], source[i + 1], source[i + 2],
+                                                 source[i + 3]) * weight
+                                }
+                                let o = (row * targetWidth + x) * 4
+                                scratch[o] = sum.x; scratch[o + 1] = sum.y
+                                scratch[o + 2] = sum.z; scratch[o + 3] = sum.w
+                            }
+                        }
+                    }
+                    band.withUnsafeBufferPointer { scratch in
+                        concurrent(last - first + 1) { index in
+                            let y = first + index
+                            let tap = rows[y]
+                            for x in 0..<targetWidth {
+                                var sum = SIMD4<Float>(repeating: 0)
+                                for (offset, weight) in tap.weights.enumerated() {
+                                    let i = ((tap.first + offset - startRow) * targetWidth + x) * 4
+                                    sum += SIMD4(scratch[i], scratch[i + 1], scratch[i + 2],
+                                                 scratch[i + 3]) * weight
+                                }
+                                let o = (y * targetWidth + x) * 4
+                                target[o] = sum.x; target[o + 1] = sum.y
+                                target[o + 2] = sum.z; target[o + 3] = sum.w
+                            }
+                        }
+                    }
+                    first = last + 1
                 }
             }
         }
