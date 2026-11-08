@@ -124,6 +124,46 @@ struct SceneGeometry: Decodable, Equatable {
         return Float(min(croppedWidth, croppedHeight) / max(1, min(w, h)))
     }
 
+    /// The crop as whole pixels of the source, when the geometry is nothing else: an upright
+    /// rectangle is a copy, and copying sixteen megapixels takes a fraction of the time resampling
+    /// them does -- an export of a cropped photograph spent ten seconds in `apply` otherwise.
+    ///
+    /// The crop the engine snaps to whole pixels (`snapped(width:height:)`) is what makes it a
+    /// copy: `apply` samples at `x0 * width + X`, exactly an integer, so the bilinear weight is
+    /// zero and the result is the source pixels themselves.
+    func uprightCropPixels(width: Int, height: Int) -> (x: Int, y: Int, width: Int, height: Int)? {
+        guard rotation == 0, !flip, !straightenActive, !perspectiveActive, lens == nil,
+              crop != Self.fullCrop else { return nil }
+        let (left, top, right, bottom) = (crop[0][0], crop[0][1], crop[2][0], crop[2][1])
+        guard crop[1] == [right, top], crop[3] == [left, bottom] else { return nil }
+        let snapped = self.snapped(width: width, height: height)
+        let (x0, y0) = (snapped.crop[0][0], snapped.crop[0][1])
+        let (x1, y1) = (snapped.crop[2][0], snapped.crop[2][1])
+        let x = Int((x0 * Double(width)).rounded())
+        let y = Int((y0 * Double(height)).rounded())
+        let columns = Int((x1 * Double(width)).rounded()) - x
+        let rows = Int((y1 * Double(height)).rounded()) - y
+        guard columns > 0, rows > 0, x >= 0, y >= 0, x + columns <= width, y + rows <= height
+        else { return nil }
+        return (x, y, columns, rows)
+    }
+
+    /// `columns` x `rows` pixels of `source`, from (x, y).
+    static func cropped(_ source: [Float], width: Int, x: Int, y: Int,
+                        columns: Int, rows: Int) -> [Float] {
+        var out = [Float](repeating: 0, count: columns * rows * 4)
+        source.withUnsafeBufferPointer { input in
+            out.withUnsafeMutableBufferPointer { target in
+                Self.concurrent(rows) { row in
+                    let from = ((y + row) * width + x) * 4
+                    let to = row * columns * 4
+                    for i in 0..<(columns * 4) { target[to + i] = input[from + i] }
+                }
+            }
+        }
+        return out
+    }
+
     /// Unit square to the crop quadrilateral (`homography` in web/src/geometry.js).
     static func homography(_ p: [[Double]]) -> [Double] {
         let (x0, y0, x1, y1) = (p[0][0], p[0][1], p[1][0], p[1][1])

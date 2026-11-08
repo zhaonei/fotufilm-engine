@@ -884,7 +884,8 @@ extension FilmGrain {
             live = live.filter { $0.value.value != nil }
             live[binding.id] = WeakBinding(binding)
             entries.append((key, binding))
-            if entries.count > 4 { entries.removeFirst() }
+            // Four was one film plus the three a suggestion pass walked over.
+            if entries.count > 8 { entries.removeFirst() }
             return binding
         }
 

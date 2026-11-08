@@ -167,8 +167,13 @@ extension HostService {
                   let options = try? engine.options(edit, stock: film.stock,
                                                     contentHeadroom: contentHeadroom)
             else { return }
+            // Only the measurements are wanted: binding the film's grain here would prepare a
+            // population for every film on every pass, and the registry behind it holds four --
+            // so the photograph being edited lost its prepared grain and paid ten seconds to get
+            // it back on the next full-size develop.
             _ = try? FilmEngineInvocation(validating: film.stock, options: options,
-                                          width: width, height: height)
+                                          width: width, height: height,
+                                          bindsFilmGrain: false)
         }
     }
 

@@ -1446,17 +1446,30 @@ public final class HostService {
         // copy instead, which is what the settled picture already did when nothing was cropped.
         if !draft, geometry.crop != SceneGeometry.fullCrop, sizes.frame == oriented {
             // A crop is cut from the whole photograph and then reduced, as the Mac app cuts it;
-            // a draft is cut from a reduced copy.
+            // a draft is cut from a reduced copy. An upright rectangle needs no resampler at all:
+            // the snapped crop lands on whole pixels, so the cut is a copy.
             let native = geometry.sizes(width: image.width, height: image.height, maxEdge: nil)
-            let cut = geometry.apply(image.scene(width: image.width, height: image.height),
-                                     width: image.width, height: image.height,
-                                     orientedSize: oriented, output: native.output,
-                                     lensTable: table)
-            let (width, height) = native.output
-            scene = HostPlatform.current.resampler?.reduce(
-                cut, width: width, height: height, to: sizes.output.0, sizes.output.1)
-                ?? AreaResample.reduce(cut, width: width, height: height,
-                                       to: sizes.output.0, sizes.output.1)
+            if let rect = geometry.uprightCropPixels(width: image.width, height: image.height),
+               rect.width == native.output.0, rect.height == native.output.1 {
+                let whole = image.scene(width: image.width, height: image.height)
+                let cut = SceneGeometry.cropped(whole, width: image.width, x: rect.x, y: rect.y,
+                                                columns: rect.width, rows: rect.height)
+                scene = HostPlatform.current.resampler?.reduce(
+                    cut, width: rect.width, height: rect.height,
+                    to: sizes.output.0, sizes.output.1)
+                    ?? AreaResample.reduce(cut, width: rect.width, height: rect.height,
+                                           to: sizes.output.0, sizes.output.1)
+            } else {
+                let cut = geometry.apply(image.scene(width: image.width, height: image.height),
+                                         width: image.width, height: image.height,
+                                         orientedSize: oriented, output: native.output,
+                                         lensTable: table)
+                let (width, height) = native.output
+                scene = HostPlatform.current.resampler?.reduce(
+                    cut, width: width, height: height, to: sizes.output.0, sizes.output.1)
+                    ?? AreaResample.reduce(cut, width: width, height: height,
+                                           to: sizes.output.0, sizes.output.1)
+            }
         } else {
             // Otherwise the unrotated photograph is reduced to the frame's scale first, as the
             // Mac app decodes it, so the one bilinear resample never skips pixels.
