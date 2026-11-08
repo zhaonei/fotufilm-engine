@@ -395,7 +395,8 @@ public final class HostEngine {
     /// film larger than the aperture, the scene continued over it (`UnexposedEdge`).
     public func develop(_ scene: [Float], width: Int, height: Int, contentHeadroom: Float,
                         edit: WebNativeEdit, frameIndex: UInt64 = 0, realtime: Bool = false,
-                        exactMath: Bool = false, unexposedEdge: UnexposedEdge.Develop? = nil,
+                        draft: Bool = false, exactMath: Bool = false,
+                        unexposedEdge: UnexposedEdge.Develop? = nil,
                         into target: Target) throws {
         if let reading = edit.negativeReading {
             return try printNegative(scene, width: width, height: height, reading: reading,
@@ -413,8 +414,8 @@ public final class HostEngine {
         var options = try options(edit, stock: film ?? .noFilm, contentHeadroom: contentHeadroom)
         if film != nil { options.unexposedEdge = unexposedEdge }
         try develop(scene, width: width, height: height, film: film, options: options,
-                    frameIndex: frameIndex, realtime: realtime, exactMath: exactMath,
-                    into: target)
+                    frameIndex: frameIndex, realtime: realtime, draft: draft,
+                    exactMath: exactMath, into: target)
     }
 
     /// A video frame's decoded 8-bit Display P3 codes developed in one pass, as the Mac app plays
@@ -479,7 +480,7 @@ public final class HostEngine {
     /// `film` nil develops with no film.
     public func develop(_ scene: [Float], width: Int, height: Int, film: FilmStock?,
                         options: FotufilmEngine.Options, frameIndex: UInt64 = 0,
-                        realtime: Bool = false, exactMath: Bool = false,
+                        realtime: Bool = false, exactMath: Bool = false, draft: Bool = false,
                         into target: Target) throws {
         let stock = film ?? .noFilm
         let shouldContinue = continuation()
@@ -495,7 +496,7 @@ public final class HostEngine {
         try developer.develop(
             scene, width: width, height: height, stock: stock, noFilm: film == nil,
             options: options, pace: HostDevelopPace(frameIndex: frameIndex, realtime: realtime,
-                                                    exactMath: exactMath),
+                                                    draft: draft, exactMath: exactMath),
             encode: target.format == .rgba8DisplayP3 && !codeValues,
             knee: film == nil ? nil : knee, shouldContinue: shouldContinue,
             deliver: { rows, range, encoded in

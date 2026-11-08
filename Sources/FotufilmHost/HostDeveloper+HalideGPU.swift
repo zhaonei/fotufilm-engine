@@ -69,7 +69,7 @@ struct HalideGPUDeveloper: HostDeveloper {
         let prepared = DispatchTime.now().uptimeNanoseconds
         var invocation = try FilmEngineInvocation(
             validating: stock, options: options, width: width, height: height,
-            frameIndex: pace.frameIndex, noFilm: noFilm)
+            frameIndex: pace.frameIndex, noFilm: noFilm, bindsFilmGrain: !pace.draft)
         HostTimingNotes.shared.note("  invocation", since: prepared)
         if pace.realtime { invocation.featureMask |= FilmEngineFeature.realtime }
         if pace.exactMath { invocation.featureMask |= FilmEngineFeature.exactMath }

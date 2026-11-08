@@ -8,6 +8,10 @@ import FotufilmCore
 struct HostDevelopPace {
     var frameIndex: UInt64 = 0
     var realtime = false
+    /// A picture shown while a control moves, not the one that will be kept. Its film grain is
+    /// left unbound: binding it is a ten-second preparation for a film setting nobody has settled
+    /// on, at a size where the crystals are a fraction of a pixel across.
+    var draft = false
     /// The film's transcendentals evaluated exactly rather than approximated: the Mac app's
     /// Accurate photo quality, which its exports use by default.
     var exactMath = false

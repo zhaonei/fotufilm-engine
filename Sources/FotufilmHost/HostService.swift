@@ -801,13 +801,16 @@ public final class HostService {
                                   cropMode: Bool, unexposedEdge: UnexposedEdge.Develop? = nil,
                                   photo: (scene: [Float], width: Int, height: Int,
                                           margins: UnexposedEdge.Margins)? = nil) throws -> [UInt8] {
+        // A picture shown while a hand moves: see HostDevelopPace.draft.
+        let isDraft = body["draft"] as? Bool == true
         func develop(_ edit: WebNativeEdit) throws -> [UInt8] {
             var pixels = [UInt8](repeating: 0, count: width * height * 4)
             try pixels.withUnsafeMutableBytes { buffer in
                 try engine.develop(scene, width: width, height: height,
                                    contentHeadroom: image.contentHeadroom, edit: edit,
                                    frameIndex: image.pace.frameIndex,
-                                   realtime: image.pace.realtime, unexposedEdge: unexposedEdge,
+                                   realtime: image.pace.realtime, draft: isDraft,
+                                   unexposedEdge: unexposedEdge,
                                    into: .init(maxEdge: 0, format: .rgba8DisplayP3,
                                                pixels: buffer.baseAddress!, rowBytes: width * 4,
                                                capacity: buffer.count))
