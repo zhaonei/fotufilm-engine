@@ -40,6 +40,11 @@ abstract interface class RenderHost {
   /// The film rows on screen ('' for Normal): only their pictures develop.
   Set<String> get shownFilmRows;
 
+  /// Whether the format picker's tiles are on screen. Each is a develop of its own and they only
+  /// show in the Film panel, so nothing else should pay for them -- six of them at a quarter of a
+  /// second each is the queue a slider's step used to wait behind.
+  bool get formatTilesShown;
+
   /// Options the shown picture's develops carry beyond the edit (cropMode, stage, difference,
   /// showMask, printFrame); small pictures never carry them.
   Json renderOptions(PhotoDocument doc);
@@ -523,6 +528,9 @@ class Renderer {
 
   /// Each format tile: the photograph on that gauge, whole or as a magnified detail.
   Future<void> _formatThumbnails(PhotoDocument doc) async {
+    // Only while the picker shows them: they are not visible anywhere else, and the engine's
+    // queue is what a drag's next step waits in.
+    if (!host.formatTilesShown) return;
     if (doc.edit['stock'] == null) return;
     // A scanned negative's Film panel has no format to choose.
     if (doc.edit['negative'] != null) return;

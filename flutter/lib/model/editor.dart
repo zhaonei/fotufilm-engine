@@ -144,6 +144,10 @@ class EditorModel extends ChangeNotifier implements RenderHost {
   Set<String> get shownFilmRows => library.open ? const {} : _shownFilmRows.keys.toSet();
   final Map<String, int> _shownFilmRows = {};
 
+  /// The format picker's tiles show in the Film panel's inspector, and nowhere else.
+  @override
+  bool get formatTilesShown => panel == Panel.film && inspectorOpen;
+
   /// Counted, since a row rebuilt for another film may let go of its old one after a new row
   /// took it.
   void showFilmRow(String id, bool shown) {
@@ -613,8 +617,9 @@ class EditorModel extends ChangeNotifier implements RenderHost {
       panel = next;
       inspectorOpen = true;
     });
-    // A tool changes what the shown picture is developed with.
-    if (leaving.isTool || next.isTool) renderer?.schedule();
+    // A tool changes what the shown picture is developed with; the Film panel's format tiles are
+    // developed only while it shows them.
+    if (leaving.isTool || next.isTool || next == Panel.film) renderer?.schedule();
   }
 
   Panel _lastTab = Panel.film;
@@ -624,8 +629,9 @@ class EditorModel extends ChangeNotifier implements RenderHost {
   void toggleFilm() => _set(() => filmOpen = !filmOpen);
   void toggleInspector() {
     _set(() => inspectorOpen = !inspectorOpen);
-    // A tool shows its picture only while the inspector does.
-    if (panel.isTool) renderer?.schedule();
+    // A tool shows its picture only while the inspector does, and the Film panel's format tiles
+    // come into view with it.
+    if (panel.isTool || panel == Panel.film) renderer?.schedule();
   }
 
   void setPresetsTab(bool value) {
