@@ -78,10 +78,26 @@ jobs:
           java-version: '21'
 
       - name: Install the SDK packages the project names
+        # sdkmanager is not where the image's documentation says on every runner, so it is found
+        # rather than assumed, and fetched from Google when the image has no cmdline-tools at all.
         run: |
-          sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          manager="$(find "$sdk/cmdline-tools" -maxdepth 2 -name sdkmanager 2>/dev/null | head -1)"
-          [ -n "$manager" ] || { echo "::error::no sdkmanager on this runner"; exit 1; }
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "sdk=$sdk"
+          ls -d "$sdk" 2>/dev/null || true
+          manager="$(find "$sdk" /usr/local/lib/android /opt -maxdepth 4 -name sdkmanager -type f 2>/dev/null | head -1)"
+          if [ -z "$manager" ]; then
+            echo "no cmdline-tools on this runner; fetching them"
+            curl -fsSL -o /tmp/cmdline-tools.zip \
+              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            mkdir -p "$sdk/cmdline-tools"
+            unzip -q /tmp/cmdline-tools.zip -d "$sdk/cmdline-tools"
+            mv "$sdk/cmdline-tools/cmdline-tools" "$sdk/cmdline-tools/latest"
+            manager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+            export ANDROID_SDK_ROOT="$sdk" ANDROID_HOME="$sdk"
+          fi
+          echo "sdkmanager: $manager"
+          echo "ANDROID_SDK_ROOT=$sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
           yes | "$manager" --licenses > /dev/null 2>&1 || true
           # The NDK is the one the project documents, not the runner's: the engine's CMake and
           # LibRaw's patches are built against it.
