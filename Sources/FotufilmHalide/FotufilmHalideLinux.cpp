@@ -67,6 +67,18 @@ FOTUFILM_AOT_VARIANTS(FOTUFILM_AOT_DECLARE)
 // Halide's Vulkan runtime defines this, as its CUDA one does; only the CUDA header declares it.
 extern "C" int halide_vulkan_release_unused_device_allocations(void *user_context);
 
+/// The batched Vulkan runtime defers every pass a pipeline launches into one command buffer and
+/// one sync -- what `FotufilmHalideAndroidGPU.cpp` does around its kernel call. The phone's entry
+/// points are these ones, so without it a develop pays a submit-and-wait per pass: tens of
+/// milliseconds that do not depend on the frame's size at all, which is what a 240-pixel draft
+/// costing 60 ms was made of.
+///
+/// Declared weak on purpose: a runtime without batching, or a build that links another one,
+/// leaves the symbol null and nothing here changes what is computed. Enabled around the kernel
+/// alone -- the copy back has to wait for the passes to have run.
+extern "C" int32_t halide_vulkan_batch_set(void *user_context, int32_t enabled)
+    __attribute__((weak));
+
 namespace {
 
 constexpr int kLutDimension = 33;
@@ -341,11 +353,16 @@ int32_t develop(const Element *input, Element *output, int32_t width, int32_t he
         auto *exposure = cache.exposure.raw_buffer();
         auto *film = cache.film.raw_buffer();
         auto *paper = cache.paper.raw_buffer();
+        // One command buffer and one sync for every pass the graph launches, when the runtime
+        // links the batched one. Same passes, same numbers; the waits between them are what goes.
+        const bool batched = device == kVulkan && halide_vulkan_batch_set != nullptr;
+        if (batched) halide_vulkan_batch_set(nullptr, 1);
         error = pipeline(FOTUFILM_AOT_FRAME_ARGUMENTS(in.raw_buffer(), cfg, exposure, film, paper,
                                                       width, height, frame, seed, origin_x,
                                                       origin_y, feature_mask, configuration,
                                                       film_tiles.raw_buffer(), film_on ? 1 : 0),
                          out.raw_buffer());
+        if (batched) halide_vulkan_batch_set(nullptr, 0);
         if (!error) error = out.copy_to_host();
         return error;
     };

@@ -217,7 +217,10 @@ class Renderer {
   /// Asks for the picture to follow the edit or the view. `interactive` while a control moves.
   void schedule({bool interactive = false}) {
     _interactive = interactive;
-    if (interactive) _stepBegan = DateTime.now().microsecondsSinceEpoch;
+    // The wait a person feels is from the first move the picture has not answered yet, not from
+    // the last one: a step measured from the newest sample reads 5 ms while the picture is half a
+    // second behind.
+    if (interactive && _stepBegan == 0) _stepBegan = DateTime.now().microsecondsSinceEpoch;
     _dirty = true;
     _background?.cancel();
     if (_running) {
