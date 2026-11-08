@@ -163,6 +163,21 @@ struct SceneGeometry: Decodable, Equatable {
         let cover = max((orientedWidth * cosine + orientedHeight * abs(sine)) / orientedWidth,
                         (orientedHeight * cosine + orientedWidth * abs(sine)) / orientedHeight)
         let rotation = self.rotation, flip = self.flip
+        // A correction that reads past the frame leaves a streak, not a picture: the resampler
+        // holds the edge pixel for every sample that falls outside, which is the fan of stretched
+        // colour a barrel correction draws along the frame's edges. Pulling the whole radius in by
+        // however far the table reaches keeps every sample inside the photograph -- the corrected
+        // frame is that much larger, as every raw converter's is, and the crop shows all of it.
+        var lensReach = 1.0
+        if let lensTable, lensTable.count >= 8 {
+            for entry in stride(from: 0, to: lensTable.count, by: 4) {
+                for channel in 0..<3 {
+                    lensReach = max(lensReach, Double(lensTable[entry + channel]))
+                }
+            }
+            // A table that asks for the world is a broken profile, not a lens: keep the zoom sane.
+            lensReach = min(lensReach, 2.5)
+        }
         var result = [Float](repeating: 0, count: outputWidth * outputHeight * 4)
         source.withUnsafeBufferPointer { source in
             result.withUnsafeMutableBufferPointer { target in
@@ -203,7 +218,7 @@ struct SceneGeometry: Decodable, Equatable {
                         }
                         let gain = Float(at(3))
                         for c in 0..<3 {
-                            let ratio = at(c)
+                            let ratio = at(c) / lensReach
                             target[o + c] = Self.bilinear(
                                 source, width, height, c,
                                 Double(width) / 2 + lx * ratio - 0.5,

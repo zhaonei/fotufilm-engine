@@ -1438,7 +1438,13 @@ public final class HostService {
             .flatMap { $0.identity ? nil : $0.table }
         let scene: [Float]
         let geometryStart = DispatchTime.now().uptimeNanoseconds
-        if !draft, geometry.crop != SceneGeometry.fullCrop, sizes.frame != oriented {
+        // Cutting at the photograph's own size is what an export at full resolution wants; it is
+        // the wrong thing for a preview by a factor of a hundred. The cut is a per-pixel
+        // resample of every megapixel the crop then throws away -- and on a phone holding a RAW
+        // as a working copy it also decodes the file again -- which is the ten to sixteen seconds
+        // between confirming a crop and seeing it. A preview is reduced first and cut from that
+        // copy instead, which is what the settled picture already did when nothing was cropped.
+        if !draft, geometry.crop != SceneGeometry.fullCrop, sizes.frame == oriented {
             // A crop is cut from the whole photograph and then reduced, as the Mac app cuts it;
             // a draft is cut from a reduced copy.
             let native = geometry.sizes(width: image.width, height: image.height, maxEdge: nil)
@@ -1454,8 +1460,16 @@ public final class HostService {
         } else {
             // Otherwise the unrotated photograph is reduced to the frame's scale first, as the
             // Mac app decodes it, so the one bilinear resample never skips pixels.
-            let frameWidth = swapped ? sizes.frame.1 : sizes.frame.0
-            let frameHeight = swapped ? sizes.frame.0 : sizes.frame.1
+            var frameWidth = swapped ? sizes.frame.1 : sizes.frame.0
+            var frameHeight = swapped ? sizes.frame.0 : sizes.frame.1
+            // Never ask for more pixels than this photograph is held at: a crop's frame is wider
+            // than what it delivers, and asking past a phone's working copy decodes the RAW
+            // again to serve a preview that copy already has.
+            if let ceiling = image.workingLongEdge, max(frameWidth, frameHeight) > ceiling {
+                let scale = Double(ceiling) / Double(max(frameWidth, frameHeight))
+                frameWidth = max(1, Int((Double(frameWidth) * scale).rounded()))
+                frameHeight = max(1, Int((Double(frameHeight) * scale).rounded()))
+            }
             let reduced = image.scene(width: frameWidth, height: frameHeight, draft: draft)
             scene = geometry.isIdentity && (frameWidth, frameHeight) == sizes.output
                 ? reduced
