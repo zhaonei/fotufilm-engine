@@ -41,6 +41,9 @@ BUILTIN = {
     # Java and Android, used with a class literal or a static call
     'System', 'Math', 'Thread', 'Runnable', 'Integer', 'Long', 'Boolean', 'Character',
     'Override', 'Deprecated', 'IOException', 'Closeable', 'AutoCloseable', 'Comparable',
+    # Kotlin builtins and auto-imported types the host also uses.
+    'ByteArray', 'CharArray', 'ShortArray', 'IntArray', 'LongArray', 'FloatArray', 'DoubleArray',
+    'BooleanArray', 'UInt', 'UByte', 'UShort', 'ULong', 'Charsets', 'SuppressLint',
 }
 
 

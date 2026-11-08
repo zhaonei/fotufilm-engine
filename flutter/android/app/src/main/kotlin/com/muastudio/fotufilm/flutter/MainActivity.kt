@@ -8,6 +8,7 @@ import io.flutter.embedding.engine.FlutterEngine
 /** The editor (lib/) in Flutter's activity, with the engine's films unpacked before Dart starts. */
 class MainActivity : FlutterActivity() {
     private var openedFiles: OpenedFiles? = null
+    private var fujiUsb: FujiUsb? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         EngineResources.prepare(this)
@@ -20,6 +21,8 @@ class MainActivity : FlutterActivity() {
         // lands (tempDir, publish, publishDir) because Android has no save dialog for
         // file_selector. Registering a second object on the same channel would replace this one.
         openedFiles = OpenedFiles(this, flutterEngine.dartExecutor.binaryMessenger)
+        // The camera-as-processor road: the Fujifilm RAW conversion protocol over USB.
+        fujiUsb = FujiUsb(this, flutterEngine.dartExecutor.binaryMessenger)
     }
 
     @Deprecated("FlutterActivity is an Activity, not a ComponentActivity: no result launchers")
