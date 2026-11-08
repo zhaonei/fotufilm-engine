@@ -20,6 +20,15 @@ on:
         description: 'Spektrafilm commit or branch to build'
         required: false
         default: 'f49716caebd3aecbc33808c2b6f61bb08da96588'
+  # A push trigger as well as the manual one, and not only for convenience: GitHub lists a
+  # workflow under Actions once it exists on the default branch *or* has a push trigger that has
+  # fired. With workflow_dispatch alone this file sat on the branch and never appeared in the
+  # interface at all.
+  push:
+    branches: [android-jni-shell]
+    paths:
+      - '.github/workflows/build-spektrafilm-apk.yml'
+      - 'spektrafilm/**'
 
 permissions:
   contents: write
