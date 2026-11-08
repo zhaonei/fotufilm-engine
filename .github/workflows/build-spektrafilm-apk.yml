@@ -1,0 +1,132 @@
+name: Build Spektrafilm APK (own build)
+
+# Builds an installable, signed APK from the Spektrafilm-for-Android source, in the cloud,
+# with a keystore we hold. Nothing is taken from anyone's release page: this compiles the
+# engine (C++/NDK, Vulkan compute) and the Compose editor from source at a pinned commit.
+#
+# The upstream project is thetechgeekko/Spektrafilm-android -- a GPL-3.0 Android port of
+# Andrea Volpato's spektrafilm. It is checked out here rather than merged into this
+# repository: this workflow is the scaffolding, that repository is the engine.
+#
+#   minSdk 24, targetSdk 36, compileSdk 37, NDK 28.2.13676358, Gradle 9.6.1, JDK 21
+#
+# The toolchain versions are the ones the project's own EXECUTION_INDEX.md states, so a
+# failure here is a real failure rather than a version we invented.
+
+on:
+  workflow_dispatch:
+    inputs:
+      spektrafilm_ref:
+        description: 'Spektrafilm commit or branch to build'
+        required: false
+        default: 'f49716caebd3aecbc33808c2b6f61bb08da96588'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: spektrafilm-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SPK_REPO: thetechgeekko/Spektrafilm-android
+  SPK_REF: ${{ github.event.inputs.spektrafilm_ref || 'f49716caebd3aecbc33808c2b6f61bb08da96588' }}
+  NDK_VERSION: 28.2.13676358
+  CMAKE_VERSION: 3.22.1
+  BUILD_TOOLS_VERSION: 36.0.0
+  PLATFORM_VERSION: android-37
+
+jobs:
+  apk:
+    name: Spektrafilm arm64 release APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout this repository (the signing keystore)
+        uses: actions/checkout@v4
+
+      - name: Checkout Spektrafilm at a pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SPK_REPO }}
+          ref: ${{ env.SPK_REF }}
+          path: spektrafilm
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Free disk space
+        # The engine objects, LibRaw and the Gradle caches do not fit beside the image's extras.
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost \
+                      "$AGENT_TOOLSDIRECTORY"/CodeQL "$AGENT_TOOLSDIRECTORY"/Python || true
+          df -h /
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install the SDK packages the project names
+        run: |
+          sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          manager="$(find "$sdk/cmdline-tools" -maxdepth 2 -name sdkmanager 2>/dev/null | head -1)"
+          [ -n "$manager" ] || { echo "::error::no sdkmanager on this runner"; exit 1; }
+          yes | "$manager" --licenses > /dev/null 2>&1 || true
+          # The NDK is the one the project documents, not the runner's: the engine's CMake and
+          # LibRaw's patches are built against it.
+          "$manager" "platforms;${{ env.PLATFORM_VERSION }}" \
+                      "build-tools;${{ env.BUILD_TOOLS_VERSION }}" \
+                      "cmake;${{ env.CMAKE_VERSION }}" \
+                      "ndk;${{ env.NDK_VERSION }}"
+          echo "ANDROID_NDK_HOME=$sdk/ndk/${{ env.NDK_VERSION }}" >> "$GITHUB_ENV"
+          ls "$sdk/ndk"
+          head -3 "$sdk/ndk/${{ env.NDK_VERSION }}/source.properties"
+
+      - name: Cache Gradle's dependencies and distribution
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.gradle/notifier
+          key: spektrafilm-gradle-${{ hashFiles('spektrafilm/gradle/wrapper/gradle-wrapper.properties', 'spektrafilm/gradle/libs.versions.toml') }}
+
+      - name: Build the release APK
+        working-directory: spektrafilm
+        run: |
+          chmod +x gradlew
+          # assembleRelease, not debug: the exported picture comes from the shipping flags.
+          ./gradlew --no-daemon --stacktrace assembleRelease
+          echo "--- what was produced ---"
+          find app/build/outputs -name '*.apk' -printf '%10s  %p\n' | sort -k2
+
+      - name: Sign the APK with our keystore
+        # Written explicitly rather than through a Gradle signingConfig: the manifest of schemes
+        # in the file that ships is then ours to state, and a v1 failure on an OEM installer is
+        # not a question of what AGP defaulted to.
+        run: |
+          sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          BT="$(find "$sdk/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)"
+          unsigned="$(find spektrafilm/app/build/outputs -name '*release*.apk' | head -1)"
+          [ -n "$unsigned" ] || { echo "::error::no release APK was produced"; exit 1; }
+          mkdir -p out
+          java -jar "$BT/lib/apksigner.jar" sign \
+            --ks android-shell/keystore/fotufilm-shell.jks \
+            --ks-pass pass:fotufilm --key-pass pass:fotufilm --ks-key-alias fotufilm \
+            --min-sdk-version 24 \
+            --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled false \
+            --out out/Spektrafilm.apk "$unsigned"
+          java -jar "$BT/lib/apksigner.jar" verify --min-sdk-version 18 -v out/Spektrafilm.apk |
+            grep 'scheme ('
+          unzip -l out/Spektrafilm.apk | grep -c 'lib/arm64-v8a/.*\.so' | xargs -I{} echo "{} native libraries"
+          ls -lh out/Spektrafilm.apk
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: spektrafilm-apk-arm64
+          path: out/Spektrafilm.apk
+          if-no-files-found: error
+          retention-days: 14
