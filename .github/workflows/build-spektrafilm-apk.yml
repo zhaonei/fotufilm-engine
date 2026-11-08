@@ -99,17 +99,24 @@ jobs:
           echo "ANDROID_SDK_ROOT=$sdk" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
           yes | "$manager" --licenses > /dev/null 2>&1 || true
-          # compileSdk 37 is not in the stable channel (only 37.x previews are), and the project
-          # itself notes 37 is provisional. Try the preview channel, else fall back to 36 and say
-          # so by patching the one line -- targetSdk is 36 either way, so the runtime surface is
-          # unchanged.
-          if ! "$manager" --channel=3 "platforms;${{ env.PLATFORM_VERSION }}" > /tmp/platform.log 2>&1; then
-            echo "platforms;${{ env.PLATFORM_VERSION }} is not published; falling back to android-36"
-            tail -3 /tmp/platform.log || true
-            "$manager" "platforms;android-36"
-            sed -i 's/compileSdk = 37/compileSdk = 36/' spektrafilm/app/build.gradle.kts
-            grep -n 'compileSdk' spektrafilm/app/build.gradle.kts | head -2
+          # compileSdk 37 is required: the project's Compose material3 1.5.0-rc01 refuses to
+          # build against less (16 AAR-metadata issues), and sdkmanager cannot name it --
+          # platforms;android-37 is unknown in both the stable and the preview channel, because
+          # the platform ships as android-37.2. So the platform archive is fetched straight from
+          # Google's repository and unpacked where AGP looks for it.
+          if [ ! -d "$sdk/platforms/android-37" ]; then
+            echo "fetching the android-37 platform from Google's repository"
+            curl -fsSL -o /tmp/platform37.zip \
+              https://dl.google.com/android/repository/platform-37.2_r02.zip
+            unzip -q -o /tmp/platform37.zip -d "$sdk/platforms"
+            extracted="$(find "$sdk/platforms" -maxdepth 1 -mindepth 1 -type d -name 'android-37*' | head -1)"
+            [ -n "$extracted" ] || { echo "::error::the platform archive had no android-37 directory"; exit 1; }
+            if [ "$extracted" != "$sdk/platforms/android-37" ]; then
+              mv "$extracted" "$sdk/platforms/android-37"
+            fi
           fi
+          ls -d "$sdk/platforms"/*
+          grep -E 'AndroidVersion.ApiLevel|Pkg.Revision' "$sdk/platforms/android-37/source.properties"
           "$manager" "build-tools;${{ env.BUILD_TOOLS_VERSION }}" \
                       "cmake;${{ env.CMAKE_VERSION }}" \
                       "ndk;${{ env.NDK_VERSION }}"
