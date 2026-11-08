@@ -491,6 +491,8 @@ public final class HostService {
             withJSONObject: keyed, options: [.sortedKeys])) ?? Data(), as: UTF8.self)
             + (ceiling.map { "|edr \($0)" } ?? "")
         let draft = body["draft"] as? Bool == true
+        // A draft is shown for a moment: it carries the developed picture only.
+        let wantsOriginal = body["original"] as? Bool != false
         let frameKey = sceneKey + "|" + String(describing: plan?.json["placement"] ?? "")
             + (crop.map { "|crop \($0)" } ?? "")
             + (draft ? "|draft" : "")
@@ -574,15 +576,21 @@ public final class HostService {
                     Double(DispatchTime.now().uptimeNanoseconds - originalStart) / 1e6).utf8))
             }
         }
+        if renderMilliseconds > 0 {
+            note("develop \(width)x\(height)\(draft ? " draft" : "")",
+                 milliseconds: renderMilliseconds)
+        }
         if let index = originals.firstIndex(where: { $0.key == frameKey }) {
             originals.append(originals.remove(at: index))
-        } else if !withoutOriginal {
+        } else if !withoutOriginal && wantsOriginal {
+            let originalBuilt = DispatchTime.now().uptimeNanoseconds
             var frame = (pixels: image.display(try scene(), width: width, height: height),
                          width: width, height: height)
             if let plan, let framed = HostFrames.frame(frame.pixels, width: width, height: height,
                                                        plan: plan) {
                 frame = framed
             }
+            note("original 重建 \(width)x\(height)", since: originalBuilt)
             remember(original: (frameKey, frame.width, frame.height, frame.pixels))
         }
         let developedFrame = developed!
@@ -616,7 +624,8 @@ public final class HostService {
             if let subjects = subjectCount(body, cropMode: request.cropMode == true) {
                 presented["subjects"] = subjects
             }
-            return try present(developedFrame, original: withoutOriginal ? nil : originals.last!,
+            return try present(developedFrame,
+                               original: (withoutOriginal || !wantsOriginal) ? nil : originals.last,
                                region: region,
                                to: presentation.presenter, request: presentation.request,
                                body: presented, headroom: ceiling, motion: image.pace.realtime)
@@ -640,13 +649,20 @@ public final class HostService {
         }
         if let measure = prepared.negativeMeasure { answerBody["negativeMeasure"] = measure }
         // The undeveloped picture changes only with the photograph, geometry and region: the
-        // page names the one it holds and it crosses again only when it differs.
-        let originalFrame = originals.last!
-        let originalKey = "\(originalFrame.key)|\(region)"
-        answerBody["originalKey"] = originalKey
+        // page names the one it holds and it crosses again only when it differs. A request that
+        // asked for none (`original: false`, a step of a drag) gets none: encoding it doubled
+        // what every step of a geometry drag cost, and it is not on screen while one runs.
+        let encoded = DispatchTime.now().uptimeNanoseconds
         var images = ["preview": png((developedFrame.key, developedFrame.width,
                                      developedFrame.height, developedFrame.pixels))]
-        if body["haveOriginal"] as? String != originalKey { images["original"] = png(originalFrame) }
+        if wantsOriginal, let originalFrame = originals.last {
+            let originalKey = "\(originalFrame.key)|\(region)"
+            answerBody["originalKey"] = originalKey
+            if body["haveOriginal"] as? String != originalKey {
+                images["original"] = png(originalFrame)
+            }
+        }
+        note("png 编码 \(region.width)x\(region.height)", since: encoded)
         return try answer(answerBody, images: images)
     }
 
@@ -821,9 +837,15 @@ public final class HostService {
                 : Self.extended(weights, width: picture.width, height: picture.height,
                                 margins: picture.margins)
         }
+        let selectedStart = DispatchTime.now().uptimeNanoseconds
         let selected = showMask ? nil : try develop(selection.develop(edit))
-        return selection.composite(ground: ground, selected: selected, scene: scene, width: width,
-                                   height: height, showMask: showMask, subject: subject)
+        if !showMask { note("develop(选区)", since: selectedStart) }
+        let compositeStart = DispatchTime.now().uptimeNanoseconds
+        let composed = selection.composite(ground: ground, selected: selected, scene: scene,
+                                           width: width, height: height, showMask: showMask,
+                                           subject: subject)
+        note("选区合成 \(width)x\(height)\(showMask ? " 蒙版" : "")", since: compositeStart)
+        return composed
     }
 
     /// One value per pixel continued past the photograph's edges over a larger piece of film.
@@ -1262,25 +1284,97 @@ public final class HostService {
 
     /// The correction for a lens setting on this photograph: the chosen or matched profile from
     /// the imported catalogue, then the sliders (`WebLensRequest`, as the browser plans it).
+    ///
+    /// A plan is asked for on every scene the geometry rebuilds, so a lens slider asks for one at
+    /// every step of a drag. Both halves of the answer are pure — the catalogue by the file's own
+    /// revision, the plan by the settings that went into it — so both are kept here: reading and
+    /// decoding a multi-megabyte catalogue per step cost more than the resample it feeds.
     private func lensPlan(_ image: HostImage, _ lens: SceneGeometry.Lens) throws -> WebLensRequest.Plan {
-        let catalogue = Self.lensCatalogueURL.flatMap { try? Data(contentsOf: $0) }
-            .flatMap { try? LensCatalogue.load(from: $0) } ?? LensCatalogue()
-        let profile = lens.profileID.flatMap { id in catalogue.profiles.first { $0.id == id } }
-            ?? image.lensShot.flatMap(catalogue.match)
-        var request: [String: Any] = [
-            "adjustment": ["distortion": lens.distortion, "vignetting": lens.vignetting,
-                           "redCyan": lens.redCyan, "blueYellow": lens.blueYellow],
-            "amount": lens.amount ?? 1,
-        ]
-        if let profile {
-            request["profile"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(profile))
+        let planned = DispatchTime.now().uptimeNanoseconds
+        let catalogue = Self.lensPlans.catalogue()
+        let profile = lens.profileID.flatMap { id in catalogue.value.profiles.first { $0.id == id } }
+            ?? image.lensShot.flatMap(catalogue.value.match)
+        let key = [catalogue.token, lens.profileID ?? "", Self.describing(image.lensShot),
+                   "\(lens.distortion)|\(lens.vignetting)|\(lens.redCyan)|\(lens.blueYellow)",
+                   "\(lens.amount ?? 1)"].joined(separator: "|")
+        defer { note("lensPlan", since: planned) }
+        return try Self.lensPlans.plan(key) {
+            var request: [String: Any] = [
+                "adjustment": ["distortion": lens.distortion, "vignetting": lens.vignetting,
+                               "redCyan": lens.redCyan, "blueYellow": lens.blueYellow],
+                "amount": lens.amount ?? 1,
+            ]
+            if let profile {
+                request["profile"] = try JSONSerialization.jsonObject(
+                    with: JSONEncoder().encode(profile))
+            }
+            if let shot = image.lensShot {
+                request["shot"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(shot))
+            }
+            return try JSONDecoder().decode(WebLensRequest.self,
+                from: JSONSerialization.data(withJSONObject: request)).plan()
         }
-        if let shot = image.lensShot {
-            request["shot"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(shot))
-        }
-        return try JSONDecoder().decode(WebLensRequest.self,
-                                        from: JSONSerialization.data(withJSONObject: request)).plan()
     }
+
+    /// What a photograph's own lens is, as one string: the whole of what a plan reads off it.
+    private static func describing(_ shot: LensShot?) -> String {
+        guard let shot else { return "" }
+        return [shot.lensModel, shot.lensMaker ?? "", shot.cameraModel ?? "",
+                shot.focalLength.map { "\($0)" } ?? "", shot.aperture.map { "\($0)" } ?? ""]
+            .joined(separator: "/")
+    }
+
+    /// The imported catalogue as the file currently holds it, and the plans made from it.
+    /// Every render asks; a drag asks at every step.
+    final class LensPlanCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var held: (token: String, value: LensCatalogue)?
+        private var plans: [String: WebLensRequest.Plan] = [:]
+        private var order: [String] = []
+
+        /// The catalogue, decoded again only when the file changed (an import or a removal).
+        func catalogue() -> (value: LensCatalogue, token: String) {
+            let url = HostService.lensCatalogueURL
+            let token = url.map { LensPlanCache.revision($0) } ?? "none"
+            lock.lock()
+            defer { lock.unlock() }
+            if let latest = held, latest.token == token { return (latest.value, token) }
+            let value = url.flatMap { try? Data(contentsOf: $0) }
+                .flatMap { try? LensCatalogue.load(from: $0) } ?? LensCatalogue()
+            held = (token, value)
+            plans.removeAll()
+            order.removeAll()
+            return (value, token)
+        }
+
+        func plan(_ key: String,
+                  _ make: () throws -> WebLensRequest.Plan) rethrows -> WebLensRequest.Plan {
+            lock.lock()
+            let kept = plans[key]
+            lock.unlock()
+            if let kept { return kept }
+            let made = try make()
+            lock.lock()
+            plans[key] = made
+            order.append(key)
+            while order.count > 16 {
+                plans.removeValue(forKey: order.removeFirst())
+            }
+            lock.unlock()
+            return made
+        }
+
+        /// What names the file's contents: its path, modification time and size.
+        static func revision(_ url: URL) -> String {
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            else { return "\(url.path)|absent" }
+            let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+            let size = (attributes[.size] as? NSNumber)?.intValue ?? 0
+            return "\(url.path)|\(modified)|\(size)"
+        }
+    }
+
+    private static let lensPlans = LensPlanCache()
 
     /// Framed scenes, least recently used first: the preview, the detail view and the film
     /// strip's thumbnails each keep their own, so one never makes another rebuild. An entry holds
@@ -1329,11 +1423,13 @@ public final class HostService {
                    sizes: (frame: (Int, Int), output: (Int, Int)), draft: Bool = false) throws -> [Float] {
         let started = DispatchTime.now().uptimeNanoseconds
         defer {
+            let milliseconds = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6
+            note("scene \(sizes.output.0)x\(sizes.output.1)\(draft ? " draft" : "")",
+                 milliseconds: milliseconds)
             if Self.logsTimings {
                 FileHandle.standardError.write(Data(String(
                     format: "fotufilm scene %dx%d%@ %.1f ms\n", sizes.output.0, sizes.output.1,
-                    draft ? " draft" : "",
-                    Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6).utf8))
+                    draft ? " draft" : "", milliseconds).utf8))
             }
         }
         let swapped = geometry.rotation % 2 != 0
@@ -1341,6 +1437,7 @@ public final class HostService {
         let table = try geometry.lens.map { try lensPlan(image, $0) }
             .flatMap { $0.identity ? nil : $0.table }
         let scene: [Float]
+        let geometryStart = DispatchTime.now().uptimeNanoseconds
         if !draft, geometry.crop != SceneGeometry.fullCrop, sizes.frame != oriented {
             // A crop is cut from the whole photograph and then reduced, as the Mac app cuts it;
             // a draft is cut from a reduced copy.
@@ -1365,6 +1462,7 @@ public final class HostService {
                 : geometry.apply(reduced, width: frameWidth, height: frameHeight,
                                  orientedSize: oriented, output: sizes.output, lensTable: table)
         }
+        note("scene 重建/重采样 \(sizes.output.0)x\(sizes.output.1)", since: geometryStart)
         return scene
     }
 
@@ -1372,6 +1470,38 @@ public final class HostService {
     static var lensCatalogueURL: URL? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("Fotufilm/lens-profiles.json")
+    }
+
+    // MARK: Timing notes
+
+    /// What each call cost inside the engine, for the editor's log panel: appended as the develops
+    /// and the geometry run, carried in every answer (`"timings"`), and printed there when a note
+    /// is over the tape's threshold. Instrumentation only: nothing reads what it measures.
+    private var timingNotes: [(id: Int, name: String, ms: Double)] = []
+    private var timingID = 0
+    private let timingLock = NSLock()
+
+    /// Records how long something took, in the ring the next answer carries.
+    func note(_ name: String, since started: UInt64) {
+        note(name, milliseconds:
+                Double(DispatchTime.now().uptimeNanoseconds - started) / 1e6)
+    }
+
+    /// Records a measurement already made -- a develop's own clock, say.
+    func note(_ name: String, milliseconds: Double) {
+        timingLock.lock()
+        defer { timingLock.unlock() }
+        timingID += 1
+        timingNotes.append((timingID, name, milliseconds))
+        if timingNotes.count > 48 { timingNotes.removeFirst(timingNotes.count - 48) }
+    }
+
+    /// The notes the answer carries. Ids only ever climb, so the page prints each one once even
+    /// though every answer restates the ring.
+    private func timingJSON() -> [[String: Any]] {
+        timingLock.lock()
+        defer { timingLock.unlock() }
+        return timingNotes.map { ["id": $0.id, "name": $0.name, "ms": $0.ms] }
     }
 
     // MARK: Answers
@@ -1384,6 +1514,7 @@ public final class HostService {
 
     func answer(_ body: [String: Any], images: [String: [UInt8]] = [:]) throws -> Answer {
         var body = body
+        body["timings"] = timingJSON()
         var payload: [UInt8] = []
         var ranges: [String: [Int]] = [:]
         for (name, bytes) in images.sorted(by: { $0.key < $1.key }) {

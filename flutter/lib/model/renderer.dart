@@ -20,6 +20,7 @@ import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatf
 
 import '../engine/engine.dart';
 import '../engine/presenter.dart';
+import '../debug/log_tape.dart';
 import 'catalogue.dart';
 import 'crop_geometry.dart';
 import 'document.dart';
@@ -58,17 +59,100 @@ class Renderer {
   final RenderHost host;
   final NativePresenter? presenter;
 
-  /// The edge a slider's develops are held to while it moves.
+  /// The edge a slider's develops are held to while it moves, as a first guess: what the next
+  /// step may afford is measured from the one before (`_draftEdgeFor`).
   static const interactiveEdge = 1200;
 
-  /// A phone's: its GPU takes a film's develop at a quarter of the time with a quarter of the
-  /// pixels, and a moving picture on a small screen shows the difference least.
+  /// A phone's: a draft starts here, then the feedback below decides.
   static const phoneInteractiveEdge = 600;
+
+  /// What a step of a drag may cost: most of a frame at 120 Hz, so a draft lands before the next
+  /// pointer sample and the picture keeps up with the hand. The edge follows the pixels -- a
+  /// develop costs about the pixels it develops -- so the edge that fits the budget is
+  /// `edge * sqrt(budget / measured)`, damped here because the fixed part of a develop (the
+  /// kernel's prepare, the frame's transfer) does not shrink with the edge.
+  static const draftBudgetMilliseconds = 11.0;
+  static const smallestDraftEdge = 320;
+
+  /// How far one step may take the edge, either way, so a noisy measurement rocks the resolution
+  /// by a few percent rather than by half.
+  static const draftGrowth = 1.35, draftShrink = 0.8;
 
   static int get _draftEdge => switch (defaultTargetPlatform) {
         TargetPlatform.android || TargetPlatform.iOS => phoneInteractiveEdge,
         _ => interactiveEdge,
       };
+
+  /// The draft edge the next step develops at, and the photograph it was measured on: a new
+  /// photograph starts from the platform's own guess again.
+  int _draftEdgeNow = 0;
+  int? _draftEdgePhoto;
+
+  /// The edge a step develops at: never past what the settled picture would use (a draft larger
+  /// than the picture gains nothing), never under `smallestDraftEdge`, and measured rather than
+  /// assumed -- a phone whose GPU finishes a step in a few milliseconds develops a sharper draft
+  /// more often than the constant above would ever ask for.
+  int _draftEdgeFor(PhotoDocument doc, int settled) {
+    if (_draftEdgePhoto != doc.handle) {
+      _draftEdgePhoto = doc.handle;
+      _draftEdgeNow = math.min(_draftEdge, settled);
+    }
+    final lowest = math.min(smallestDraftEdge, settled);
+    return math.min(settled, _draftEdgeNow.clamp(lowest, settled).toInt());
+  }
+
+  /// When the hand last moved: a step is timed from here to the picture being on screen, which
+  /// is the only latency anyone feels.
+  int _stepBegan = 0;
+
+  /// The drag being timed: its group, its steps, and what they cost.
+  String? _dragGroup;
+  int _dragSteps = 0;
+  double _dragTotal = 0, _dragWorst = 0;
+
+  /// Times one step of a drag from the finger to the screen, records it when it was slow, and
+  /// keeps the running tally.
+  void _measuredStep(String? group, int edge) {
+    final began = _stepBegan;
+    _stepBegan = 0;
+    if (began == 0) return;
+    final ms = (DateTime.now().microsecondsSinceEpoch - began) / 1000;
+    LogTape.timing('滑杆/交互 ${group ?? '-'} -> 屏幕 (${edge}px)', ms);
+    if (group != _dragGroup) {
+      _dragGroup = group;
+      _dragSteps = 0;
+      _dragTotal = 0;
+      _dragWorst = 0;
+    }
+    _dragSteps++;
+    _dragTotal += ms;
+    if (ms > _dragWorst) _dragWorst = ms;
+  }
+
+  /// The drag is over: one line with what the whole of it cost, so a long session's tape holds a
+  /// summary per drag rather than a line per step.
+  void finishDrag(String? group) {
+    if (_dragSteps == 0 || (group != null && group != _dragGroup)) return;
+    LogTape.note('[拖动] ${_dragGroup ?? '-'}: ${_dragSteps} 步, '
+        '平均 ${(_dragTotal / _dragSteps).toStringAsFixed(1)} ms, '
+        '最差 ${_dragWorst.toStringAsFixed(1)} ms');
+    _dragGroup = null;
+    _dragSteps = 0;
+    _dragTotal = 0;
+    _dragWorst = 0;
+  }
+
+  /// Folds one step's measured develop time into the next step's edge: the pixels a step could
+  /// afford, approached from wherever the last one was. It never grows while a step ran long and
+  /// it drops fast when one ran very long -- a stutter is worse than a softer draft.
+  void _measuredDraft(Json? answer, int edge) {
+    final ms = (answer?['renderMilliseconds'] as num?)?.toDouble();
+    if (ms == null || !(ms > 0)) return;
+    final wanted = edge * math.sqrt(draftBudgetMilliseconds / ms);
+    final lowest = edge * (ms > draftBudgetMilliseconds * 2 ? 0.5 : draftShrink);
+    final highest = edge * (ms > draftBudgetMilliseconds ? 1.0 : draftGrowth);
+    _draftEdgeNow = wanted.clamp(lowest, highest).round();
+  }
 
   /// The longest preview develop; past it the detail layer carries the resolution.
   static const maxPreviewEdge = 4096;
@@ -128,6 +212,7 @@ class Renderer {
   /// Asks for the picture to follow the edit or the view. `interactive` while a control moves.
   void schedule({bool interactive = false}) {
     _interactive = interactive;
+    if (interactive) _stepBegan = DateTime.now().microsecondsSinceEpoch;
     _dirty = true;
     _background?.cancel();
     if (_running) {
@@ -177,7 +262,7 @@ class Renderer {
     final scale = view.magnified(photo) && !whole ? view.fitScale(photo) : view.scale(photo);
     final shown = (long * scale * view.devicePixelRatio).round();
     final settled = math.min(long, math.min(_previewCap, math.max(256, shown)));
-    return interactive ? math.min(_draftEdge, settled) : settled;
+    return interactive ? _draftEdgeFor(doc, settled) : settled;
   }
 
   Json _request(PhotoDocument doc, Json edit, {int? maxEdge, bool draft = false}) =>
@@ -210,25 +295,36 @@ class Renderer {
     final presenter = this.presenter;
     if (presenter != null) {
       final current = doc.preview;
-      if (!interactive && current != null && current.signature == signature &&
+      // What is on screen is already what this request would develop: a step that only moved a
+      // crop's rectangle, or a grouped change let go at the size it was already shown, costs
+      // nothing.
+      if (current != null && current.signature == signature &&
           math.max(current.width, current.height) == edge && shows('preview', doc)) {
         return;
       }
       final request = {..._request(doc, doc.edit, maxEdge: edge, draft: interactive), ...options};
       final answer = await engine.call('render', {
         ...request,
-        // A playing movie may leave its original out (video.dart).
-        'original': options['original'] ?? true,
+        // A playing movie may leave its original out (video.dart), and a draft never carries
+        // one: it is not on screen while a hand moves, and it doubled a geometry step's cost.
+        'original': !interactive && (options['original'] ?? true),
         'present': {'slot': 'preview', 'scope': _scope(doc, options)},
       });
       doc..shownRequest = request..shownAnswer = answer.json;
+      if (interactive) {
+        _measuredStep(doc.history.group, edge);
+        _measuredDraft(answer.json, edge);
+      }
       await _place(doc, answer, 'preview', signature, shown: shown);
     } else {
-      if (!interactive && doc.previewSignature == signature && doc.previewEdge == edge) return;
+      if (doc.previewSignature == signature && doc.previewEdge == edge &&
+          doc.previewImage != null) {
+        return;
+      }
       final request = {..._request(doc, doc.edit, maxEdge: edge, draft: interactive), ...options};
       final answer = await engine.call('render', {
         ...request,
-        'original': true,
+        'original': !interactive && (options['original'] ?? true),
         if (doc.originalKey != null) 'haveOriginal': doc.originalKey,
       });
       doc..shownRequest = request..shownAnswer = answer.json;
@@ -238,8 +334,12 @@ class Renderer {
       if (original != null) doc.originalImage = await decodePng(original);
       doc.originalKey = answer.json['originalKey'] as String? ?? doc.originalKey;
       shown.apply(doc);
-      doc.previewSignature = interactive ? null : signature;
-      doc.previewEdge = interactive ? 0 : edge;
+      if (interactive) {
+        _measuredStep(doc.history.group, edge);
+        _measuredDraft(answer.json, edge);
+      }
+      doc.previewSignature = signature;
+      doc.previewEdge = edge;
       lastPreview = answer.json;
       developed++;
       host.rendered();

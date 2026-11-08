@@ -13,6 +13,7 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 
+import '../debug/log_tape.dart';
 import 'engine.dart';
 import 'fotufilm_ffi.dart';
 
@@ -86,6 +87,7 @@ class NativeEngine implements EngineConnection {
   @override
   Future<EngineReply> call(String method, [Map<String, dynamic> params = const {},
       Uint8List? payload]) {
+    final watch = Stopwatch()..start();
     final id = _next++;
     final completer = _pending[id] = Completer<EngineReply>();
     _commands.send((
@@ -95,8 +97,30 @@ class NativeEngine implements EngineConnection {
       payload == null ? null : TransferableTypedData.fromList([payload]),
       false,
     ));
-    return completer.future;
+    return completer.future.then((answer) {
+      _probe(method, watch, answer);
+      return answer;
+    });
   }
+
+  /// Every call over the bridge, timed -- a slow one is what a stall in the interface is made
+  /// of -- and the engine's own notes on what took the time inside it, which it sends with each
+  /// answer (Sources/FotufilmHost/HostService.swift, `note`).
+  void _probe(String method, Stopwatch watch, EngineReply answer) {
+    LogTape.timing('引擎调用 $method', watch.elapsedMicroseconds / 1000);
+    final notes = answer.json['timings'];
+    if (notes is! List) return;
+    for (final note in notes) {
+      if (note is! Map) continue;
+      final id = (note['id'] as num?)?.toInt() ?? 0;
+      if (id <= _notesSeen) continue;
+      _notesSeen = id;
+      LogTape.timing('引擎/${note['name'] ?? '?'}', (note['ms'] as num?)?.toDouble() ?? 0);
+    }
+  }
+
+  /// The newest engine note read; the ids only ever climb.
+  int _notesSeen = 0;
 
   @override
   Future<EngineReply> callWithProgress(String method, Map<String, dynamic> params,
@@ -119,11 +143,15 @@ class NativeEngine implements EngineConnection {
   Future<EngineReply> callInBackground(String method, Map<String, dynamic> params,
       [void Function(Map<String, dynamic> progress)? onProgress]) async {
     final lane = await (_lane ??= _startLane());
+    final watch = Stopwatch()..start();
     final id = _next++;
     final completer = _pending[id] = Completer<EngineReply>();
     if (onProgress != null) _progress[id] = onProgress;
     lane.send((id, method, jsonEncode({...params, 'background': true}), null, onProgress != null));
-    return completer.future;
+    return completer.future.then((answer) {
+      _probe('后台 $method', watch, answer);
+      return answer;
+    });
   }
 
   @override

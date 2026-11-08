@@ -7,6 +7,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import '../../debug/log_tape.dart';
 import '../../model/editor.dart';
 import '../theme/theme.dart';
 import 'histogram_panel.dart';
@@ -75,6 +76,10 @@ class EditorViewer extends StatelessWidget {
                   progress: editor.startup,
                   compact: editor.layout.compact),
               ViewerStatus(editor: editor),
+              // The log tape's button and panel: last in the stack, over everything the editor
+              // draws, and plain widgets, so it is readable when the editor's own kit is what
+              // failed. See flutter/lib/debug/log_tape.dart.
+              const Positioned.fill(child: LogTapeLayer()),
             ]);
           }),
         ),

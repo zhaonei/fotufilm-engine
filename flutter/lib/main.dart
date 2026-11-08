@@ -7,6 +7,7 @@
 //   engine/   the engine connection (native and browser) and the native presenter
 //   ui/       theme (colours, sizes, type), kit (controls), workspace and inspector
 import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:flutter/services.dart' show MethodChannel;
@@ -15,6 +16,7 @@ import 'package:flutter/widgets.dart';
 import 'app/app.dart';
 import 'app/host_window.dart';
 import 'debug/debug.dart';
+import 'debug/log_tape.dart';
 import 'model/catalogue.dart';
 import 'model/cef_profile.dart';
 import 'model/editor.dart';
@@ -35,6 +37,17 @@ Future<void> _tidyScratch() async {
 
 Future<void> main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // The tape is silent at launch: the interface is clean unless someone opens 日志. Everything is
+  // recorded either way, including what fails while the editor is being built.
+  LogTape.showBanners = false;
+  FlutterError.onError = (details) {
+    LogTape.record('framework: ${details.exceptionAsString()}\n${details.stack ?? ''}');
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    LogTape.record('uncaught: $error\n$stack', urgent: true);
+    return true;
+  };
   final (catalogue, _, _, settings) =
       await (Catalogue.load(), IconLibrary.load(), ColourConversion.load(), AppSettings.load())
           .wait;
@@ -46,13 +59,19 @@ Future<void> main(List<String> arguments) async {
   await editor.start();
   await _tidyScratch();
   _lifecycle = AppLifecycleListener(
-    onDetach: () => unawaited(_tidyScratch()),
+    onDetach: () {
+      LogTape.clear();
+      unawaited(_tidyScratch());
+    },
     onPause: () => unawaited(_tidyScratch()),
   );
   unawaited(resolveCefEdits(editor));
   // A browser engine answers in sRGB; the desktop engine's Display P3 is converted for drawing.
   ColourConversion.enabled = editor.engine?.picturesAreDisplayP3 ?? true;
   Driver.start(editor, boundary);
+  // What arrived: the first question a slow develop asks is which backend and films are in use.
+  LogTape.record('catalogue ${catalogue.controls.length} controls; ${editor.stocks.length} stocks; '
+      'engine capabilities ${editor.engine?.capabilities.keys.join(",") ?? "-"}');
   // Photographs from the Finder or the command line, then as they arrive.
   await editor.openPaths(
       await HostWindow.takeOpenedFiles(editor.openPaths, arguments: arguments));

@@ -533,7 +533,10 @@ class EditorModel extends ChangeNotifier implements RenderHost {
   void endEdit() {
     final doc = active;
     if (doc == null || doc.history.group == null) return;
+    final group = doc.history.group;
     doc.history.group = null;
+    // The drag's own tally, before the settled develop: what the whole of it cost (renderer.dart).
+    renderer?.finishDrag(group);
     renderer?.schedule();
   }
 
