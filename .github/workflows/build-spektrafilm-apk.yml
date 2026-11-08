@@ -99,10 +99,18 @@ jobs:
           echo "ANDROID_SDK_ROOT=$sdk" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$sdk" >> "$GITHUB_ENV"
           yes | "$manager" --licenses > /dev/null 2>&1 || true
-          # The NDK is the one the project documents, not the runner's: the engine's CMake and
-          # LibRaw's patches are built against it.
-          "$manager" "platforms;${{ env.PLATFORM_VERSION }}" \
-                      "build-tools;${{ env.BUILD_TOOLS_VERSION }}" \
+          # compileSdk 37 is not in the stable channel (only 37.x previews are), and the project
+          # itself notes 37 is provisional. Try the preview channel, else fall back to 36 and say
+          # so by patching the one line -- targetSdk is 36 either way, so the runtime surface is
+          # unchanged.
+          if ! "$manager" --channel=3 "platforms;${{ env.PLATFORM_VERSION }}" > /tmp/platform.log 2>&1; then
+            echo "platforms;${{ env.PLATFORM_VERSION }} is not published; falling back to android-36"
+            tail -3 /tmp/platform.log || true
+            "$manager" "platforms;android-36"
+            sed -i 's/compileSdk = 37/compileSdk = 36/' spektrafilm/app/build.gradle.kts
+            grep -n 'compileSdk' spektrafilm/app/build.gradle.kts | head -2
+          fi
+          "$manager" "build-tools;${{ env.BUILD_TOOLS_VERSION }}" \
                       "cmake;${{ env.CMAKE_VERSION }}" \
                       "ndk;${{ env.NDK_VERSION }}"
           echo "ANDROID_NDK_HOME=$sdk/ndk/${{ env.NDK_VERSION }}" >> "$GITHUB_ENV"
