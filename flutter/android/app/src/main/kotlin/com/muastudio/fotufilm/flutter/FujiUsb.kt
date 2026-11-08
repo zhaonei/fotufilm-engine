@@ -112,7 +112,7 @@ class FujiUsb(private val context: Context, messenger: BinaryMessenger) {
                 if (!patchByte(profile, i, value)) throw IllegalArgumentException("index $i outside the profile")
             }
             setDeviceProp(PROP_PROFILE, profile)
-            setDeviceProp(PROP_TRIGGER, u32(0))
+            setDeviceProp(PROP_TRIGGER, u32Data(0))
             val jpeg = awaitResult() ?: throw IllegalStateException("the camera produced no object")
             out.parentFile?.mkdirs()
             out.writeBytes(jpeg)
@@ -342,6 +342,10 @@ class FujiUsb(private val context: Context, messenger: BinaryMessenger) {
 
 /** Little-endian u32 in a UInt, for PTP parameters. */
 private fun u32(value: Int): UInt = value.toUInt()
+
+/** The same value as the four little-endian bytes a PTP data phase carries (a DevicePropValue). */
+private fun u32Data(value: Int): ByteArray =
+    ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(value).array()
 
 /** Reads a PTP string at [offset]: one length byte, then UTF-16LE. */
 internal fun ptpString(bytes: ByteArray, offset: Int): String {
