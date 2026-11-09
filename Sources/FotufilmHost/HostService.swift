@@ -1570,6 +1570,9 @@ public final class HostService {
     func answer(_ body: [String: Any], images: [String: [UInt8]] = [:]) throws -> Answer {
         var body = body
         body["timings"] = timingJSON()
+        // This frame went without film grain: the roll's crystals were still being laid down.
+        // The page asks for the picture again shortly, and by then it has them.
+        if FilmGrainWarmth.pending { body["grainPending"] = true }
         var payload: [UInt8] = []
         var ranges: [String: [Int]] = [:]
         for (name, bytes) in images.sorted(by: { $0.key < $1.key }) {

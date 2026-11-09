@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import FotufilmHalide
 
@@ -790,6 +791,26 @@ extension FilmGrain {
     /// develop, or carried by the asset provider. Preparing one takes seconds.
     public static func isPrepared(_ population: Population) -> Bool {
         registry.isPrepared(population.identity)
+    }
+
+    /// Lays a population down beside the develop that wanted it, once.
+    ///
+    /// A download of one on a phone is a minute for a roll nobody has developed -- a new expired
+    /// year, a new push -- and a develop may not spend a minute of the interface's time: it goes
+    /// without grain (`FilmGrainWarmth.pending` says so) and this runs beside it, so the next
+    /// develop has the crystals. One that failed is not retried, or every develop after it would
+    /// queue the same minute again.
+    public static func preparing(_ population: Population) {
+        FilmGrainWarmth.pending = true
+        guard FilmGrainWarmth.beginPreparing(population.identity) else { return }
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                try prepare(population) {}
+                FilmGrainWarmth.finishedPreparing(population.identity, failed: false)
+            } catch {
+                FilmGrainWarmth.finishedPreparing(population.identity, failed: true)
+            }
+        }
     }
 
     /// Prepares `population` and keeps it. A population depends on the roll, not on the grade, so

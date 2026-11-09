@@ -1480,7 +1480,17 @@ public struct FilmEngineInvocation {
         configuration += stock.grainDensityProfile.records.flatMap { $0 }
         filmGrainPopulation = filmActive
             ? FilmGrain.Population(stock: stock, reference: referenceRoll) : nil
-        if filmActive && bindsFilmGrain {
+        if filmActive && bindsFilmGrain, let population = filmGrainPopulation,
+           !FilmGrain.isPrepared(population) {
+            // A roll nobody has developed yet: laying its crystals down takes a minute, and a
+            // develop cannot spend one -- the interface would sit behind it. This frame goes
+            // without grain and the population is prepared beside it; the host is told so
+            // (`FilmGrainWarmth.pending`) and asks for the picture again once it is ready.
+            self.filmTileBinding = nil
+            configuration += [Float](repeating: 0, count: Int(FOTUFILM_CONFIG_FILM_TILE_COUNT))
+            FilmGrain.preparing(population)
+        } else if filmActive && bindsFilmGrain {
+            FilmGrainWarmth.pending = false
             let film = try FilmGrain.binding(stock: stock, reference: referenceRoll,
                                              checkCancellation: checkCancellation)
             if film.registrationStatus != 0,

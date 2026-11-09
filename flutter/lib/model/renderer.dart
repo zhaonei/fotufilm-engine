@@ -332,6 +332,7 @@ class Renderer {
         _measuredStep(doc.history.group, edge);
         _measuredDraft(answer.json, edge);
       }
+      _askAgainIfGrainIsComing(answer.json);
       await _place(doc, answer, 'preview', signature, shown: shown);
     } else {
       if (doc.previewSignature == signature && doc.previewEdge == edge &&
@@ -355,12 +356,36 @@ class Renderer {
         _measuredStep(doc.history.group, edge);
         _measuredDraft(answer.json, edge);
       }
+      _askAgainIfGrainIsComing(answer.json);
       doc.previewSignature = signature;
       doc.previewEdge = edge;
       lastPreview = answer.json;
       developed++;
       host.rendered();
     }
+  }
+
+  /// A frame that came back without film grain because the roll's crystals were still being laid
+  /// down: ask for the picture again in a moment. The engine skips the grain rather than spending a
+  /// minute inside a develop -- which is what a freeze after a new expired or pushed setting was --
+  /// so this is how the grain arrives.
+  Timer? _grainRetry;
+  int _grainRetries = 0;
+
+  void _askAgainIfGrainIsComing(Json answer) {
+    if (answer['grainPending'] != true) {
+      _grainRetries = 0;
+      return;
+    }
+    if (_grainRetry?.isActive ?? false) return;
+    // A minute and a half of asking: a preparation that never finishes is one that failed, and the
+    // engine will not offer it again (FilmGrainWarmth remembers the ones that failed).
+    if (_grainRetries >= 45) return;
+    _grainRetries++;
+    _grainRetry = Timer(const Duration(milliseconds: 2000), () {
+      _grainRetry = null;
+      schedule();
+    });
   }
 
   /// The visible region of a magnified photograph at the screen's own resolution.
