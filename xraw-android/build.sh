@@ -66,6 +66,9 @@ $JAVA -jar "$BT/lib/apksigner.jar" sign \
     --ks-key-alias androiddebugkey --min-sdk-version $SIGN_MIN_API \
     --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
     --out "$OUT/$APK_NAME" "$OUT/$APK_NAME-unsigned.apk"
+# 关键：不带 --min-sdk-version，强制 apksigner 真正解析二进制 AndroidManifest
+# （否则 manifest 结构错误无法被发现，装到手机上才会失败）
+$JAVA -jar "$BT/lib/apksigner.jar" verify "$OUT/$APK_NAME"
 $JAVA -jar "$BT/lib/apksigner.jar" verify --min-sdk-version $SIGN_MIN_API "$OUT/$APK_NAME"
 
 echo

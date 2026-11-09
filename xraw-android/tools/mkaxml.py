@@ -175,7 +175,11 @@ def encode_element(el, pool):
     start = chunk(RES_XML_START_ELEMENT, 16, body)
     children = b"".join(encode_element(c, pool) for c in el.childNodes
                         if c.nodeType == c.ELEMENT_NODE)
-    end = chunk(RES_XML_END_ELEMENT, 16, struct.pack("<II", ns_i, name_i))
+    # END_ELEMENT 必须与 START_ELEMENT 一样带 8 字节节点头（lineNumber + comment），
+    # 否则 size=16 而非 24，apksig / Android PackageParser 会报
+    # "End element chunk too short. Need at least 8 bytes."
+    end = chunk(RES_XML_END_ELEMENT, 16,
+                struct.pack("<II", 1, NO_ENTRY) + struct.pack("<II", ns_i, name_i))
     return start + children + end
 
 
