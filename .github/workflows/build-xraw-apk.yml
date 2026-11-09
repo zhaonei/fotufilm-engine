@@ -45,12 +45,9 @@ jobs:
           set -e
           SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           mkdir -p out/test
+          # 编译全部源码 + 自测（避免新增文件漏加导致 CI 与本地不一致）
           javac --release 11 -nowarn -cp "$SDK/platforms/android-35/android.jar" -d out/test \
-            tools/selftest/SelfTest.java \
-            app/src/com/fotufilm/xraw/D185.java \
-            app/src/com/fotufilm/xraw/Recipe.java \
-            app/src/com/fotufilm/xraw/UsbPtp.java \
-            app/src/com/fotufilm/xraw/Ptp.java
+            tools/selftest/SelfTest.java $(find app/src -name '*.java')
           java -cp "$SDK/platforms/android-35/android.jar:out/test" SelfTest
 
       - name: Build signed APK
