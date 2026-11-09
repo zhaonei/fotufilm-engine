@@ -62,6 +62,8 @@ public final class CameraEngine {
     private D185 baseProfile;      // 相机为「当前已装载 RAF」给出的原始档
     private File loadedRaf;        // 当前已装载的 RAF（不需要重传）
     private final List<String> queueNames = new ArrayList<>();
+    private volatile UsbDevice lastDevice;
+    private volatile String lastTransportLog = "";
 
     public CameraEngine(Context ctx, Listener l) {
         this.ctx = ctx.getApplicationContext();
@@ -176,6 +178,7 @@ public final class CameraEngine {
                 handle(job);
             } catch (IOException e) {
                 Log.e(TAG, "作业失败: " + job.label, e);
+                captureLog();
                 final String msg = (job.label == null ? "" : job.label + "：") + e.getMessage();
                 main.post(() -> listener.onError(msg));
                 if (job.kind != J_PREVIEW) {   // 预览失败不打断会话
@@ -198,6 +201,7 @@ public final class CameraEngine {
                 shutdown();
                 UsbDevice dev = pendingDevice;
                 if (dev == null) throw new IOException("未指定设备");
+                lastDevice = dev;
                 status("打开 USB 设备…");
                 transport = new UsbPtp(ctx, dev);
                 transport.open();
@@ -301,7 +305,18 @@ public final class CameraEngine {
                 break;
             }
             case J_PROBE_DUMP: {
-                requireSession();
+                // 不强制要求已连接：连接失败时更需要这份日志
+                if (fuji == null && lastDevice != null) {
+                    status("尝试重新连接以采集日志…");
+                    try {
+                        transport = new UsbPtp(ctx, lastDevice);
+                        transport.open();
+                        fuji = new Fuji(transport);
+                        try { fuji.handshake(); } catch (IOException ignored) { }
+                    } catch (IOException e) {
+                        lastTransportLog = transport != null ? transport.dumpLog() : lastTransportLog;
+                    }
+                }
                 StringBuilder sb = new StringBuilder();
                 sb.append("== FujiSession ==\n");
                 if (session != null) {
@@ -313,27 +328,42 @@ public final class CameraEngine {
                             .append("battery=").append(session.battery).append('\n');
                 }
                 sb.append("\n== DeviceInfo ==\n");
-                UsbPtp.DataIn di = transport.commandDataIn(Ptp.OC_GET_DEVICE_INFO);
-                Fuji.DeviceInfo info = Fuji.DeviceInfo.parse(di.data);
-                sb.append("manufacturer=").append(info.manufacturer).append('\n')
-                        .append("model=").append(info.model).append('\n');
-                sb.append("ops(").append(info.operations.length).append("): ");
-                for (int op : info.operations) sb.append(String.format("%04X ", op));
-                sb.append("\nprops(").append(info.properties.length).append("): ");
-                for (int pr : info.properties) sb.append(String.format("%04X ", pr));
-                sb.append('\n');
+                Fuji.DeviceInfo info = null;
+                if (transport != null) {
+                    try {
+                        UsbPtp.DataIn di = transport.commandDataIn(Ptp.OC_GET_DEVICE_INFO);
+                        info = Fuji.DeviceInfo.parse(di.data);
+                    } catch (IOException e) {
+                        sb.append("读取失败: ").append(e.getMessage()).append('\n');
+                    }
+                }
+                if (info != null) {
+                    sb.append("manufacturer=").append(info.manufacturer).append('\n')
+                            .append("model=").append(info.model).append('\n')
+                            .append("version=").append(info.deviceVersion).append('\n')
+                            .append("serial=").append(info.serial).append('\n');
+                    sb.append("ops(").append(info.operations.length).append("): ");
+                    for (int op : info.operations) sb.append(String.format("%04X ", op));
+                    sb.append("\nprops(").append(info.properties.length).append("): ");
+                    for (int pr : info.properties) sb.append(String.format("%04X ", pr));
+                    sb.append('\n');
+                } else {
+                    sb.append("(无)\n");
+                }
                 if (baseProfile != null) sb.append("\n== d185 ==\n").append(baseProfile.hexDump());
                 sb.append("\n== iop code ==\n");
                 try {
                     sb.append("0xD184 = ").append(fuji.getString(Ptp.DPC_IOP_CODE)).append('\n');
                 } catch (IOException ignored) { }
-                sb.append("\n== USB 信息 ==\n").append(transport.describe()).append('\n');
+                sb.append("\n== USB 信息 ==\n")
+                        .append(transport != null ? transport.describe() : "transport=null").append('\n');
                 sb.append("\n== 机型能力（GetDevicePropDesc）==\n");
                 if (caps.isEmpty()) sb.append("(空)\n");
                 for (java.util.Map.Entry<Integer, PropDesc> e : caps.entrySet()) {
                     sb.append(e.getValue().describe()).append('\n');
                 }
-                sb.append("\n== PTP 事务日志 ==\n").append(transport.dumpLog());
+                sb.append("\n== PTP 事务日志 ==\n")
+                        .append(transport != null ? transport.dumpLog() : lastTransportLog);
                 File f = new File(Recipe.dir(ctx), "probe_dump.txt");
                 FileOutputStream fos = new FileOutputStream(f);
                 try { fos.write(sb.toString().getBytes(StandardCharsets.UTF_8)); } finally { fos.close(); }
@@ -378,6 +408,32 @@ public final class CameraEngine {
                     listener.onStatus("已断开");
                 });
                 break;
+        }
+    }
+
+    /** 把当前 USB 事务日志留存 + 落盘（连接失败时最有用） */
+    private void captureLog() {
+        try {
+            if (transport != null) lastTransportLog = transport.dumpLog();
+            StringBuilder sb = new StringBuilder();
+            sb.append("== 结果 ==\n");
+            sb.append(session != null ? ("已连接 " + session.title()) : "未连接 / 连接失败");
+            sb.append('\n');
+            if (!caps.isEmpty()) {
+                sb.append("\n== 机型能力 ==\n");
+                for (java.util.Map.Entry<Integer, PropDesc> e : caps.entrySet())
+                    sb.append(e.getValue().describe()).append('\n');
+            }
+            if (baseProfile != null) sb.append("\n== d185 ==\n").append(baseProfile.hexDump());
+            sb.append("\n== USB 信息 ==\n")
+                    .append(transport != null ? transport.describe() : "transport=null").append('\n');
+            sb.append("\n== PTP 事务日志 ==\n").append(lastTransportLog);
+            File f = new File(Recipe.dir(ctx), "probe_dump.txt");
+            FileOutputStream fos = new FileOutputStream(f);
+            try { fos.write(sb.toString().getBytes(StandardCharsets.UTF_8)); } finally { fos.close(); }
+            Log.i(TAG, "日志已写入 " + f.getAbsolutePath());
+        } catch (Exception e) {
+            Log.w(TAG, "写日志失败: " + e);
         }
     }
 

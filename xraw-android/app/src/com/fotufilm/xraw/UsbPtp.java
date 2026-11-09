@@ -110,42 +110,66 @@ public final class UsbPtp implements Closeable {
         if (device.getVendorId() != Ptp.VID_FUJIFILM)
             throw new IOException(String.format("不是富士相机（VID=0x%04X）", device.getVendorId()));
 
-        UsbInterface found = null;
+        // 端点必须在「将要 claim 的那个接口」里找。
+        // v1.2.1 曾把搜索范围放宽到所有接口，结果拿到未 claim 接口上的端点，
+        // 所有传输都返回 -1（真机表现为 IN 读超时）——这是硬性约束。
+        UsbInterface claimIface = null;
         for (int i = 0; i < device.getInterfaceCount(); i++) {
             UsbInterface it = device.getInterface(i);
-            if (it.getInterfaceClass() == Ptp.USB_CLASS_STILL_IMAGE) { found = it; break; }
+            if (it.getInterfaceClass() == Ptp.USB_CLASS_STILL_IMAGE) { claimIface = it; break; }
         }
-        if (found == null) {
+        if (claimIface == null) {
             throw new IOException("未找到 PTP(Still Image, class 6) 接口。请把相机 "
                     + "MENU → 网络/USB 设置 → CONNECTION MODE 设为「USB RAW CONV./BACKUP RESTORE」");
         }
 
         UsbEndpoint in = null, out = null, evt = null;
-        // 事件端点可能在同一个接口，也可能在别的接口上，全部扫一遍
-        for (int i = 0; i < device.getInterfaceCount(); i++) {
-            UsbInterface it = device.getInterface(i);
-            for (int e = 0; e < it.getEndpointCount(); e++) {
-                UsbEndpoint ep = it.getEndpoint(e);
-                boolean inDir = ep.getDirection() == UsbConstants.USB_DIR_IN;
-                if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
-                    if (inDir) { if (in == null) in = ep; }
-                    else { if (out == null) out = ep; }
-                } else if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_INT && inDir && evt == null) {
-                    evt = ep;
+        for (int e = 0; e < claimIface.getEndpointCount(); e++) {
+            UsbEndpoint ep = claimIface.getEndpoint(e);
+            boolean inDir = ep.getDirection() == UsbConstants.USB_DIR_IN;
+            if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
+                if (inDir) { if (in == null) in = ep; }
+                else { if (out == null) out = ep; }
+            } else if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_INT && inDir && evt == null) {
+                evt = ep;
+            }
+        }
+        // 极少数机型把 bulk 端点放在独立的 alternate 接口里：只有 class-6 接口没有 bulk 时才回退
+        if (in == null || out == null) {
+            for (int i = 0; i < device.getInterfaceCount(); i++) {
+                UsbInterface it = device.getInterface(i);
+                if (it == claimIface) continue;
+                UsbEndpoint bi = null, bo = null;
+                for (int e = 0; e < it.getEndpointCount(); e++) {
+                    UsbEndpoint ep = it.getEndpoint(e);
+                    if (ep.getType() != UsbConstants.USB_ENDPOINT_XFER_BULK) continue;
+                    if (ep.getDirection() == UsbConstants.USB_DIR_IN) bi = ep; else bo = ep;
+                }
+                if (bi != null && bo != null) {
+                    claimIface = it; in = bi; out = bo; evt = null;
+                    break;
                 }
             }
         }
-        if (in == null || out == null) throw new IOException("PTP 接口缺少 bulk 端点");
+        if (in == null || out == null) {
+            throw new IOException(String.format(
+                    "PTP 接口(if=%d)上找不到 bulk 端点：in=%s out=%s。"
+                            + "这台手机的 USB 栈可能未正确枚举相机，请拔插线或换线重试。",
+                    claimIface.getId(), in, out));
+        }
+        final UsbInterface ifaceToClaim = claimIface;
+        final UsbEndpoint epInF = in, epOutF = out, epEvtF = evt;
 
         UsbDeviceConnection c = usbManager.openDevice(device);
         if (c == null) throw new IOException("UsbManager.openDevice 返回 null");
-        if (!c.claimInterface(found, true)) {
+        if (!c.claimInterface(ifaceToClaim, true)) {
             c.close();
             throw new IOException("claimInterface 失败：接口可能被其它 App 占用");
         }
-        conn = c; intf = found; epIn = in; epOut = out; epEvt = evt;
-        log(String.format("open in=0x%02X out=0x%02X evt=%s chunk=%d",
-                in.getAddress(), out.getAddress(), evt == null ? "无" : String.format("0x%02X", evt.getAddress()), chunk));
+        conn = c; intf = ifaceToClaim; epIn = epInF; epOut = epOutF; epEvt = epEvtF;
+        log(String.format("open iface=%d epIn=0x%02X epOut=0x%02X evt=%s chunk=%d",
+                ifaceToClaim.getId(), epInF.getAddress(), epOutF.getAddress(),
+                epEvtF == null ? "无" : String.format("0x%02X", epEvtF.getAddress()), chunk));
 
     }
 
@@ -356,9 +380,16 @@ public final class UsbPtp implements Closeable {
     private Container readContainer(OutputStream sink) throws IOException {
         byte[] first = new byte[USB_BULK_MAX];
         int have = bulkIn(first, 0, USB_BULK_MAX, CMD_TIMEOUT);
+        if (have < 0) {
+            // 关键：-1 是超时/错误，绝不能拿它当偏移继续读（曾导致 off=-1 len=513 的内部越界）
+            throw new IOException("相机没有回应（bulk IN 超时 " + (CMD_TIMEOUT / 1000) + "s）。"
+                    + "请确认相机 CONNECTION MODE = USB RAW CONV./BACKUP RESTORE，"
+                    + "并拔插数据线后重试。");
+        }
         while (have < 12) {
             int n = bulkIn(first, have, USB_BULK_MAX - have, CMD_TIMEOUT);
-            if (n <= 0) throw new IOException("读取容器头失败 have=" + have);
+            if (n < 0) throw new IOException("读取容器头超时（已收到 " + have + " 字节）");
+            if (n == 0) throw new IOException("读取容器头得到 0 字节（已收到 " + have + "）");
             have += n;
         }
         int total = le32(first, 0);
@@ -470,7 +501,12 @@ public final class UsbPtp implements Closeable {
     }
 
     public String describe() {
-        return String.format("VID=0x%04X PID=0x%04X chunk=%d evt=%s",
-                device.getVendorId(), device.getProductId(), chunk, epEvt != null);
+        return String.format("VID=0x%04X PID=0x%04X ifaces=%d claimed=%s epIn=%s epOut=%s evt=%s chunk=%d",
+                device.getVendorId(), device.getProductId(), device.getInterfaceCount(),
+                intf == null ? "-" : String.valueOf(intf.getId()),
+                epIn == null ? "-" : String.format("0x%02X", epIn.getAddress()),
+                epOut == null ? "-" : String.format("0x%02X", epOut.getAddress()),
+                epEvt == null ? "-" : String.format("0x%02X", epEvt.getAddress()),
+                chunk);
     }
 }
