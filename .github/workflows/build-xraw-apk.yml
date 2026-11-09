@@ -1,0 +1,83 @@
+name: Build Fotofilm X RAW APK
+
+on:
+  push:
+    branches: [ xraw-android-app, main ]
+    paths:
+      - 'xraw-android/**'
+      - '.github/workflows/build-xraw-apk.yml'
+  pull_request:
+    paths:
+      - 'xraw-android/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Accept SDK licenses and install platform/build-tools
+        run: |
+          set -e
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          echo "SDK=$SDK"
+          # ubuntu-latest 预装 Android SDK；缺什么补什么
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null
+          ls -d "$SDK/platforms/android-35/android.jar" "$SDK/build-tools/35.0.0/lib/d8.jar"
+
+      - name: Unit self-test (d185 codec / recipe round-trip)
+        working-directory: xraw-android
+        run: |
+          set -e
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          mkdir -p out/test
+          javac --release 11 -nowarn -cp "$SDK/platforms/android-35/android.jar" -d out/test \
+            tools/selftest/SelfTest.java \
+            app/src/com/fotufilm/xraw/D185.java \
+            app/src/com/fotufilm/xraw/Recipe.java \
+            app/src/com/fotufilm/xraw/UsbPtp.java \
+            app/src/com/fotufilm/xraw/Ptp.java
+          java -cp "$SDK/platforms/android-35/android.jar:out/test" SelfTest
+
+      - name: Build signed APK
+        working-directory: xraw-android
+        run: |
+          set -e
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Verify manifest chunks / APK signature
+        working-directory: xraw-android
+        run: |
+          set -e
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          "$SDK/build-tools/35.0.0/aapt2" dump badging out/FotofilmXRAW.apk || \
+            echo "aapt2 dump 失败（不影响安装，仅用于信息展示）"
+          java -jar "$SDK/build-tools/35.0.0/lib/apksigner.jar" verify --verbose out/FotofilmXRAW.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FotofilmXRAW-apk
+          path: xraw-android/out/FotofilmXRAW.apk
+          if-no-files-found: error
+
+      - name: Attach APK to release (tag pushes only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: xraw-android/out/FotofilmXRAW.apk
