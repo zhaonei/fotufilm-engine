@@ -351,20 +351,20 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                 Math.max(0, recipe.drPriority), i -> recipe.drPriority = i);
         c.addView(drpRow);
 
-        c.addView(Ui.section(this, "色调曲线（X-Processor 5：-2.0 ~ +4.0，0.5 步进）"));
-        hiRow = new Ui.SeekRow(this, "高光色调", -20, 40, recipe.highlight, "", true,
+        c.addView(Ui.section(this, "色调曲线（机内整数刻度：高光/阴影 -2 ~ +4）"));
+        hiRow = new Ui.SeekRow(this, "高光色调", D185.TONE_MIN, D185.TONE_MAX, recipe.highlight, "", false,
                 v -> recipe.highlight = v, () -> engine.preview(recipe));
         c.addView(hiRow);
-        shRow = new Ui.SeekRow(this, "阴影色调", -20, 40, recipe.shadow, "", true,
+        shRow = new Ui.SeekRow(this, "阴影色调", D185.TONE_MIN, D185.TONE_MAX, recipe.shadow, "", false,
                 v -> recipe.shadow = v, () -> engine.preview(recipe));
         c.addView(shRow);
 
         c.addView(Ui.section(this, "色彩"));
-        colorRow = new Ui.SeekRow(this, "色彩", -40, 40, recipe.color * 10, "", true,
-                v -> recipe.color = Math.round(v / 10f), () -> engine.preview(recipe));
+        colorRow = new Ui.SeekRow(this, "色彩", D185.COLOR_MIN, D185.COLOR_MAX, recipe.color, "", false,
+                v -> recipe.color = v, () -> engine.preview(recipe));
         c.addView(colorRow);
-        sharpRow = new Ui.SeekRow(this, "锐度", -40, 40, recipe.sharpness * 10, "", true,
-                v -> recipe.sharpness = Math.round(v / 10f), () -> engine.preview(recipe));
+        sharpRow = new Ui.SeekRow(this, "锐度", D185.COLOR_MIN, D185.COLOR_MAX, recipe.sharpness, "", false,
+                v -> recipe.sharpness = v, () -> engine.preview(recipe));
         c.addView(sharpRow);
 
         c.addView(Ui.section(this, "白平衡"));
@@ -396,8 +396,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         nrRow = new Ui.SeekRow(this, "降噪", -4, 4, recipe.nr, "", false,
                 v -> recipe.nr = v, () -> engine.preview(recipe));
         c.addView(nrRow);
-        clarityRow = new Ui.SeekRow(this, "清晰度", -50, 50, recipe.clarity * 10, "", true,
-                v -> recipe.clarity = Math.round(v / 10f), () -> engine.preview(recipe));
+        clarityRow = new Ui.SeekRow(this, "清晰度", D185.CLARITY_MIN, D185.CLARITY_MAX, recipe.clarity, "", false,
+                v -> recipe.clarity = v, () -> engine.preview(recipe));
         c.addView(clarityRow);
         lmoRow = new Ui.ChoiceRow(this, "镜头调制优化器 (LMO)", new String[]{"开", "关"},
                 recipe.lmo == D185.LMO_ON ? 0 : 1, i -> recipe.lmo = i == 0 ? D185.LMO_ON : D185.LMO_OFF);
@@ -442,12 +442,12 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (tempRow != null) tempRow.setValue(recipe.wbTemp, 2500);
         if (wbRRow != null) wbRRow.setValue(recipe.wbR, -9);
         if (wbBRow != null) wbBRow.setValue(recipe.wbB, -9);
-        if (hiRow != null) hiRow.setValue(recipe.highlight, -20);
-        if (shRow != null) shRow.setValue(recipe.shadow, -20);
-        if (colorRow != null) colorRow.setValue(recipe.color * 10, -40);
-        if (sharpRow != null) sharpRow.setValue(recipe.sharpness * 10, -40);
+        if (hiRow != null) hiRow.setValue(recipe.highlight, D185.TONE_MIN);
+        if (shRow != null) shRow.setValue(recipe.shadow, D185.TONE_MIN);
+        if (colorRow != null) colorRow.setValue(recipe.color, D185.COLOR_MIN);
+        if (sharpRow != null) sharpRow.setValue(recipe.sharpness, D185.COLOR_MIN);
         if (nrRow != null) nrRow.setValue(recipe.nr, -4);
-        if (clarityRow != null) clarityRow.setValue(recipe.clarity * 10, -50);
+        if (clarityRow != null) clarityRow.setValue(recipe.clarity, D185.CLARITY_MIN);
         if (wcRow != null) wcRow.setValue(recipe.monoWC, -18);
         if (mgRow != null) mgRow.setValue(recipe.monoMG, -18);
         if (expRow != null) expRow.setValue(recipe.expBiasThirds, -9);
@@ -658,7 +658,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         new AlertDialog.Builder(this)
                 .setTitle("自检 / 机型探测")
                 .setItems(new String[]{
-                        "① 导出设备信息与 d185 全字段（probe_dump.txt）",
+                        "① 导出设备信息 + d185 全字段 + USB 事务日志（probe_dump.txt）",
                         "② 胶片模拟扫描：逐值渲染 20 张缩略图（simsweep/）",
                         "③ 从相机读回当前 RAF 的机内参数到面板"
                 }, (d, which) -> {

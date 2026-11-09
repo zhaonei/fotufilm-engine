@@ -64,32 +64,52 @@ public final class D185 {
             WB_UNDERWATER = 0x8, WB_FL1 = 0x8001, WB_FL2 = 0x8002, WB_FL3 = 0x8003,
             WB_SHADE = 0x8006, WB_TEMPERATURE = 0x8007,
             WB_CUSTOM1 = 0x8008, WB_CUSTOM2 = 0x8009, WB_CUSTOM3 = 0x800a;
+    public static final int WB_AUTO_WHITE_PRIORITY = 0x8020, WB_AUTO_AMBIENCE_PRIORITY = 0x8021;
     public static final int WB_SHOOT_COND_ON = 1, WB_SHOOT_COND_OFF = 2;
+
+    /** 机内为整数刻度的参数（X-M5：高光/阴影 -2..+4、色彩/锐度 -4..+4、清晰度 -5..+5），线上统一 ×10 */
+    public static final int TONE_MIN = -2, TONE_MAX = 4;
+    public static final int COLOR_MIN = -4, COLOR_MAX = 4;
+    public static final int CLARITY_MIN = -5, CLARITY_MAX = 5;
 
     /** 降噪：非线性编码（0x0/0x1000.../0x8000），顺序为 +4..-4 */
     public static final int[] NR_VALUES = {0x5000, 0x6000, 0x0, 0x1000, 0x2000, 0x3000, 0x4000, 0x7000, 0x8000};
 
-    /** 胶片模拟：idx7。18/19/20 为社区推断值，需用 App 内「模拟扫描」在真机上确认 */
-    public static final int[] SIM_VALUES = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20};
+    /**
+     * 胶片模拟（idx7）。数值 1..20 来自社区交叉验证（Filmcase / ILFforever），
+     * 18 = ETERNA BLEACH BYPASS（即影友说的 BB 滤镜）、19 = 怀旧负片、20 = REALA ACE。
+     * 数组顺序 = X-M5 机内菜单顺序（不是枚举顺序），UI 直接按此顺序展示。
+     */
+    public static final int[] SIM_VALUES = {1, 2, 3, 11, 20, 4, 5, 17, 19, 16, 18, 12, 13, 14, 15, 6, 7, 8, 9, 10};
     public static final String[] SIM_NAMES = {
-            "PROVIA/标准", "Velvia/鲜艳", "ASTIA/柔和", "PRO Neg. Hi", "PRO Neg. Std",
-            "黑白", "黑白+Ye", "黑白+R", "黑白+G", "棕褐色",
-            "CLASSIC CHROME", "ACROS", "ACROS+Ye", "ACROS+R", "ACROS+G",
-            "ETERNA/电影", "CLASSIC Neg.", "ETERNA 漂白(推断)", "怀旧负片(推断)", "REALA ACE(推断)"
+            "PROVIA/标准", "Velvia/鲜艳", "ASTIA/柔和", "CLASSIC CHROME", "REALA ACE",
+            "PRO Neg. Hi", "PRO Neg. Std", "CLASSIC Neg.", "NOSTALGIC Neg.",
+            "ETERNA/电影", "ETERNA BLEACH BYPASS (BB)",
+            "ACROS", "ACROS+Ye", "ACROS+R", "ACROS+G",
+            "黑白", "黑白+Ye", "黑白+R", "黑白+G", "棕褐色"
     };
     private static final boolean[] SIM_MONO = {
             false, false, false, false, false,
-            true, true, true, true, true,
-            false, true, true, true, true,
-            false, false, false, false, false
+            false, false, false, false,
+            false, false,
+            true, true, true, true,
+            true, true, true, true, true
     };
+
+    /** 白平衡：数值来源 ILFforever 在 X-H2 上逐值写读验证（含 0x8020/0x8021 两档自动） */
     public static final String[] WB_NAMES = {
-            "自动", "日光", "阴天", "荧光灯 1", "荧光灯 2", "荧光灯 3", "白炽灯", "水下",
-            "自定义 1", "自定义 2", "自定义 3", "色温 (K)", "按拍摄时 (As Shot)"
+            "自动", "白色优先", "环境优先",
+            "自定义 1", "自定义 2", "自定义 3",
+            "色温 (K)", "日光", "阴天",
+            "荧光灯 1", "荧光灯 2", "荧光灯 3",
+            "白炽灯", "水下", "按拍摄时 (As Shot)"
     };
     public static final int[] WB_VALUES = {
-            WB_AUTO, WB_DAYLIGHT, WB_SHADE, WB_FL1, WB_FL2, WB_FL3, WB_INCANDESCENT, WB_UNDERWATER,
-            WB_CUSTOM1, WB_CUSTOM2, WB_CUSTOM3, WB_TEMPERATURE, WB_AS_SHOT
+            WB_AUTO, WB_AUTO_WHITE_PRIORITY, WB_AUTO_AMBIENCE_PRIORITY,
+            WB_CUSTOM1, WB_CUSTOM2, WB_CUSTOM3,
+            WB_TEMPERATURE, WB_DAYLIGHT, WB_SHADE,
+            WB_FL1, WB_FL2, WB_FL3,
+            WB_INCANDESCENT, WB_UNDERWATER, WB_AS_SHOT
     };
     public static final String[] IMAGE_SIZE_NAMES = {
             "L 3:2", "L 16:9", "L 1:1", "M 3:2", "M 16:9", "M 1:1", "S 3:2", "S 16:9", "S 1:1"

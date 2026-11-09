@@ -29,9 +29,13 @@ public final class Raf {
             if (!magic.startsWith("FUJIFILM")) {
                 throw new IOException("不是富士 RAF 文件（magic=" + magic.trim() + "）");
             }
-            int end = 24;
+            // 头部布局：0..15 magic，16..19 "0201"，20..27 相机 id（8 字节），28.. 型号字符串。
+            // 之前从 24 开始读，结果拿到 "9510X-M5"，导致与相机回报的 "X-M5" 比对失败。
+            int start = 28;
+            int end = start;
             while (end < 64 && head[end] != 0) end++;
-            String model = new String(head, 24, Math.max(0, end - 24), "US-ASCII").trim();
+            String model = new String(head, start, Math.max(0, end - start), "US-ASCII")
+                    .replaceAll("[^\\x20-\\x7E]", "").trim();
             int off = UsbPtp.le32(head, 84);
             int len = UsbPtp.le32(head, 88);
             if (off <= 0 || len <= 0 || off + (long) len > f.length()) { off = 0; len = 0; }

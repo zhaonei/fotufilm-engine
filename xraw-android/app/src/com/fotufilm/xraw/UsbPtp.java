@@ -7,6 +7,7 @@ import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
+import android.hardware.usb.UsbRequest;
 import android.util.Log;
 
 import java.io.ByteArrayOutputStream;
@@ -16,17 +17,18 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.Arrays;
+import java.nio.ByteBuffer;
 
 /**
  * 标准 PTP (ISO 15740) over USB bulk，只依赖 Android framework 的 UsbManager。
  *
- * 关键设计（与设计文档 §2.2/§5.4 一致）：
- *  - 单实例 + 串行：相机是有状态单会话设备，本类所有公开方法都加锁。
- *  - 收容器先读 512B（header 与 payload 可能同包到达），再按 length 补齐。
- *  - 上行大文件（30~60MB RAF）：先发 12B DATA 头，再流式写文件，内存恒定 ~512KB。
- *  - chunk 自适应：失败即 512K→64K→16K→4K 降级并记忆。
- *  - 断线不可恢复：任何 IOException 都应让上层重建会话。
+ * 针对真机实测问题（上传时 `bulk OUT 失败 0/24 ret=-1`）的加固：
+ *  1. **事件通道必须取**：富士会往 interrupt IN 灌 PTP 事件，主机不读会把队列塞满，
+ *     之后相机就停止接受命令（表现就是 bulk OUT 一直 timeout）。
+ *  2. **端点 halt 自愈**：写失败时用 controlTransfer(CLEAR_FEATURE, ENDPOINT_HALT) 清 halt，
+ *     退避重试并逐级缩小 chunk。
+ *  3. **发命令前清空 IN 管道**：扔掉上一次残留的 DATA/RESPONSE，避免协议错位。
+ *  4. 事务日志留在内存里（`dumpLog()`），方便用户回传定位。
  */
 public final class UsbPtp implements Closeable {
     private static final String TAG = "UsbPtp";
@@ -34,11 +36,12 @@ public final class UsbPtp implements Closeable {
     public static final int CHUNK_DEFAULT = 64 * 1024;
     public static final int CHUNK_MAX = 512 * 1024;
     public static final int CHUNK_MIN = 4 * 1024;
-    private static final int CMD_TIMEOUT = 5000;
+    private static final int CMD_TIMEOUT = 8000;
     private static final int DATA_TIMEOUT = 30000;
     private static final int LARGE_TIMEOUT = 180000;
     private static final int USB_BULK_MAX = 512;
     private static final int UPLOAD_CHUNK = 512 * 1024;
+    private static final int OUT_RETRIES = 4;
 
     public interface Progress {
         void onProgress(long sent, long total);
@@ -69,12 +72,19 @@ public final class UsbPtp implements Closeable {
     private UsbInterface intf;
     private UsbEndpoint epIn;
     private UsbEndpoint epOut;
+    private UsbEndpoint epEvt;
+
+    private Thread evtThread;
+    private volatile boolean evtRunning = false;
 
     private int txId = 0;
     private int chunk = CHUNK_DEFAULT;
     private final byte[] rxBuf = new byte[64 * 1024];
 
     public volatile boolean sessionOpen = false;
+
+    private final StringBuilder txLog = new StringBuilder();
+    private static final int TXLOG_MAX = 24000;
 
     public UsbPtp(Context ctx, UsbDevice dev) {
         this.usbManager = (UsbManager) ctx.getApplicationContext().getSystemService(Context.USB_SERVICE);
@@ -84,6 +94,19 @@ public final class UsbPtp implements Closeable {
     public boolean hasPermission() { return usbManager.hasPermission(device); }
 
     public int chunkSize() { return chunk; }
+
+    private void log(String s) {
+        synchronized (txLog) {
+            if (txLog.length() > TXLOG_MAX) txLog.delete(0, txLog.length() - TXLOG_MAX / 2);
+            txLog.append(s).append('\n');
+        }
+    }
+
+    public String dumpLog() {
+        synchronized (txLog) { return txLog.toString(); }
+    }
+
+    // ------------------------------------------------------------ 生命周期
 
     public synchronized void open() throws IOException {
         if (conn != null) return;
@@ -101,11 +124,20 @@ public final class UsbPtp implements Closeable {
                     + "MENU → 网络/USB 设置 → CONNECTION MODE 设为「USB RAW CONV./BACKUP RESTORE」");
         }
 
-        UsbEndpoint in = null, out = null;
-        for (int i = 0; i < found.getEndpointCount(); i++) {
-            UsbEndpoint ep = found.getEndpoint(i);
-            if (ep.getType() != UsbConstants.USB_ENDPOINT_XFER_BULK) continue;
-            if (ep.getDirection() == UsbConstants.USB_DIR_IN) in = ep; else out = ep;
+        UsbEndpoint in = null, out = null, evt = null;
+        // 事件端点可能在同一个接口，也可能在别的接口上，全部扫一遍
+        for (int i = 0; i < device.getInterfaceCount(); i++) {
+            UsbInterface it = device.getInterface(i);
+            for (int e = 0; e < it.getEndpointCount(); e++) {
+                UsbEndpoint ep = it.getEndpoint(e);
+                boolean inDir = ep.getDirection() == UsbConstants.USB_DIR_IN;
+                if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
+                    if (inDir) { if (in == null) in = ep; }
+                    else { if (out == null) out = ep; }
+                } else if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_INT && inDir && evt == null) {
+                    evt = ep;
+                }
+            }
         }
         if (in == null || out == null) throw new IOException("PTP 接口缺少 bulk 端点");
 
@@ -115,9 +147,44 @@ public final class UsbPtp implements Closeable {
             c.close();
             throw new IOException("claimInterface 失败：接口可能被其它 App 占用");
         }
-        conn = c; intf = found; epIn = in; epOut = out;
-        Log.i(TAG, String.format("opened in=0x%02X out=0x%02X chunk=%d",
-                in.getAddress(), out.getAddress(), chunk));
+        conn = c; intf = found; epIn = in; epOut = out; epEvt = evt;
+        log(String.format("open in=0x%02X out=0x%02X evt=%s chunk=%d",
+                in.getAddress(), out.getAddress(), evt == null ? "无" : String.format("0x%02X", evt.getAddress()), chunk));
+
+        startEventDrain();
+    }
+
+    /**
+     * 持续取走 PTP 事件。**这是真机上上传卡死的根因**：事件队列不取空，相机会停止响应命令。
+     */
+    private void startEventDrain() {
+        if (epEvt == null) return;
+        evtRunning = true;
+        evtThread = new Thread(() -> {
+            UsbRequest req = new UsbRequest();
+            try {
+                if (!req.initialize(conn, epEvt)) { log("event: initialize 失败"); return; }
+                ByteBuffer buf = ByteBuffer.allocate(64);
+                if (!req.queue(buf)) { log("event: queue 失败"); return; }
+                while (evtRunning) {
+                    UsbRequest done = conn.requestWait();
+                    if (done == null) break;
+                    int len = buf.position();
+                    if (len >= 6) {
+                        int code = le16(buf.array(), 4);
+                        log(String.format("event 0x%04X len=%d", code, len));
+                    }
+                    buf.clear();
+                    if (!req.queue(buf)) break;
+                }
+            } catch (Exception e) {
+                log("event 线程退出: " + e);
+            } finally {
+                try { req.close(); } catch (Exception ignored) { }
+            }
+        }, "ptp-events");
+        evtThread.setDaemon(true);
+        evtThread.start();
     }
 
     public synchronized void openSession(int sessionId) throws IOException {
@@ -129,6 +196,7 @@ public final class UsbPtp implements Closeable {
     }
 
     @Override public synchronized void close() {
+        evtRunning = false;
         boolean wasOpen = sessionOpen;
         sessionOpen = false;             // 先清状态，再发 CloseSession（拔线时它必然失败）
         if (wasOpen) {
@@ -136,41 +204,52 @@ public final class UsbPtp implements Closeable {
         }
         try { if (intf != null && conn != null) conn.releaseInterface(intf); } catch (Exception ignored) { }
         try { if (conn != null) conn.close(); } catch (Exception ignored) { }
-        conn = null; intf = null; epIn = null; epOut = null;
+        conn = null; intf = null; epIn = null; epOut = null; epEvt = null;
     }
 
     // ------------------------------------------------------------ 事务
 
     public synchronized Resp command(int opcode, int... params) throws IOException {
+        drainInput(4);
         int tid = ++txId;
         sendCommand(opcode, tid, params);
-        return waitResponse(tid, opcode);
+        Resp r = waitResponse(tid, opcode);
+        log(String.format("cmd 0x%04X %s -> %s", opcode, ints(params), r));
+        return r;
     }
 
     public synchronized DataIn commandDataIn(int opcode, int... params) throws IOException {
+        drainInput(4);
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         byte[] data = new byte[0];
         while (true) {
             Container c = readContainer(null);
             if (c.type == Ptp.CT_DATA) data = c.payload;
-            else if (c.type == Ptp.CT_RESPONSE) return new DataIn(new Resp(c.code, opcode, c.params), data);
+            else if (c.type == Ptp.CT_RESPONSE) {
+                Resp r = new Resp(c.code, opcode, c.params);
+                log(String.format("cmd 0x%04X %s -> %s dataLen=%d", opcode, ints(params), r, data.length));
+                return new DataIn(r, data);
+            }
         }
     }
 
     public synchronized Resp commandDataOut(int opcode, int[] params, byte[] data) throws IOException {
+        drainInput(4);
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         sendDataHeader(opcode, tid, 12 + data.length);
         writeAll(data, 0, data.length, DATA_TIMEOUT);
-        return waitResponse(tid, opcode);
+        Resp r = waitResponse(tid, opcode);
+        log(String.format("cmd(out) 0x%04X %s outLen=%d -> %s", opcode, ints(params), data.length, r));
+        return r;
     }
 
-    /** 流式 DATA-OUT：把整个文件推给相机（0x900D），内存占用恒定 */
     public synchronized Resp commandDataOutStream(int opcode, int[] params, File file, Progress p)
             throws IOException {
         long total = file.length();
         if (total <= 0 || total > Integer.MAX_VALUE) throw new IOException("文件大小异常: " + total);
+        drainInput(4);
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         sendDataHeader(opcode, tid, (int) (12 + total));
@@ -188,22 +267,57 @@ public final class UsbPtp implements Closeable {
             try { in.close(); } catch (IOException ignored) { }
         }
         if (sent != total) throw new IOException("上传字节数不符 " + sent + "/" + total);
-        return waitResponse(tid, opcode);
+        Resp r = waitResponse(tid, opcode);
+        log(String.format("upload 0x%04X %d bytes -> %s", opcode, total, r));
+        return r;
     }
 
-    /** 流式 DATA-IN：把相机回传的 JPEG/TIFF 直接写进文件，不进堆 */
     public synchronized Resp commandDataInToStream(int opcode, int[] params, OutputStream sink)
             throws IOException {
+        drainInput(2);
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         while (true) {
             Container c = readContainer(sink);
-            if (c.type == Ptp.CT_RESPONSE) return new Resp(c.code, opcode, c.params);
-            // CT_DATA 的 payload 已写入 sink
+            if (c.type == Ptp.CT_RESPONSE) {
+                Resp r = new Resp(c.code, opcode, c.params);
+                log(String.format("download 0x%04X -> %s", opcode, r));
+                return r;
+            }
         }
     }
 
     // ------------------------------------------------------------ 底层
+
+    /**
+     * 清空 IN 管道里残留的容器（上一次失败/相机主动推送的数据）。
+     * 短超时读，读到 -1 即认为管道已空。
+     */
+    private void drainInput(int maxReads) {
+        if (conn == null || epIn == null) return;
+        byte[] tmp = new byte[USB_BULK_MAX];
+        for (int i = 0; i < maxReads; i++) {
+            int n;
+            try {
+                n = conn.bulkTransfer(epIn, tmp, 0, tmp.length, 40);
+            } catch (Exception e) {
+                return;
+            }
+            if (n <= 0) return;
+            log("drain IN " + n + "B");
+        }
+    }
+
+    /** CLEAR_FEATURE(ENDPOINT_HALT)：端点被相机 STALL 之后必须清，否则后续所有写都返回 -1 */
+    private void clearHalt(int epAddress) {
+        if (conn == null) return;
+        try {
+            conn.controlTransfer(0x02, 0x01, 0x0000, epAddress, null, 0, 1000);
+            log(String.format("clearHalt 0x%02X", epAddress));
+        } catch (Exception e) {
+            log("clearHalt 失败: " + e);
+        }
+    }
 
     private void sendCommand(int opcode, int tid, int[] params) throws IOException {
         if (params.length > 5) throw new IOException("PTP 命令最多 5 个参数");
@@ -229,10 +343,10 @@ public final class UsbPtp implements Closeable {
         while (true) {
             Container c = readContainer(null);
             if (c.type == Ptp.CT_RESPONSE) {
-                if (c.tid != tid) Log.w(TAG, "事务号不匹配 期望 " + tid + " 收到 " + c.tid);
+                if (c.tid != tid) log("事务号不匹配 期望 " + tid + " 收到 " + c.tid);
                 return new Resp(c.code, opcode, c.params);
             }
-            if (c.type == Ptp.CT_DATA) Log.w(TAG, "丢弃非预期 DATA 阶段 " + c.payload.length + "B");
+            if (c.type == Ptp.CT_DATA) log("丢弃非预期 DATA " + c.payload.length + "B");
         }
     }
 
@@ -287,21 +401,37 @@ public final class UsbPtp implements Closeable {
         return conn.bulkTransfer(epIn, buf, off, len, timeout);
     }
 
+    /**
+     * 写入：失败时清 halt + 退避重试 + 逐级缩小 chunk。
+     * 富士在收到它暂时处理不了的命令时会 STALL OUT 端点，之后所有 bulkTransfer 都返回 -1，
+     * 只有 CLEAR_FEATURE 才能恢复——这就是「0/24 ret=-1」的处置方式。
+     */
     private void writeAll(byte[] buf, int off, int len, int timeout) throws IOException {
         if (conn == null || epOut == null) throw new IOException("USB 未打开");
         int written = 0;
+        int attempt = 0;
         while (written < len) {
             int want = Math.min(chunk, len - written);
             int n = conn.bulkTransfer(epOut, buf, off + written, want, timeout);
             if (n <= 0) {
-                if (chunk > CHUNK_MIN) {
-                    chunk = Math.max(chunk / 4, CHUNK_MIN);
-                    Log.w(TAG, "bulk OUT 失败(" + n + ")，chunk 降级为 " + chunk);
+                attempt++;
+                log(String.format("bulk OUT %d/%d ret=%d attempt=%d chunk=%d",
+                        written, len, n, attempt, chunk));
+                if (attempt <= OUT_RETRIES) {
+                    clearHalt(epOut.getAddress());
+                    try { Thread.sleep(150L * attempt); } catch (InterruptedException ignored) { }
+                    if (attempt >= 2) chunk = Math.max(chunk / 4, CHUNK_MIN);
                     continue;
                 }
-                throw new IOException("bulk OUT 失败 " + written + "/" + len + " ret=" + n);
+                throw new IOException(String.format(
+                        "bulk OUT 失败 %d/%d ret=%d（已清 halt 并重试 %d 次）\n"
+                                + "请依次确认：① 相机 USB POWER SUPPLY SETTING = OFF "
+                                + "② 换一根「数据线」（非充电线）③ 相机 AUTO POWER OFF = OFF "
+                                + "④ 直接插手机、不要经 HUB，然后重新连接相机。",
+                        written, len, n, OUT_RETRIES));
             }
             written += n;
+            attempt = 0;
         }
     }
 
@@ -314,13 +444,14 @@ public final class UsbPtp implements Closeable {
         b[o] = (byte) v; b[o + 1] = (byte) (v >>> 8); b[o + 2] = (byte) (v >>> 16); b[o + 3] = (byte) (v >>> 24);
     }
 
-    public String describe() {
-        return String.format("VID=0x%04X PID=0x%04X chunk=%d", device.getVendorId(), device.getProductId(), chunk);
+    private static String ints(int[] a) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < a.length; i++) { if (i > 0) sb.append(','); sb.append(a[i]); }
+        return sb.append(']').toString();
     }
 
-    static String hex(byte[] d, int max) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < Math.min(d.length, max); i++) sb.append(String.format("%02X ", d[i]));
-        return sb.toString();
+    public String describe() {
+        return String.format("VID=0x%04X PID=0x%04X chunk=%d evt=%s",
+                device.getVendorId(), device.getProductId(), chunk, epEvt != null);
     }
 }

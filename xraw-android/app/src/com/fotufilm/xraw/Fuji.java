@@ -118,6 +118,29 @@ public final class Fuji {
 
     public void uploadRaf(File raf, UsbPtp.Progress progress) throws IOException {
         if (raf.length() <= 0) throw new IOException("RAF 文件为空：" + raf.getName());
+        try {
+            uploadOnce(raf, progress);
+        } catch (IOException first) {
+            // 富士在 STALL / 事件堆积后会让整条会话作废：重建会话后再试一次
+            Log.w(TAG, "上传失败，重建 PTP 会话后重试一次: " + first.getMessage());
+            try {
+                recover();
+                uploadOnce(raf, progress);
+            } catch (IOException second) {
+                throw new IOException(second.getMessage()
+                        + "\n（首次失败：" + first.getMessage() + "）");
+            }
+        }
+    }
+
+    /** 关会话 → 重开会话 → 重新取 DeviceInfo，把相机拉回可通信状态 */
+    public void recover() throws IOException {
+        try { t.command(Ptp.OC_CLOSE_SESSION); } catch (Exception ignored) { }
+        t.openSession(1);
+        t.commandDataIn(Ptp.OC_GET_DEVICE_INFO);
+    }
+
+    private void uploadOnce(File raf, UsbPtp.Progress progress) throws IOException {
         byte[] oi = buildObjectInfo((int) raf.length(), UPLOAD_NAME);
         UsbPtp.Resp r1 = t.commandDataOut(Ptp.OC_FUJI_SEND_OBJECT_INFO, new int[]{0, 0, 0}, oi);
         if (!r1.ok()) {

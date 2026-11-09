@@ -321,6 +321,8 @@ public final class CameraEngine {
                 try {
                     sb.append("0xD184 = ").append(fuji.getString(Ptp.DPC_IOP_CODE)).append('\n');
                 } catch (IOException ignored) { }
+                sb.append("\n== USB 信息 ==\n").append(transport.describe()).append('\n');
+                sb.append("\n== PTP 事务日志 ==\n").append(transport.dumpLog());
                 File f = new File(Recipe.dir(ctx), "probe_dump.txt");
                 FileOutputStream fos = new FileOutputStream(f);
                 try { fos.write(sb.toString().getBytes(StandardCharsets.UTF_8)); } finally { fos.close(); }

@@ -34,13 +34,27 @@ public final class SelfTest {
         }
         check("往返无字段漂移", mismatch == 0);
 
-        // 2) 高光/阴影 ×10 编码（X-Processor 5 支持 0.5 步进）
-        r.highlight = 15;   // +1.5
-        r.shadow = -20;     // -2.0
+        // 2) 高光/阴影：机内整数刻度 → 线上 ×10
+        r.highlight = 2;    // +2
+        r.shadow = -2;      // -2
         D185 p2 = D185.parse(base.raw());
         r.applyTo(p2);
-        check("高光 +1.5 → 15", p2.get(D185.IDX_HIGHLIGHT) == 15);
-        check("阴影 -2.0 → -20", p2.get(D185.IDX_SHADOW) == -20);
+        check("高光 +2 → 20", p2.get(D185.IDX_HIGHLIGHT) == 20);
+        check("阴影 -2 → -20", p2.get(D185.IDX_SHADOW) == -20);
+
+        // 2b) 整数刻度上限保护
+        r.highlight = 99;
+        D185 p2b = D185.parse(base.raw());
+        r.applyTo(p2b);
+        check("高光越界被 clamp 到 +4", p2b.get(D185.IDX_HIGHLIGHT) == 40);
+        r.highlight = 0;
+
+        // 2c) 色彩/清晰度同为整数刻度 ×10
+        r.color = -3; r.clarity = 4;
+        D185 p2c = D185.parse(base.raw());
+        r.applyTo(p2c);
+        check("色彩 -3 → -30", p2c.get(D185.IDX_COLOR) == -30);
+        check("清晰度 +4 → 40", p2c.get(D185.IDX_CLARITY) == 40);
 
         // 3) DR 不得高于原 RAF 的 DR
         r.dr = D185.DR_400;
@@ -80,6 +94,19 @@ public final class SelfTest {
         check("TIFF16 扩展名 .tif", ".tif".equals(r.exportExtension()));
         r.fileTypeIdx = 0;
         check("JPEG 扩展名 .jpg", ".jpg".equals(r.exportExtension()));
+
+        // 8b) 胶片模拟：BB = ETERNA BLEACH BYPASS 必须在列表里，且菜单顺序首位是 PROVIA
+        boolean bb = false;
+        for (int v : D185.SIM_VALUES) if (v == 18) bb = true;
+        check("包含 BB（ETERNA BLEACH BYPASS = 18）", bb);
+        check("菜单首位为 PROVIA(1)", D185.SIM_VALUES[0] == 1);
+        check("BB 显示名含 BB", D185.simName(18).contains("BB"));
+
+        // 8c) 白平衡：白色优先 / 环境优先
+        boolean wp = false, ap = false;
+        for (int v : D185.WB_VALUES) { if (v == 0x8020) wp = true; if (v == 0x8021) ap = true; }
+        check("白平衡含白色优先 0x8020", wp);
+        check("白平衡含环境优先 0x8021", ap);
 
         // 9) 曝光补偿 1/3 档编码
         r.expBiasThirds = 1;

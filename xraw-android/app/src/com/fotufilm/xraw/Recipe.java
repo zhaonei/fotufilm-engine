@@ -31,8 +31,9 @@ public final class Recipe {
     public int wbIndex = 0;                             // index of D185.WB_VALUES
     public int wbTemp = 5500;
     public int wbR = 0, wbB = 0;
-    public int highlight = 0;                           // ×10 tenths, -20..40
-    public int shadow = 0;                              // ×10
+    // 机内是整数刻度（无小数）：高光/阴影 -2..+4，色彩/锐度 -4..+4，清晰度 -5..+5
+    public int highlight = 0;                           // 刻度值，线上 ×10
+    public int shadow = 0;                              // 刻度值，线上 ×10
     public int color = 0;                               // -4..4（线上 ×10）
     public int sharpness = 0;                            // -4..4（线上 ×10）
     public int nr = 0;                                   // -4..4（线上非线性）
@@ -64,8 +65,8 @@ public final class Recipe {
         p.set(D185.IDX_WB_COLOR_TEMP, wbTemp);
         p.set(D185.IDX_WB_SHIFT_R, wbR * 10);
         p.set(D185.IDX_WB_SHIFT_B, wbB * 10);
-        p.set(D185.IDX_HIGHLIGHT, highlight);
-        p.set(D185.IDX_SHADOW, shadow);
+        p.set(D185.IDX_HIGHLIGHT, D185.clamp(highlight, D185.TONE_MIN, D185.TONE_MAX) * 10);
+        p.set(D185.IDX_SHADOW, D185.clamp(shadow, D185.TONE_MIN, D185.TONE_MAX) * 10);
         if (p.isMono()) {
             p.set(D185.IDX_BLACK_IMAGE_TONE, monoWC * 10);
             p.set(D185.IDX_MONO_RG, monoMG * 10);
@@ -74,7 +75,7 @@ public final class Recipe {
             p.set(D185.IDX_SHARPNESS, sharpness * 10);
         }
         p.set(D185.IDX_NOISE_RED, D185.nrFromStep(nr));
-        p.set(D185.IDX_CLARITY, clarity * 10);
+        p.set(D185.IDX_CLARITY, D185.clamp(clarity, D185.CLARITY_MIN, D185.CLARITY_MAX) * 10);
         p.set(D185.IDX_LMO, lmo);
         p.set(D185.IDX_IMAGE_SIZE, D185.IMAGE_SIZE_VALUES[clampIdx(imageSizeIdx, D185.IMAGE_SIZE_VALUES.length)]);
         p.set(D185.IDX_IMAGE_QUALITY, D185.QUALITY_VALUES[clampIdx(qualityIdx, D185.QUALITY_VALUES.length)]);
@@ -108,12 +109,13 @@ public final class Recipe {
         r.wbTemp = D185.clamp(p.get(D185.IDX_WB_COLOR_TEMP), 2500, 10000);
         r.wbR = p.get(D185.IDX_WB_SHIFT_R) / 10;
         r.wbB = p.get(D185.IDX_WB_SHIFT_B) / 10;
-        r.highlight = p.get(D185.IDX_HIGHLIGHT);
-        r.shadow = p.get(D185.IDX_SHADOW);
+        // 线上是 ×10 编码，UI/机内都是整数刻度，四舍五入回刻度值
+        r.highlight = Math.round(p.get(D185.IDX_HIGHLIGHT) / 10f);
+        r.shadow = Math.round(p.get(D185.IDX_SHADOW) / 10f);
         r.color = p.get(D185.IDX_COLOR) / 10;
         r.sharpness = p.get(D185.IDX_SHARPNESS) / 10;
         r.nr = D185.nrToStep(p.get(D185.IDX_NOISE_RED));
-        r.clarity = p.get(D185.IDX_CLARITY) / 10;
+        r.clarity = Math.round(p.get(D185.IDX_CLARITY) / 10f);
         r.lmo = p.get(D185.IDX_LMO) == D185.LMO_OFF ? D185.LMO_OFF : D185.LMO_ON;
         r.imageSizeIdx = indexOf(D185.IMAGE_SIZE_VALUES, p.get(D185.IDX_IMAGE_SIZE));
         r.qualityIdx = indexOf(D185.QUALITY_VALUES, p.get(D185.IDX_IMAGE_QUALITY));
@@ -136,12 +138,13 @@ public final class Recipe {
         StringBuilder sb = new StringBuilder(D185.simName(filmSim));
         if (drPriority != D185.DRP_OFF) sb.append(" · DR优先");
         else sb.append(" · DR").append(dr);
-        sb.append(" · 高光").append(String.format(java.util.Locale.US, "%.1f", highlight / 10.0));
-        sb.append(" 阴影").append(String.format(java.util.Locale.US, "%.1f", shadow / 10.0));
+        sb.append(" · 高光").append(signed(highlight)).append(" 阴影").append(signed(shadow));
         sb.append(" · ").append(D185.FILE_TYPE_NAMES[clampIdx(fileTypeIdx, 3)]);
         sb.append(' ').append(D185.IMAGE_SIZE_NAMES[clampIdx(imageSizeIdx, 9)]);
         return sb.toString();
     }
+
+    private static String signed(int v) { return v > 0 ? "+" + v : String.valueOf(v); }
 
     public String exportExtension() {
         int ft = D185.FILE_TYPE_VALUES[clampIdx(fileTypeIdx, 3)];
