@@ -24,6 +24,7 @@ public final class CameraEngine {
     public interface Listener {
         void onStatus(String msg);
         void onSession(Fuji.Session s);
+        void onCaps(java.util.Map<Integer, PropDesc> caps);
         void onBaseProfile(D185 base, Recipe fromCamera);
         void onPreview(byte[] jpeg, String summary);
         void onExport(File file, String summary);
@@ -57,6 +58,7 @@ public final class CameraEngine {
     private UsbPtp transport;
     private Fuji fuji;
     private Fuji.Session session;
+    private java.util.Map<Integer, PropDesc> caps = java.util.Collections.emptyMap();
     private D185 baseProfile;      // 相机为「当前已装载 RAF」给出的原始档
     private File loadedRaf;        // 当前已装载的 RAF（不需要重传）
     private final List<String> queueNames = new ArrayList<>();
@@ -203,10 +205,14 @@ public final class CameraEngine {
                 status("握手 / 校验 USB RAW CONV. 模式…");
                 final Fuji.Session s = fuji.handshake();
                 session = s;
+                status("读取机型能力（GetDevicePropDesc）…");
+                final java.util.Map<Integer, PropDesc> c = fuji.probeDescriptors();
+                caps = c;
                 baseProfile = null;
                 loadedRaf = null;
                 main.post(() -> {
                     listener.onSession(s);
+                    listener.onCaps(c);
                     listener.onStatus("已连接 " + s.title()
                             + (s.freeSdram >= 0 ? " · 可缓存 " + s.freeSdram + " 张" : "")
                             + (s.battery >= 0 ? " · 电量 " + s.battery + "%" : ""));
@@ -322,6 +328,11 @@ public final class CameraEngine {
                     sb.append("0xD184 = ").append(fuji.getString(Ptp.DPC_IOP_CODE)).append('\n');
                 } catch (IOException ignored) { }
                 sb.append("\n== USB 信息 ==\n").append(transport.describe()).append('\n');
+                sb.append("\n== 机型能力（GetDevicePropDesc）==\n");
+                if (caps.isEmpty()) sb.append("(空)\n");
+                for (java.util.Map.Entry<Integer, PropDesc> e : caps.entrySet()) {
+                    sb.append(e.getValue().describe()).append('\n');
+                }
                 sb.append("\n== PTP 事务日志 ==\n").append(transport.dumpLog());
                 File f = new File(Recipe.dir(ctx), "probe_dump.txt");
                 FileOutputStream fos = new FileOutputStream(f);

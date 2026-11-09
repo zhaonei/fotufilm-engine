@@ -7,7 +7,6 @@ import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
-import android.hardware.usb.UsbRequest;
 import android.util.Log;
 
 import java.io.ByteArrayOutputStream;
@@ -17,7 +16,6 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.ByteBuffer;
 
 /**
  * 标准 PTP (ISO 15740) over USB bulk，只依赖 Android framework 的 UsbManager。
@@ -33,7 +31,7 @@ import java.nio.ByteBuffer;
 public final class UsbPtp implements Closeable {
     private static final String TAG = "UsbPtp";
 
-    public static final int CHUNK_DEFAULT = 64 * 1024;
+    public static final int CHUNK_DEFAULT = 16 * 1024;   // 64KB 在部分手机 USB 控制器上不稳，16KB 是经典安全值
     public static final int CHUNK_MAX = 512 * 1024;
     public static final int CHUNK_MIN = 4 * 1024;
     private static final int CMD_TIMEOUT = 8000;
@@ -74,8 +72,6 @@ public final class UsbPtp implements Closeable {
     private UsbEndpoint epOut;
     private UsbEndpoint epEvt;
 
-    private Thread evtThread;
-    private volatile boolean evtRunning = false;
 
     private int txId = 0;
     private int chunk = CHUNK_DEFAULT;
@@ -151,40 +147,29 @@ public final class UsbPtp implements Closeable {
         log(String.format("open in=0x%02X out=0x%02X evt=%s chunk=%d",
                 in.getAddress(), out.getAddress(), evt == null ? "无" : String.format("0x%02X", evt.getAddress()), chunk));
 
-        startEventDrain();
     }
 
     /**
-     * 持续取走 PTP 事件。**这是真机上上传卡死的根因**：事件队列不取空，相机会停止响应命令。
+     * 取走 PTP 事件（interrupt IN）。
+     *
+     * 注意：**不能用 UsbRequest + 独立线程**——UsbRequest.requestWait() 与同步 bulkTransfer
+     * 并发使用同一个 UsbDeviceConnection 会抛
+     * `IllegalArgumentException: Buffer start or length out of bounds.`（真机已复现）。
+     * 这里改成在每条命令前用 bulkTransfer 短超时顺手清空事件端点，全程单线程。
      */
-    private void startEventDrain() {
-        if (epEvt == null) return;
-        evtRunning = true;
-        evtThread = new Thread(() -> {
-            UsbRequest req = new UsbRequest();
+    private void drainEvents() {
+        if (conn == null || epEvt == null) return;
+        byte[] tmp = new byte[64];
+        for (int i = 0; i < 4; i++) {
+            int n;
             try {
-                if (!req.initialize(conn, epEvt)) { log("event: initialize 失败"); return; }
-                ByteBuffer buf = ByteBuffer.allocate(64);
-                if (!req.queue(buf)) { log("event: queue 失败"); return; }
-                while (evtRunning) {
-                    UsbRequest done = conn.requestWait();
-                    if (done == null) break;
-                    int len = buf.position();
-                    if (len >= 6) {
-                        int code = le16(buf.array(), 4);
-                        log(String.format("event 0x%04X len=%d", code, len));
-                    }
-                    buf.clear();
-                    if (!req.queue(buf)) break;
-                }
+                n = conn.bulkTransfer(epEvt, tmp, 0, tmp.length, 20);
             } catch (Exception e) {
-                log("event 线程退出: " + e);
-            } finally {
-                try { req.close(); } catch (Exception ignored) { }
+                return;
             }
-        }, "ptp-events");
-        evtThread.setDaemon(true);
-        evtThread.start();
+            if (n <= 0) return;
+            if (n >= 6) log(String.format("event 0x%04X len=%d", le16(tmp, 4), n));
+        }
     }
 
     public synchronized void openSession(int sessionId) throws IOException {
@@ -196,7 +181,6 @@ public final class UsbPtp implements Closeable {
     }
 
     @Override public synchronized void close() {
-        evtRunning = false;
         boolean wasOpen = sessionOpen;
         sessionOpen = false;             // 先清状态，再发 CloseSession（拔线时它必然失败）
         if (wasOpen) {
@@ -294,6 +278,7 @@ public final class UsbPtp implements Closeable {
      * 短超时读，读到 -1 即认为管道已空。
      */
     private void drainInput(int maxReads) {
+        drainEvents();
         if (conn == null || epIn == null) return;
         byte[] tmp = new byte[USB_BULK_MAX];
         for (int i = 0; i < maxReads; i++) {
@@ -312,11 +297,23 @@ public final class UsbPtp implements Closeable {
     private void clearHalt(int epAddress) {
         if (conn == null) return;
         try {
-            conn.controlTransfer(0x02, 0x01, 0x0000, epAddress, null, 0, 1000);
+            conn.controlTransfer(0x02, 0x01, 0x0000, epAddress, new byte[0], 0, 1000);
             log(String.format("clearHalt 0x%02X", epAddress));
         } catch (Exception e) {
             log("clearHalt 失败: " + e);
         }
+    }
+
+    /** 上传前一次性清两个端点的 halt：相机 STALL 之后不清 halt，后续所有写都会 -1 */
+    public synchronized void clearHalts() {
+        if (epOut != null) clearHalt(epOut.getAddress());
+        if (epIn != null) clearHalt(epIn.getAddress());
+        if (epEvt != null) clearHalt(epEvt.getAddress());
+    }
+
+    /** GetDevicePropDesc(0x1014)：拿到这台相机对某属性允许的 min/max/step 或枚举 */
+    public synchronized DataIn getPropDesc(int code) throws IOException {
+        return commandDataIn(Ptp.OC_GET_DEVICE_PROP_DESC, code);
     }
 
     private void sendCommand(int opcode, int tid, int[] params) throws IOException {
@@ -396,9 +393,24 @@ public final class UsbPtp implements Closeable {
         return c;
     }
 
+    /** 统一的 bulk 读：显式校验 offset/length，避免 Android checkBounds 抛裸 IAE */
     private int bulkIn(byte[] buf, int off, int len, int timeout) throws IOException {
         if (conn == null || epIn == null) throw new IOException("USB 未打开");
-        return conn.bulkTransfer(epIn, buf, off, len, timeout);
+        checkBounds("IN", buf, off, len);
+        try {
+            return conn.bulkTransfer(epIn, buf, off, len, timeout);
+        } catch (IllegalArgumentException e) {
+            throw new IOException("bulkTransfer(IN) 参数异常 off=" + off + " len=" + len
+                    + " buf=" + buf.length + " : " + e.getMessage(), e);
+        }
+    }
+
+    private static void checkBounds(String tag, byte[] buf, int off, int len) throws IOException {
+        if (buf == null) throw new IOException(tag + " 缓冲区为 null");
+        if (off < 0 || len < 0 || off + len > buf.length) {
+            throw new IOException(String.format("%s 越界：off=%d len=%d buf=%d（内部 bug，请回传此信息）",
+                    tag, off, len, buf.length));
+        }
     }
 
     /**
@@ -412,7 +424,14 @@ public final class UsbPtp implements Closeable {
         int attempt = 0;
         while (written < len) {
             int want = Math.min(chunk, len - written);
-            int n = conn.bulkTransfer(epOut, buf, off + written, want, timeout);
+            checkBounds("OUT", buf, off + written, want);
+            int n;
+            try {
+                n = conn.bulkTransfer(epOut, buf, off + written, want, timeout);
+            } catch (IllegalArgumentException e) {
+                throw new IOException("bulkTransfer(OUT) 参数异常 off=" + (off + written)
+                        + " len=" + want + " buf=" + buf.length + " : " + e.getMessage(), e);
+            }
             if (n <= 0) {
                 attempt++;
                 log(String.format("bulk OUT %d/%d ret=%d attempt=%d chunk=%d",

@@ -23,6 +23,8 @@ public interface Ptp {
     int OC_GET_OBJECT = 0x1009;
     int OC_GET_THUMB = 0x100A;
     int OC_DELETE_OBJECT = 0x100B;
+    int OC_SEND_OBJECT_INFO = 0x100C;
+    int OC_SEND_OBJECT = 0x100D;
     int OC_GET_DEVICE_PROP_DESC = 0x1014;
     int OC_GET_DEVICE_PROP_VALUE = 0x1015;
     int OC_SET_DEVICE_PROP_VALUE = 0x1016;

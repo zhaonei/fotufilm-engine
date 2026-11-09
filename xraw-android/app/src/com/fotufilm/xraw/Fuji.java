@@ -105,6 +105,8 @@ public final class Fuji {
                     + "USB RAW CONV./BACKUP RESTORE，然后重新插线。");
         }
 
+        // 握手之后立刻清 halt：相机上一轮若 STALL 过端点，不清就会导致第一次上传 usb 写全失败
+        t.clearHalts();
         drainObjects();
 
         int free = readU16Or(Ptp.DPC_FREE_SDRAM, -1);
@@ -142,13 +144,31 @@ public final class Fuji {
 
     private void uploadOnce(File raf, UsbPtp.Progress progress) throws IOException {
         byte[] oi = buildObjectInfo((int) raf.length(), UPLOAD_NAME);
-        UsbPtp.Resp r1 = t.commandDataOut(Ptp.OC_FUJI_SEND_OBJECT_INFO, new int[]{0, 0, 0}, oi);
-        if (!r1.ok()) {
-            throw new IOException("相机拒绝了这张 RAF（" + r1 + "）。最常见原因：照片不是本机（或同型号）拍摄的。");
+        // ---- 主通道：富士专用 SendObjectInfo/SendObject2 ----
+        String firstErr = null;
+        try {
+            UsbPtp.Resp r1 = t.commandDataOut(Ptp.OC_FUJI_SEND_OBJECT_INFO, new int[]{0, 0, 0}, oi);
+            if (!r1.ok()) {
+                throw new IOException("0x900C 被拒绝(" + r1 + ")");
+            }
+            UsbPtp.Resp r2 = t.commandDataOutStream(Ptp.OC_FUJI_SEND_OBJECT2, new int[0], raf, progress);
+            r2.requireOk();
+            Log.i(TAG, "上传完成(0x900C/0x900D) " + raf.getName() + " " + raf.length() / 1048576 + "MB");
+            return;
+        } catch (IOException e) {
+            firstErr = e.getMessage();
+            Log.w(TAG, "富士专用上传通道失败，回退标准通道: " + firstErr);
         }
-        UsbPtp.Resp r2 = t.commandDataOutStream(Ptp.OC_FUJI_SEND_OBJECT2, new int[0], raf, progress);
-        r2.requireOk();
-        Log.i(TAG, "上传完成 " + raf.getName() + " " + raf.length() / 1048576 + "MB");
+
+        // ---- 回退通道：标准 SendObjectInfo/SendObject（libfuji 在 backup restore 路径用过）----
+        t.clearHalts();
+        UsbPtp.Resp a = t.commandDataOut(Ptp.OC_SEND_OBJECT_INFO, new int[]{0, 0}, oi);
+        if (!a.ok()) {
+            throw new IOException("两种上传通道都被相机拒绝：标准通道 " + a + "；富士通道 " + firstErr);
+        }
+        UsbPtp.Resp b = t.commandDataOutStream(Ptp.OC_SEND_OBJECT, new int[0], raf, progress);
+        b.requireOk();
+        Log.i(TAG, "上传完成(标准 0x100C/0x100D) " + raf.getName());
     }
 
     private static byte[] buildObjectInfo(int size, String filename) throws IOException {
@@ -323,6 +343,38 @@ public final class Fuji {
     public void setU16(int code, int value) throws IOException {
         byte[] d = {(byte) value, (byte) (value >>> 8)};
         t.commandDataOut(Ptp.OC_SET_DEVICE_PROP_VALUE, new int[]{code}, d).requireOk();
+    }
+
+    /**
+     * 探测这台相机对关键属性的真实约束（min/max/step 或枚举）。
+     * 这是替代硬编码猜测的唯一权威来源：高光/阴影到底 1 还是 0.5 步进、白平衡有哪些档、
+     * 胶片模拟枚举到几，全部以相机回报为准。
+     */
+    public java.util.Map<Integer, PropDesc> probeDescriptors() {
+        int[] codes = {
+                // 当前拍摄态（C0）
+                0xD001, 0xD007, 0xD02E, 0xD023, 0xD029, 0xD030, 0xD189,
+                0x5005, 0xD00B, 0xD00C, 0xD017, 0xD320, 0xD321, 0xD104, 0xD031,
+                0xD018, 0xD017,
+                // 配方槽域（部分机型只暴露这套）
+                0xD192, 0xD190, 0xD191, 0xD195, 0xD196, 0xD197, 0xD198,
+                0xD199, 0xD19A, 0xD19B, 0xD19C, 0xD19D, 0xD19E,
+                0xD18E, 0xD18F, 0xD18C,
+        };
+        java.util.Map<Integer, PropDesc> out = new java.util.LinkedHashMap<>();
+        for (int c : codes) {
+            if (out.containsKey(c)) continue;
+            try {
+                UsbPtp.DataIn r = t.getPropDesc(c);
+                if (r.resp.ok() && r.data.length >= 5) {
+                    out.put(c, PropDesc.parse(c, r.data));
+                }
+            } catch (Exception ignored) {
+                // 单条失败不影响其它属性
+            }
+        }
+        Log.i(TAG, "能力探测完成：" + out.size() + " 条属性描述");
+        return out;
     }
 
     public boolean heartbeat() {

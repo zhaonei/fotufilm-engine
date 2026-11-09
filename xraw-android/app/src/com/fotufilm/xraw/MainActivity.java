@@ -46,6 +46,8 @@ import java.util.List;
  */
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
+    /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
+    static final String APP_VERSION = "1.2.1";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001;
     private static final int REQ_RAF_BATCH = 1002;
@@ -64,6 +66,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     private ImageView preview;
     private ProgressBar progress;
     private HistogramView histogram;
+    private TextView toneInfo;
+    private java.util.Map<Integer, PropDesc> caps = java.util.Collections.emptyMap();
     private Bitmap renderedBmp, originalBmp;
     private boolean compareOriginal = false;
     private boolean histVisible = true;
@@ -258,7 +262,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         bar.setPadding(Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 10), Ui.dp(this, 8));
 
         LinearLayout left = Ui.column(this);
-        left.addView(Ui.text(this, "Fotofilm X RAW", Ui.TEXT, 15f, true));
+        left.addView(Ui.text(this, "Fotofilm X RAW  v" + APP_VERSION, Ui.TEXT, 15f, true));
         statusText = Ui.text(this, "未连接", Ui.TEXT_DIM, 11.5f, false);
         left.addView(statusText);
         bar.addView(left, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -351,20 +355,33 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                 Math.max(0, recipe.drPriority), i -> recipe.drPriority = i);
         c.addView(drpRow);
 
-        c.addView(Ui.section(this, "色调曲线（机内整数刻度：高光/阴影 -2 ~ +4）"));
-        hiRow = new Ui.SeekRow(this, "高光色调", D185.TONE_MIN, D185.TONE_MAX, recipe.highlight, "", false,
+        c.addView(Ui.section(this, "色调曲线"));
+        toneInfo = Ui.text(this, "量程/步进：待相机回报", Ui.TEXT_DIM, 11f, false);
+        toneInfo.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 12), Ui.dp(this, 4));
+        c.addView(toneInfo);
+
+        hiRow = new Ui.SeekRow(this, "高光色调", -20, 40, recipe.highlight, "", true,
                 v -> recipe.highlight = v, () -> engine.preview(recipe));
+        hiRow.scale(10);
+        hiRow.setRange(-20, 40, 5, true, recipe.highlight);   // 默认 0.5 档；连相机后以相机回报为准
         c.addView(hiRow);
-        shRow = new Ui.SeekRow(this, "阴影色调", D185.TONE_MIN, D185.TONE_MAX, recipe.shadow, "", false,
+
+        shRow = new Ui.SeekRow(this, "阴影色调", -20, 40, recipe.shadow, "", true,
                 v -> recipe.shadow = v, () -> engine.preview(recipe));
+        shRow.scale(10);
+        shRow.setRange(-20, 40, 5, true, recipe.shadow);
         c.addView(shRow);
 
         c.addView(Ui.section(this, "色彩"));
-        colorRow = new Ui.SeekRow(this, "色彩", D185.COLOR_MIN, D185.COLOR_MAX, recipe.color, "", false,
-                v -> recipe.color = v, () -> engine.preview(recipe));
+        colorRow = new Ui.SeekRow(this, "色彩", -40, 40, recipe.color * 10, "", false,
+                v -> recipe.color = v / 10, () -> engine.preview(recipe));
+        colorRow.scale(10);
+        colorRow.setRange(-40, 40, 10, false, recipe.color * 10);
         c.addView(colorRow);
-        sharpRow = new Ui.SeekRow(this, "锐度", D185.COLOR_MIN, D185.COLOR_MAX, recipe.sharpness, "", false,
-                v -> recipe.sharpness = v, () -> engine.preview(recipe));
+        sharpRow = new Ui.SeekRow(this, "锐度", -40, 40, recipe.sharpness * 10, "", false,
+                v -> recipe.sharpness = v / 10, () -> engine.preview(recipe));
+        sharpRow.scale(10);
+        sharpRow.setRange(-40, 40, 10, false, recipe.sharpness * 10);
         c.addView(sharpRow);
 
         c.addView(Ui.section(this, "白平衡"));
@@ -396,8 +413,10 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         nrRow = new Ui.SeekRow(this, "降噪", -4, 4, recipe.nr, "", false,
                 v -> recipe.nr = v, () -> engine.preview(recipe));
         c.addView(nrRow);
-        clarityRow = new Ui.SeekRow(this, "清晰度", D185.CLARITY_MIN, D185.CLARITY_MAX, recipe.clarity, "", false,
-                v -> recipe.clarity = v, () -> engine.preview(recipe));
+        clarityRow = new Ui.SeekRow(this, "清晰度", -50, 50, recipe.clarity * 10, "", false,
+                v -> recipe.clarity = v / 10, () -> engine.preview(recipe));
+        clarityRow.scale(10);
+        clarityRow.setRange(-50, 50, 10, false, recipe.clarity * 10);
         c.addView(clarityRow);
         lmoRow = new Ui.ChoiceRow(this, "镜头调制优化器 (LMO)", new String[]{"开", "关"},
                 recipe.lmo == D185.LMO_ON ? 0 : 1, i -> recipe.lmo = i == 0 ? D185.LMO_ON : D185.LMO_OFF);
@@ -442,12 +461,12 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (tempRow != null) tempRow.setValue(recipe.wbTemp, 2500);
         if (wbRRow != null) wbRRow.setValue(recipe.wbR, -9);
         if (wbBRow != null) wbBRow.setValue(recipe.wbB, -9);
-        if (hiRow != null) hiRow.setValue(recipe.highlight, D185.TONE_MIN);
-        if (shRow != null) shRow.setValue(recipe.shadow, D185.TONE_MIN);
-        if (colorRow != null) colorRow.setValue(recipe.color, D185.COLOR_MIN);
-        if (sharpRow != null) sharpRow.setValue(recipe.sharpness, D185.COLOR_MIN);
+        if (hiRow != null) hiRow.setValue(recipe.highlight, -20);
+        if (shRow != null) shRow.setValue(recipe.shadow, -20);
+        if (colorRow != null) colorRow.setValue(recipe.color * 10, -40);
+        if (sharpRow != null) sharpRow.setValue(recipe.sharpness * 10, -40);
         if (nrRow != null) nrRow.setValue(recipe.nr, -4);
-        if (clarityRow != null) clarityRow.setValue(recipe.clarity, D185.CLARITY_MIN);
+        if (clarityRow != null) clarityRow.setValue(recipe.clarity * 10, -50);
         if (wcRow != null) wcRow.setValue(recipe.monoWC, -18);
         if (mgRow != null) mgRow.setValue(recipe.monoMG, -18);
         if (expRow != null) expRow.setValue(recipe.expBiasThirds, -9);
@@ -690,6 +709,43 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                 + (s.battery >= 0 ? " · 电量 " + s.battery + "%" : ""));
     }
 
+    /**
+     * 用相机回报的属性描述改写量程/步进——不再由我猜「0.5 还是 1」。
+     * 优先取当前拍摄态属性（0xD320 高光 / 0xD321 阴影），退而取配方槽域（0xD19D / 0xD19E）。
+     */
+    @Override public void onCaps(java.util.Map<Integer, PropDesc> c) {
+        caps = c;
+        PropDesc hi = pick(c, 0xD320, 0xD19D);
+        PropDesc sh = pick(c, 0xD321, 0xD19E);
+        StringBuilder info = new StringBuilder();
+        if (hi != null && hi.isRange() && hi.step > 0) {
+            // 相机可能按「刻度值」(-2..4, step 1) 或「编码值」(-20..40, step 10) 回报，统一到编码值
+            int nMin = hi.min, nMax = hi.max, nStep = hi.step;
+            if (Math.abs(nMax) <= 10 && Math.abs(nMin) <= 10) { nMin *= 10; nMax *= 10; nStep *= 10; }
+            boolean half = nStep % 10 != 0;
+            int sMin = (sh != null && sh.isRange()) ? sh.min : nMin;
+            int sMax = (sh != null && sh.isRange()) ? sh.max : nMax;
+            int sStep = (sh != null && sh.step > 0) ? sh.step : nStep;
+            if (Math.abs(sMax) <= 10 && Math.abs(sMin) <= 10) { sMin *= 10; sMax *= 10; sStep *= 10; }
+            if (hiRow != null) {
+                hiRow.setRange(nMin, nMax, nStep, half, recipe.highlight);
+                if (shRow != null) shRow.setRange(sMin, sMax, sStep, sStep % 10 != 0, recipe.shadow);
+            }
+            info.append("高光/阴影：").append(nMin / 10).append(" ~ ").append(nMax / 10)
+                    .append("，步进 ").append(half ? "0.5" : "1").append("（相机回报）");
+        } else {
+            info.append("高光/阴影：-2 ~ +4，步进 0.5（默认值；相机未回报该属性）");
+        }
+        if (toneInfo != null) toneInfo.setText(info.toString());
+        status("已连接 · " + info);
+    }
+
+    private static PropDesc pick(java.util.Map<Integer, PropDesc> c, int a, int b) {
+        PropDesc p = c.get(a);
+        if (p == null || (p.isRange() && p.step <= 0)) p = c.get(b);
+        return p;
+    }
+
     @Override public void onBaseProfile(D185 base, Recipe fromCamera) {
         copyInto(recipe, fromCamera);
         refreshUiFromRecipe();
@@ -792,6 +848,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
         @Override public void onStatus(String msg) { MainActivity a = cur(); if (a != null) a.onStatus(msg); }
         @Override public void onSession(Fuji.Session s) { MainActivity a = cur(); if (a != null) a.onSession(s); }
+        @Override public void onCaps(java.util.Map<Integer, PropDesc> c) { MainActivity a = cur(); if (a != null) a.onCaps(c); }
         @Override public void onBaseProfile(D185 base, Recipe r) { MainActivity a = cur(); if (a != null) a.onBaseProfile(base, r); }
         @Override public void onPreview(byte[] jpeg, String summary) { MainActivity a = cur(); if (a != null) a.onPreview(jpeg, summary); }
         @Override public void onExport(File f, String summary) { MainActivity a = cur(); if (a != null) a.onExport(f, summary); }

@@ -34,15 +34,15 @@ public final class SelfTest {
         }
         check("往返无字段漂移", mismatch == 0);
 
-        // 2) 高光/阴影：机内整数刻度 → 线上 ×10
-        r.highlight = 2;    // +2
-        r.shadow = -2;      // -2
+        // 2) 高光/阴影：内部保存线上编码值（×10），步进由相机回报
+        r.highlight = 20;   // +2.0
+        r.shadow = -20;     // -2.0
         D185 p2 = D185.parse(base.raw());
         r.applyTo(p2);
         check("高光 +2 → 20", p2.get(D185.IDX_HIGHLIGHT) == 20);
         check("阴影 -2 → -20", p2.get(D185.IDX_SHADOW) == -20);
 
-        // 2b) 整数刻度上限保护
+        // 2b) 量程保护
         r.highlight = 99;
         D185 p2b = D185.parse(base.raw());
         r.applyTo(p2b);
@@ -108,6 +108,17 @@ public final class SelfTest {
         check("白平衡含白色优先 0x8020", wp);
         check("白平衡含环境优先 0x8021", ap);
 
+        // 8d) PropDesc 解析：range 形态（高光色调 -20..40 step 5 = 0.5 档）
+        byte[] rd = propDescRange(0xD320, 0x0003, -20, 40, 5);
+        com.fotufilm.xraw.PropDesc pd = com.fotufilm.xraw.PropDesc.parse(0xD320, rd);
+        check("PropDesc range 解析", pd.isRange() && pd.min == -20 && pd.max == 40 && pd.step == 5);
+        check("PropDesc 步进=5 判定为 0.5 档", pd.step % 10 != 0);
+
+        // 8e) PropDesc 解析：enum 形态（胶片模拟）
+        byte[] ed = propDescEnum(0xD001, new int[]{1, 2, 3, 11, 18, 20});
+        com.fotufilm.xraw.PropDesc pe = com.fotufilm.xraw.PropDesc.parse(0xD001, ed);
+        check("PropDesc enum 解析", pe.isEnum() && pe.values.length == 6 && pe.hasEnumValue(18));
+
         // 9) 曝光补偿 1/3 档编码
         r.expBiasThirds = 1;
         D185 p6 = D185.parse(base.raw());
@@ -128,6 +139,30 @@ public final class SelfTest {
     private static D185 fakeParse() {
         try { return D185.parse(fakeD185("00179500")); } catch (Exception e) { throw new RuntimeException(e); }
     }
+
+    /** 造一个 RANGE 形态的 GetDevicePropDesc 数据体 */
+    static byte[] propDescRange(int code, int type, int min, int max, int step) {
+        int size = 2;
+        java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+        w16(o, code); w16(o, type); o.write(1);          // code, type, getSet
+        w16(o, 0); w16(o, 0);                            // factoryDefault, current
+        o.write(1);                                      // form = range
+        w16(o, min); w16(o, max); w16(o, step);
+        return o.toByteArray();
+    }
+
+    /** 造一个 ENUM 形态的 GetDevicePropDesc 数据体 */
+    static byte[] propDescEnum(int code, int[] values) {
+        java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+        w16(o, code); w16(o, 4); o.write(1);
+        w16(o, 0); w16(o, 0);
+        o.write(2);
+        w16(o, values.length);
+        for (int v : values) w16(o, v);
+        return o.toByteArray();
+    }
+
+    static void w16(java.io.ByteArrayOutputStream o, int v) { o.write(v & 0xFF); o.write((v >>> 8) & 0xFF); }
 
     static void check(String name, boolean ok) {
         if (ok) { passed++; System.out.println("  ok   " + name); }

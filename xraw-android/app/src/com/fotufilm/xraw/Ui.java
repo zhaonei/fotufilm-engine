@@ -100,18 +100,31 @@ public final class Ui {
     }
 
     /**
-     * 一行滑杆：标题 + 数值 + SeekBar（整数刻度，必要时由调用方换算成 0.5/0.1 步）
+     * 一行滑杆。
+     *
+     * 数值单位约定：滑杆内部一律用「线上编码值」（例如高光色调 -20..40 对应机内 -2.0..+4.0），
+     * 用 [scale] 声明显示除数（10 = 除以 10 显示，1 = 原样显示），
+     * 用 [setRange] 由相机回报的 min/max/step 动态改写量程与吸附步进。
      */
     public static final class SeekRow extends LinearLayout {
         public final SeekBar bar;
         public final TextView valueText;
-        private final OnInt onChange;
-        private final java.util.Locale fmtLocale = java.util.Locale.US;
+
+        private OnInt onChange;
+        private Runnable onRelease;
+        private int lo = 0;
+        private int snap = 1;
+        private int div = 1;
+        private boolean tenths = false;
+        private String suffix = "";
 
         public SeekRow(Context c, String label, int min, int max, int initial,
-                       String suffix, boolean signedTenths, OnInt onChange, Runnable onRelease) {
+                       String suffix, boolean tenths, OnInt onChange, Runnable onRelease) {
             super(c);
             this.onChange = onChange;
+            this.onRelease = onRelease;
+            this.suffix = suffix == null ? "" : suffix;
+            this.tenths = tenths;
             setOrientation(VERTICAL);
             setPadding(dp(c, 12), dp(c, 6), dp(c, 12), dp(c, 2));
 
@@ -123,29 +136,17 @@ public final class Ui {
             addView(head);
 
             bar = new SeekBar(c);
-            bar.setMax(max - min);
-            bar.setProgress(Math.max(0, Math.min(max - min, initial - min)));
             addView(bar);
 
-            final String sfx = suffix == null ? "" : suffix;
-            final boolean tenths = signedTenths;
-            final int lo = min;
-            Runnable refresh = () -> {
-                int v = lo + bar.getProgress();
-                String shown;
-                if (tenths) {
-                    shown = String.format(fmtLocale, "%s%.1f", (v > 0 ? "+" : ""), v / 10.0);
-                } else {
-                    shown = (v > 0 ? "+" : "") + v;
-                }
-                valueText.setText(shown + sfx);
-            };
-            refresh.run();
+            lo = min;
+            bar.setMax(Math.max(1, max - min));
+            setProgressRaw(initial);
 
             bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
-                    refresh.run();
-                    if (fromUser) onChange.run(lo + progress);
+                    int v = snapped();
+                    render(v);
+                    if (fromUser && onChange != null) onChange.run(v);
                 }
                 @Override public void onStartTrackingTouch(SeekBar sb) { }
                 @Override public void onStopTrackingTouch(SeekBar sb) {
@@ -154,8 +155,46 @@ public final class Ui {
             });
         }
 
+        /** 显示除数：10 表示线路值 ÷10 显示（高光/色彩/锐度/清晰度这类 ×10 编码的参数） */
+        public SeekRow scale(int divisor) {
+            div = Math.max(1, divisor);
+            render(lo + bar.getProgress());
+            return this;
+        }
+
+        /** 由相机 GetDevicePropDesc 回报的量程/步进改写滑杆 */
+        public void setRange(int newLo, int newHi, int newSnap, boolean tenthsDisplay, int value) {
+            lo = newLo;
+            snap = Math.max(1, newSnap);
+            tenths = tenthsDisplay;
+            bar.setMax(Math.max(1, newHi - newLo));
+            setProgressRaw(value);
+        }
+
         public void setValue(int v, int min) {
-            bar.setProgress(Math.max(0, Math.min(bar.getMax(), v - min)));
+            lo = min;
+            setProgressRaw(v);
+        }
+
+        private void setProgressRaw(int value) {
+            int hi = lo + bar.getMax();
+            int v = Math.max(lo, Math.min(hi, value));
+            bar.setProgress(v - lo);
+            render(v);
+        }
+
+        private int snapped() {
+            int raw = lo + bar.getProgress();
+            if (snap <= 1) return raw;
+            return Math.round(raw / (float) snap) * snap;
+        }
+
+        private void render(int v) {
+            float shown = v / (float) div;
+            String txt;
+            if (tenths) txt = String.format(java.util.Locale.US, "%s%.1f", v > 0 ? "+" : "", shown);
+            else txt = (v > 0 ? "+" : "") + Math.round(shown);
+            valueText.setText(txt + suffix);
         }
     }
 

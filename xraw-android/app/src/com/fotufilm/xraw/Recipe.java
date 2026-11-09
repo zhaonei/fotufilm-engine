@@ -31,9 +31,9 @@ public final class Recipe {
     public int wbIndex = 0;                             // index of D185.WB_VALUES
     public int wbTemp = 5500;
     public int wbR = 0, wbB = 0;
-    // 机内是整数刻度（无小数）：高光/阴影 -2..+4，色彩/锐度 -4..+4，清晰度 -5..+5
-    public int highlight = 0;                           // 刻度值，线上 ×10
-    public int shadow = 0;                              // 刻度值，线上 ×10
+    // 高光/阴影保存「线上编码值（×10）」：-20..40；机内实际步进由相机回报决定（0.5 或 1）
+    public int highlight = 0;                           // 编码值，-20..40
+    public int shadow = 0;                              // 编码值，-20..40
     public int color = 0;                               // -4..4（线上 ×10）
     public int sharpness = 0;                            // -4..4（线上 ×10）
     public int nr = 0;                                   // -4..4（线上非线性）
@@ -65,8 +65,8 @@ public final class Recipe {
         p.set(D185.IDX_WB_COLOR_TEMP, wbTemp);
         p.set(D185.IDX_WB_SHIFT_R, wbR * 10);
         p.set(D185.IDX_WB_SHIFT_B, wbB * 10);
-        p.set(D185.IDX_HIGHLIGHT, D185.clamp(highlight, D185.TONE_MIN, D185.TONE_MAX) * 10);
-        p.set(D185.IDX_SHADOW, D185.clamp(shadow, D185.TONE_MIN, D185.TONE_MAX) * 10);
+        p.set(D185.IDX_HIGHLIGHT, D185.clamp(highlight, -20, 40));
+        p.set(D185.IDX_SHADOW, D185.clamp(shadow, -20, 40));
         if (p.isMono()) {
             p.set(D185.IDX_BLACK_IMAGE_TONE, monoWC * 10);
             p.set(D185.IDX_MONO_RG, monoMG * 10);
@@ -109,9 +109,8 @@ public final class Recipe {
         r.wbTemp = D185.clamp(p.get(D185.IDX_WB_COLOR_TEMP), 2500, 10000);
         r.wbR = p.get(D185.IDX_WB_SHIFT_R) / 10;
         r.wbB = p.get(D185.IDX_WB_SHIFT_B) / 10;
-        // 线上是 ×10 编码，UI/机内都是整数刻度，四舍五入回刻度值
-        r.highlight = Math.round(p.get(D185.IDX_HIGHLIGHT) / 10f);
-        r.shadow = Math.round(p.get(D185.IDX_SHADOW) / 10f);
+        r.highlight = p.get(D185.IDX_HIGHLIGHT);   // 保持编码值
+        r.shadow = p.get(D185.IDX_SHADOW);
         r.color = p.get(D185.IDX_COLOR) / 10;
         r.sharpness = p.get(D185.IDX_SHARPNESS) / 10;
         r.nr = D185.nrToStep(p.get(D185.IDX_NOISE_RED));
@@ -138,13 +137,19 @@ public final class Recipe {
         StringBuilder sb = new StringBuilder(D185.simName(filmSim));
         if (drPriority != D185.DRP_OFF) sb.append(" · DR优先");
         else sb.append(" · DR").append(dr);
-        sb.append(" · 高光").append(signed(highlight)).append(" 阴影").append(signed(shadow));
+        sb.append(" · 高光").append(tone(highlight)).append(" 阴影").append(tone(shadow));
         sb.append(" · ").append(D185.FILE_TYPE_NAMES[clampIdx(fileTypeIdx, 3)]);
         sb.append(' ').append(D185.IMAGE_SIZE_NAMES[clampIdx(imageSizeIdx, 9)]);
         return sb.toString();
     }
 
     private static String signed(int v) { return v > 0 ? "+" + v : String.valueOf(v); }
+
+    /** 编码值 → 显示（有 0.5 档就带一位小数，否则整数） */
+    private static String tone(int encoded) {
+        if (encoded % 10 == 0) return signed(encoded / 10);
+        return String.format(java.util.Locale.US, "%s%.1f", encoded > 0 ? "+" : "", encoded / 10.0);
+    }
 
     public String exportExtension() {
         int ft = D185.FILE_TYPE_VALUES[clampIdx(fileTypeIdx, 3)];
