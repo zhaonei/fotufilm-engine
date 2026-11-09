@@ -60,13 +60,20 @@ jobs:
           chmod +x build.sh
           ./build.sh
 
-      - name: Verify manifest chunks / APK signature
+      - name: Verify with aapt2 (authoritative gate)
         working-directory: xraw-android
         run: |
           set -e
           SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          "$SDK/build-tools/35.0.0/aapt2" dump badging out/FotofilmXRAW.apk || \
-            echo "aapt2 dump 失败（不影响安装，仅用于信息展示）"
+          AAPT2="$SDK/build-tools/35.0.0/aapt2"
+          "$AAPT2" version
+          echo "--- APK 内容 ---"
+          unzip -l out/FotofilmXRAW.apk
+          echo "--- 必须存在 resources.arsc（否则真机报“解析包失败”）---"
+          unzip -l out/FotofilmXRAW.apk | grep -q "resources.arsc"
+          echo "--- aapt2 dump badging（权威解析）---"
+          "$AAPT2" dump badging out/FotofilmXRAW.apk | head -20
+          echo "--- 签名校验 ---"
           java -jar "$SDK/build-tools/35.0.0/lib/apksigner.jar" verify --verbose out/FotofilmXRAW.apk
 
       - name: Upload APK artifact

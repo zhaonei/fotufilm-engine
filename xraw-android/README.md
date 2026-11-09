@@ -22,6 +22,8 @@
 | 批量 | 串行队列：上传→渲染→取回→删除，单张失败隔离，不污染后续 |
 | 配方库 | JSON 存于 App 私有目录，可保存/载入整套参数 |
 | 自检/探测 | 导出 DeviceInfo + d185 全字段；「胶片模拟扫描」逐值渲染 20 张缩略图 |
+| **直方图** | 预览叠层，RGB 三通道细线 + 亮度填充，纵轴 log 压缩（阴影尖峰不压平其他通道） |
+| **对比原图** | 与 RAF 内嵌 JPEG 做前/后对比：按钮切换或**长按预览**临时看原图；直方图随之刷新 |
 
 ### 参数面板（与机内菜单 / X RAW Studio 左栏对齐）
 
@@ -79,6 +81,18 @@ app/src/com/fotufilm/xraw/
 tools/mkaxml.py        手写二进制 AndroidManifest（严格按 AOSP ResXMLTree，chunk 大小自洽）
 tools/selftest/        JVM 自测
 ```
+
+## 3.5 打包必须用 aapt2（血泪教训）
+
+手写 AXML 只能保证「manifest 结构自洽」，但 APK 里**必须还有 `resources.arsc`**，
+否则 apksig / aapt2 / Android PackageParser 都会解析失败（真机表现：**解析包失败**）。
+因此：
+
+* CI（ubuntu，有官方 aapt2）走 `aapt2 link` → 加 `classes.dex` → `zipalign` → `apksigner`，产出合法 APK；
+* 本机（aarch64，build-tools 里的 aapt2 是 x86-64，跑不起来）自动退回手写 AXML，
+  仅用于**编译验证**，不作为交付物。
+
+`build.sh` 用运行时探测（`aapt2 version`）判断 aapt2 是否真的可用，不靠 `-x` 猜。
 
 ## 4. 已知边界（重要）
 

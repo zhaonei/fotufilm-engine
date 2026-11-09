@@ -60,9 +60,13 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private boolean suppress = false;
 
-    private TextView statusText, queueText, previewHint, summaryText;
+    private TextView statusText, queueText, previewHint, summaryText, imageTag;
     private ImageView preview;
     private ProgressBar progress;
+    private HistogramView histogram;
+    private Bitmap renderedBmp, originalBmp;
+    private boolean compareOriginal = false;
+    private boolean histVisible = true;
 
     private Ui.ChoiceRow simRow, wbRow, drRow, drpRow, grainRow, grainSizeRow, chromeRow, fxRow, lmoRow;
     private Ui.ChoiceRow sizeRow, qualityRow, fileTypeRow, csRow;
@@ -85,7 +89,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
         setContentView(buildRoot());
         refreshUiFromRecipe();
-        if (lastPreview != null) showImage(lastPreview);
+        if (lastPreview != null) showRendered(lastPreview);
         registerUsbReceivers();
 
         if (engine.isConnected() && engine.session() != null) {
@@ -168,6 +172,60 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         slp.gravity = Gravity.BOTTOM;
         stage.addView(summaryText, slp);
+
+        // ---- 直方图叠层（右上） ----
+        histogram = new HistogramView(this);
+        FrameLayout.LayoutParams hlp = new FrameLayout.LayoutParams(
+                Ui.dp(this, 148), Ui.dp(this, 86));
+        hlp.gravity = Gravity.TOP | Gravity.END;
+        hlp.setMargins(0, Ui.dp(this, 8), Ui.dp(this, 8), 0);
+        stage.addView(histogram, hlp);
+
+        // ---- 左上：直方图/对比 开关 + 当前图像标识 ----
+        LinearLayout stageTools = Ui.row(this);
+        stageTools.setPadding(Ui.dp(this, 8), Ui.dp(this, 8), 0, 0);
+
+        android.widget.Button histBtn = Ui.button(this, "直方图", false);
+        histBtn.setOnClickListener(v -> {
+            histVisible = !histVisible;
+            histogram.setVisibility(histVisible ? View.VISIBLE : View.GONE);
+        });
+        stageTools.addView(histBtn);
+
+        android.widget.Button cmpBtn = Ui.button(this, "对比原图", false);
+        cmpBtn.setOnClickListener(v -> {
+            if (originalBmp == null) { toast("还没有原图：请先导入一张 RAF"); return; }
+            compareOriginal = !compareOriginal;
+            applyDisplay();
+        });
+        stageTools.addView(cmpBtn);
+
+        imageTag = Ui.text(this, "", Ui.TEXT_DIM, 11.5f, false);
+        imageTag.setPadding(Ui.dp(this, 8), 0, 0, 0);
+        stageTools.addView(imageTag);
+
+        FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.gravity = Gravity.TOP | Gravity.START;
+        stage.addView(stageTools, tlp);
+
+        // ---- 长按预览 = 临时看原图（松手回到当前渲染） ----
+        preview.setOnTouchListener((v, ev) -> {
+            switch (ev.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    if (originalBmp != null && !compareOriginal) {
+                        preview.setImageBitmap(originalBmp);
+                        if (imageTag != null) imageTag.setText("原图（RAF 内嵌 JPEG）");
+                    }
+                    return true;
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    applyDisplay();
+                    return true;
+                default:
+                    return true;
+            }
+        });
 
         LinearLayout stageCol = Ui.column(this);
         stageCol.addView(stage, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -506,7 +564,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                                     + "。相机通常只接受本机拍摄的 RAW。");
                         }
                         byte[] thumb = raf.embeddedJpeg(f);
-                        if (thumb != null) showImage(thumb);
+                        if (thumb != null) setOriginal(thumb);
                         engine.upload(f);
                     } catch (IOException e) {
                         status("导入失败：" + e.getMessage());
@@ -642,7 +700,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
     @Override public void onPreview(byte[] jpeg, String summary) {
         lastPreview = jpeg;
-        showImage(jpeg);
+        showRendered(jpeg);
         if (summaryText != null) summaryText.setText(summary + " · " + jpeg.length / 1024 + "KB 预览");
     }
 
@@ -687,11 +745,37 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
     // ---------------------------------------------------------------- 小工具
 
-    private void showImage(byte[] jpeg) {
+    /** 相机渲染结果（预览或出图） */
+    private void showRendered(byte[] jpeg) {
         Bitmap bm = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
         if (bm == null) return;
-        preview.setImageBitmap(bm);
+        renderedBmp = bm;
+        applyDisplay();
+    }
+
+    /** RAF 内嵌 JPEG = 「原图」基准（无需相机即可显示） */
+    private void setOriginal(byte[] jpeg) {
+        Bitmap bm = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
+        if (bm == null) return;
+        originalBmp = bm;
+        if (renderedBmp == null) {
+            applyDisplay();
+        } else if (imageTag != null) {
+            imageTag.setText("");
+        }
+    }
+
+    /** 统一出口：决定画哪张、刷新直方图与角标 */
+    private void applyDisplay() {
+        Bitmap show = (compareOriginal && originalBmp != null) ? originalBmp : renderedBmp;
+        if (show == null) show = originalBmp;
+        if (show == null) return;
+        preview.setImageBitmap(show);
         previewHint.setVisibility(View.GONE);
+        if (histogram != null && histVisible) histogram.setBitmap(show);
+        if (imageTag != null) {
+            imageTag.setText(show == originalBmp ? "原图（RAF 内嵌 JPEG）" : "当前渲染（机身输出）");
+        }
     }
 
     private void status(String msg) {

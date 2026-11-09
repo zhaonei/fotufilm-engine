@@ -43,16 +43,41 @@ $JAVA -cp "$BT/lib/d8.jar" com.android.tools.r8.D8 \
     --release --min-api $MIN_API --lib "$PLATFORM" \
     --output "$OUT/dex" $(find "$OUT/classes" -name '*.class')
 
-echo "== 3/5 二进制 AndroidManifest.xml"
-python3 tools/mkaxml.py app/AndroidManifest.xml "$OUT/AndroidManifest.xml"
-
-echo "== 4/5 打包"
-rm -rf "$STAGE"
-mkdir -p "$STAGE"
-cp "$OUT/AndroidManifest.xml" "$STAGE/"
-cp "$OUT/dex/classes.dex" "$STAGE/"
 rm -f "$OUT/$APK_NAME-unsigned.apk" "$OUT/$APK_NAME"
-( cd "$STAGE" && zip -q -r -X "../$APK_NAME-unsigned.apk" . )
+
+# aapt2 必须「真的能跑」：本机是 aarch64，build-tools 里的 aapt2 是 x86-64（会报 not found），
+# 必须做运行时探测，否则会误判为可用。
+AAPT2=""
+for cand in "$BT/aapt2" "$(command -v aapt2 2>/dev/null || true)"; do
+  [ -n "$cand" ] || continue
+  if "$cand" version >/dev/null 2>&1; then AAPT2="$cand"; break; fi
+done
+
+if [ -n "$AAPT2" ]; then
+  echo "== 3/5 aapt2 link（官方工具链，生成 binary manifest + resources.arsc）"
+  "$AAPT2" link -o "$OUT/base.apk" -I "$PLATFORM" \
+      --manifest app/AndroidManifest.xml \
+      --no-resource-deduping --no-static-lib-packages
+  echo "== 4/5 加入 classes.dex"
+  cp "$OUT/base.apk" "$OUT/$APK_NAME-unsigned.apk"
+  rm -rf "$OUT/dexroot" && mkdir -p "$OUT/dexroot"
+  cp "$OUT/dex/classes.dex" "$OUT/dexroot/"
+  ( cd "$OUT/dexroot" && zip -q -X "../$APK_NAME-unsigned.apk" classes.dex )
+  if [ -x "$BT/zipalign" ]; then
+    "$BT/zipalign" -f -p 4 "$OUT/$APK_NAME-unsigned.apk" "$OUT/$APK_NAME-aligned.apk"
+    mv "$OUT/$APK_NAME-aligned.apk" "$OUT/$APK_NAME-unsigned.apk"
+  fi
+else
+  echo "== 3/5 手写二进制 AndroidManifest.xml（本机无 aapt2：仅供编译验证）"
+  python3 tools/mkaxml.py app/AndroidManifest.xml "$OUT/AndroidManifest.xml"
+  echo "== 4/5 打包"
+  rm -rf "$STAGE"
+  mkdir -p "$STAGE"
+  cp "$OUT/AndroidManifest.xml" "$STAGE/"
+  cp "$OUT/dex/classes.dex" "$STAGE/"
+  ( cd "$STAGE" && zip -q -r -X "../$APK_NAME-unsigned.apk" . )
+  echo "!! 注意：未经过 aapt2，缺 resources.arsc，真机可能报「解析包失败」——交付请用 CI 产物"
+fi
 
 echo "== 5/5 签名 + 校验"
 KS=debug.keystore
