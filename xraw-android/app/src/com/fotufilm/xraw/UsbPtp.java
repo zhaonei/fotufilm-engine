@@ -422,13 +422,14 @@ public final class UsbPtp implements Closeable {
                 log(String.format("bulk OUT %d/%d ret=%d attempt=%d chunk=%d",
                         written, len, n, attempt, chunk));
                 if (attempt <= OUT_RETRIES) {
-                    clearHalt(epOut.getAddress());
+                    // 只退避重试 + 逐步缩小 chunk；不再 CLEAR_FEATURE(ENDPOINT_HALT)：
+                    // 真机日志显示对未 halt 的端点清 halt 会复位 toggle，反而让端点彻底失步。
                     try { Thread.sleep(150L * attempt); } catch (InterruptedException ignored) { }
                     if (attempt >= 2) chunk = Math.max(chunk / 4, CHUNK_MIN);
                     continue;
                 }
                 throw new IOException(String.format(
-                        "bulk OUT 失败 %d/%d ret=%d（已清 halt 并重试 %d 次）\n"
+                        "bulk OUT 失败 %d/%d ret=%d（已重试 %d 次；请拔插数据线重连）\n"
                                 + "请依次确认：① 相机 USB POWER SUPPLY SETTING = OFF "
                                 + "② 换一根「数据线」（非充电线）③ 相机 AUTO POWER OFF = OFF "
                                 + "④ 直接插手机、不要经 HUB，然后重新连接相机。",

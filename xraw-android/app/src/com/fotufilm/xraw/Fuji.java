@@ -39,6 +39,16 @@ public final class Fuji {
         public int vendorExtensionId, functionalMode;
         public int[] operations = new int[0], properties = new int[0];
 
+        public boolean supportsProperty(int dpc) {
+            for (int p : properties) if (p == dpc) return true;
+            return false;
+        }
+
+        public boolean supportsOperation(int op) {
+            for (int o : operations) if (o == op) return true;
+            return false;
+        }
+
         public static DeviceInfo parse(byte[] d) {
             DeviceInfo di = new DeviceInfo();
             int[] p = {0};
@@ -86,6 +96,7 @@ public final class Fuji {
 
     private final UsbPtp t;
     private Session session;
+    private DeviceInfo deviceInfo;
 
     public Fuji(UsbPtp transport) { this.t = transport; }
 
@@ -97,6 +108,7 @@ public final class Fuji {
         UsbPtp.DataIn di = t.commandDataIn(Ptp.OC_GET_DEVICE_INFO);
         di.resp.requireOk();
         DeviceInfo info = DeviceInfo.parse(di.data);
+        deviceInfo = info;
 
         int usbMode = readU16Or(Ptp.DPC_USB_MODE, -1);
         if (usbMode != Ptp.USB_MODE_RAW_CONV) {
@@ -158,7 +170,8 @@ public final class Fuji {
         }
 
         // ---- 回退通道：标准 SendObjectInfo/SendObject（libfuji 在 backup restore 路径用过）----
-        t.clearHalts();
+        // 不在这里 clearHalts：CLEAR_FEATURE 打在未 halt 的端点上会复位 data toggle，
+        // 使端点与主机失步，之后该端点再也发不出去（真机日志已证实）。
         UsbPtp.Resp a = t.commandDataOut(Ptp.OC_SEND_OBJECT_INFO, new int[]{0, 0}, oi);
         if (!a.ok()) {
             throw new IOException("两种上传通道都被相机拒绝：标准通道 " + a + "；富士通道 " + firstErr);
@@ -361,6 +374,12 @@ public final class Fuji {
         java.util.Map<Integer, PropDesc> out = new java.util.LinkedHashMap<>();
         for (int c : codes) {
             if (out.containsKey(c)) continue;
+            // 只查相机在 DeviceInfo 里声明支持的属性：
+            // 对不存在的属性发 0x1014 会得到 0x200A，实测这会让随后的 bulk OUT 失效。
+            if (deviceInfo != null && deviceInfo.properties.length > 0
+                    && !deviceInfo.supportsProperty(c)) {
+                continue;
+            }
             try {
                 UsbPtp.DataIn r = t.getPropDesc(c);
                 if (r.resp.ok() && r.data.length >= 5) {

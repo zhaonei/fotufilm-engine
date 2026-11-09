@@ -218,7 +218,10 @@ public final class CameraEngine {
                 status("握手 / 校验 USB RAW CONV. 模式…");
                 final Fuji.Session s = fuji.handshake();
                 session = s;
-                try { fuji.refreshStatus(); } catch (Exception ignored) { }
+                // 注意：这里绝不能再读任何"可选属性"。
+                // 实测日志：读 0xD20E/0xD242 得到两次 0x200A(DevicePropNotSupported) 之后，
+                // 紧接着的第一个 bulk OUT 就返回 -1（v1.1.0 与 v1.2.3 均复现）。
+                // libfuji/rawji 之所以能跑通，正是因为它们从不读这些属性。
                 final java.util.Map<Integer, PropDesc> c = caps;
                 baseProfile = null;
                 loadedRaf = null;
@@ -385,7 +388,6 @@ public final class CameraEngine {
                 status("读取相机能力（GetDevicePropDesc）…");
                 final java.util.Map<Integer, PropDesc> c = fuji.probeDescriptors();
                 caps = c;
-                try { transport.clearHalts(); } catch (Exception ignored) { }
                 main.post(() -> listener.onCaps(c));
                 status("已读取 " + c.size() + " 条属性约束");
                 break;
