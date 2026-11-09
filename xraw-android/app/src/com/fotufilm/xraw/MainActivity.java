@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "1.2.2";
+    static final String APP_VERSION = "1.2.3";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001;
     private static final int REQ_RAF_BATCH = 1002;
@@ -282,18 +282,23 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     }
 
     private View buildBottomBar() {
-        LinearLayout bar = Ui.row(this);
+        LinearLayout bar = Ui.column(this);
         bar.setBackgroundColor(Ui.PANEL2);
         bar.setPadding(Ui.dp(this, 10), Ui.dp(this, 6), Ui.dp(this, 10), Ui.dp(this, 6));
 
-        LinearLayout col = Ui.column(this);
+        LinearLayout info = Ui.row(this);
         queueText = Ui.text(this, "队列空闲", Ui.TEXT_DIM, 11.5f, false);
-        col.addView(queueText);
+        info.addView(queueText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(1000);
         progress.setVisibility(View.GONE);
-        col.addView(progress);
-        bar.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        info.addView(progress, new LinearLayout.LayoutParams(Ui.dp(this, 120), Ui.dp(this, 18)));
+        bar.addView(info);
+
+        // 按钮行必须可横向滚动：之前「自检」被挤出屏幕，导致无法导出日志
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        LinearLayout btns = Ui.row(this);
 
         android.widget.Button prev = Ui.button(this, "预览", true);
         prev.setOnClickListener(v -> {
@@ -301,7 +306,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
             if (loadedRaf == null) { toast("请先导入并上传一张 RAF"); return; }
             engine.preview(recipe);
         });
-        bar.addView(prev);
+        btns.addView(prev);
 
         android.widget.Button exp = Ui.button(this, "导出全图", true);
         exp.setOnClickListener(v -> {
@@ -310,19 +315,29 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
             status("导出中：机身正在按 " + recipe.summaryText() + " 渲染");
             engine.export(recipe);
         });
-        bar.addView(exp);
+        btns.addView(exp);
 
         android.widget.Button save = Ui.button(this, "存配方", false);
         save.setOnClickListener(v -> saveRecipeDialog());
-        bar.addView(save);
+        btns.addView(save);
 
         android.widget.Button load = Ui.button(this, "配方库", false);
         load.setOnClickListener(v -> loadRecipeDialog());
-        bar.addView(load);
+        btns.addView(load);
 
         android.widget.Button probe = Ui.button(this, "自检", false);
         probe.setOnClickListener(v -> probeDialog());
-        bar.addView(probe);
+        btns.addView(probe);
+
+        android.widget.Button logBtn = Ui.button(this, "导出日志", true);
+        logBtn.setOnClickListener(v -> {
+            status("正在导出诊断日志…");
+            engine.probeDump();
+        });
+        btns.addView(logBtn);
+
+        hs.addView(btns);
+        bar.addView(hs);
         return bar;
     }
 
@@ -677,13 +692,16 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         new AlertDialog.Builder(this)
                 .setTitle("自检 / 机型探测")
                 .setItems(new String[]{
-                        "① 导出设备信息 + d185 全字段 + USB 事务日志（probe_dump.txt）",
-                        "② 胶片模拟扫描：逐值渲染 20 张缩略图（simsweep/）",
-                        "③ 从相机读回当前 RAF 的机内参数到面板"
+                        "① 导出诊断日志（设备信息 + d185 + USB 事务日志 → 下载/FotofilmXRAW）",
+                        "② 读取相机能力（高光/阴影等参数的真实 min/max/步进）",
+                        "③ 胶片模拟扫描：逐值渲染缩略图，确认 BB/怀旧负片/REALA ACE 的枚举值",
+                        "④ 从相机读回当前 RAF 的机内参数到面板"
                 }, (d, which) -> {
+                    if (which == 0) { engine.probeDump(); return; }   // 连不上时也要能导出
                     if (!engine.isConnected()) { toast("请先连接相机"); return; }
-                    if (which == 0) engine.probeDump();
-                    else if (which == 1) {
+                    if (which == 1) {
+                        engine.probeCaps();
+                    } else if (which == 2) {
                         if (loadedRaf == null) { toast("请先导入一张 RAF"); return; }
                         toast("开始扫描，约 1~2 分钟");
                         engine.probeSims(recipe);
@@ -795,8 +813,33 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     }
 
     @Override public void onProbeDone(String path) {
-        toast("已写入：" + path);
-        status("探测结果：" + path);
+        status("诊断日志已导出：" + path);
+        new AlertDialog.Builder(this)
+                .setTitle("诊断日志已导出")
+                .setMessage("位置：" + path
+                        + "\n\n点「分享」可直接发给我（微信/邮件均可），"
+                        + "里面有设备信息、d185 全字段、USB 端点与每一步 PTP 事务的响应码。")
+                .setPositiveButton("分享", (d, w) -> shareLog())
+                .setNegativeButton("知道了", null)
+                .show();
+    }
+
+    private void shareLog() {
+        android.net.Uri u = engine != null ? engine.lastLogUri() : null;
+        if (u == null) {
+            toast("日志在：" + (engine != null ? engine.lastLogPath() : "未知"));
+            return;
+        }
+        Intent i = new Intent(Intent.ACTION_SEND);
+        i.setType("text/plain");
+        i.putExtra(Intent.EXTRA_STREAM, u);
+        i.putExtra(Intent.EXTRA_SUBJECT, "Fotofilm X RAW 诊断日志");
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivity(Intent.createChooser(i, "分享诊断日志"));
+        } catch (Exception e) {
+            toast("没有可用的分享目标：" + e.getMessage());
+        }
     }
 
     // ---------------------------------------------------------------- 小工具

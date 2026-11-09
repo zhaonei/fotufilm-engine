@@ -173,28 +173,6 @@ public final class UsbPtp implements Closeable {
 
     }
 
-    /**
-     * 取走 PTP 事件（interrupt IN）。
-     *
-     * 注意：**不能用 UsbRequest + 独立线程**——UsbRequest.requestWait() 与同步 bulkTransfer
-     * 并发使用同一个 UsbDeviceConnection 会抛
-     * `IllegalArgumentException: Buffer start or length out of bounds.`（真机已复现）。
-     * 这里改成在每条命令前用 bulkTransfer 短超时顺手清空事件端点，全程单线程。
-     */
-    private void drainEvents() {
-        if (conn == null || epEvt == null) return;
-        byte[] tmp = new byte[64];
-        for (int i = 0; i < 4; i++) {
-            int n;
-            try {
-                n = conn.bulkTransfer(epEvt, tmp, 0, tmp.length, 20);
-            } catch (Exception e) {
-                return;
-            }
-            if (n <= 0) return;
-            if (n >= 6) log(String.format("event 0x%04X len=%d", le16(tmp, 4), n));
-        }
-    }
 
     public synchronized void openSession(int sessionId) throws IOException {
         txId = 0;
@@ -218,7 +196,6 @@ public final class UsbPtp implements Closeable {
     // ------------------------------------------------------------ 事务
 
     public synchronized Resp command(int opcode, int... params) throws IOException {
-        drainInput(4);
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         Resp r = waitResponse(tid, opcode);
@@ -227,7 +204,6 @@ public final class UsbPtp implements Closeable {
     }
 
     public synchronized DataIn commandDataIn(int opcode, int... params) throws IOException {
-        drainInput(4);
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         byte[] data = new byte[0];
@@ -243,7 +219,6 @@ public final class UsbPtp implements Closeable {
     }
 
     public synchronized Resp commandDataOut(int opcode, int[] params, byte[] data) throws IOException {
-        drainInput(4);
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         sendDataHeader(opcode, tid, 12 + data.length);
@@ -257,7 +232,6 @@ public final class UsbPtp implements Closeable {
             throws IOException {
         long total = file.length();
         if (total <= 0 || total > Integer.MAX_VALUE) throw new IOException("文件大小异常: " + total);
-        drainInput(4);
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         sendDataHeader(opcode, tid, (int) (12 + total));
@@ -282,7 +256,6 @@ public final class UsbPtp implements Closeable {
 
     public synchronized Resp commandDataInToStream(int opcode, int[] params, OutputStream sink)
             throws IOException {
-        drainInput(2);
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         while (true) {
@@ -297,25 +270,6 @@ public final class UsbPtp implements Closeable {
 
     // ------------------------------------------------------------ 底层
 
-    /**
-     * 清空 IN 管道里残留的容器（上一次失败/相机主动推送的数据）。
-     * 短超时读，读到 -1 即认为管道已空。
-     */
-    private void drainInput(int maxReads) {
-        drainEvents();
-        if (conn == null || epIn == null) return;
-        byte[] tmp = new byte[USB_BULK_MAX];
-        for (int i = 0; i < maxReads; i++) {
-            int n;
-            try {
-                n = conn.bulkTransfer(epIn, tmp, 0, tmp.length, 40);
-            } catch (Exception e) {
-                return;
-            }
-            if (n <= 0) return;
-            log("drain IN " + n + "B");
-        }
-    }
 
     /** CLEAR_FEATURE(ENDPOINT_HALT)：端点被相机 STALL 之后必须清，否则后续所有写都返回 -1 */
     private void clearHalt(int epAddress) {

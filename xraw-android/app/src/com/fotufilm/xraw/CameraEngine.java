@@ -36,7 +36,8 @@ public final class CameraEngine {
     }
 
     private static final int J_CONNECT = 1, J_UPLOAD = 2, J_PREVIEW = 3, J_EXPORT = 4,
-            J_BATCH = 5, J_PROBE_DUMP = 6, J_PROBE_SIMS = 7, J_DISCONNECT = 8, J_CLOSE = 9;
+            J_BATCH = 5, J_PROBE_DUMP = 6, J_PROBE_SIMS = 7, J_DISCONNECT = 8, J_CLOSE = 9,
+            J_PROBE_CAPS = 10;
 
     private static final class Job {
         final int kind;
@@ -64,6 +65,8 @@ public final class CameraEngine {
     private final List<String> queueNames = new ArrayList<>();
     private volatile UsbDevice lastDevice;
     private volatile String lastTransportLog = "";
+    private volatile String lastLogPath = "";
+    private volatile android.net.Uri lastLogUri;
 
     public CameraEngine(Context ctx, Listener l) {
         this.ctx = ctx.getApplicationContext();
@@ -123,6 +126,12 @@ public final class CameraEngine {
         j.files = rafs;
         j.recipe = r;
         j.label = "批量 " + rafs.size() + " 张";
+        post(j);
+    }
+
+    public void probeCaps() {
+        Job j = new Job(J_PROBE_CAPS);
+        j.label = "读取相机能力";
         post(j);
     }
 
@@ -209,9 +218,8 @@ public final class CameraEngine {
                 status("握手 / 校验 USB RAW CONV. 模式…");
                 final Fuji.Session s = fuji.handshake();
                 session = s;
-                status("读取机型能力（GetDevicePropDesc）…");
-                final java.util.Map<Integer, PropDesc> c = fuji.probeDescriptors();
-                caps = c;
+                try { fuji.refreshStatus(); } catch (Exception ignored) { }
+                final java.util.Map<Integer, PropDesc> c = caps;
                 baseProfile = null;
                 loadedRaf = null;
                 main.post(() -> {
@@ -364,12 +372,22 @@ public final class CameraEngine {
                 }
                 sb.append("\n== PTP 事务日志 ==\n")
                         .append(transport != null ? transport.dumpLog() : lastTransportLog);
-                File f = new File(Recipe.dir(ctx), "probe_dump.txt");
-                FileOutputStream fos = new FileOutputStream(f);
-                try { fos.write(sb.toString().getBytes(StandardCharsets.UTF_8)); } finally { fos.close(); }
-                final String path = f.getAbsolutePath();
+                MediaSaver.Exported ex = MediaSaver.exportText(ctx, "probe_dump.txt", sb.toString());
+                lastLogPath = ex.displayPath();
+                lastLogUri = ex.uri;
+                final String path = lastLogPath;
                 main.post(() -> listener.onProbeDone(path));
-                status("自检信息已写入 probe_dump.txt");
+                status("诊断日志已导出：" + path);
+                break;
+            }
+            case J_PROBE_CAPS: {
+                requireSession();
+                status("读取相机能力（GetDevicePropDesc）…");
+                final java.util.Map<Integer, PropDesc> c = fuji.probeDescriptors();
+                caps = c;
+                try { transport.clearHalts(); } catch (Exception ignored) { }
+                main.post(() -> listener.onCaps(c));
+                status("已读取 " + c.size() + " 条属性约束");
                 break;
             }
             case J_PROBE_SIMS: {
@@ -412,6 +430,9 @@ public final class CameraEngine {
     }
 
     /** 把当前 USB 事务日志留存 + 落盘（连接失败时最有用） */
+    public String lastLogPath() { return lastLogPath; }
+    public android.net.Uri lastLogUri() { return lastLogUri; }
+
     private void captureLog() {
         try {
             if (transport != null) lastTransportLog = transport.dumpLog();
@@ -428,10 +449,10 @@ public final class CameraEngine {
             sb.append("\n== USB 信息 ==\n")
                     .append(transport != null ? transport.describe() : "transport=null").append('\n');
             sb.append("\n== PTP 事务日志 ==\n").append(lastTransportLog);
-            File f = new File(Recipe.dir(ctx), "probe_dump.txt");
-            FileOutputStream fos = new FileOutputStream(f);
-            try { fos.write(sb.toString().getBytes(StandardCharsets.UTF_8)); } finally { fos.close(); }
-            Log.i(TAG, "日志已写入 " + f.getAbsolutePath());
+            MediaSaver.Exported ex = MediaSaver.exportText(ctx, "probe_dump.txt", sb.toString());
+            lastLogPath = ex.displayPath();
+            lastLogUri = ex.uri;
+            Log.i(TAG, "日志已导出 " + lastLogPath);
         } catch (Exception e) {
             Log.w(TAG, "写日志失败: " + e);
         }

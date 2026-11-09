@@ -105,12 +105,9 @@ public final class Fuji {
                     + "USB RAW CONV./BACKUP RESTORE，然后重新插线。");
         }
 
-        // 握手之后立刻清 halt：相机上一轮若 STALL 过端点，不清就会导致第一次上传 usb 写全失败
-        t.clearHalts();
-        drainObjects();
-
-        int free = readU16Or(Ptp.DPC_FREE_SDRAM, -1);
-        int bat = readU16Or(Ptp.DPC_BATTERY, -1);
+        // 握手只做三件事：OpenSession / GetDeviceInfo / 校验 USBMode。
+        // 任何"可选的属性读取"都不放在这里——已实测：多余事务会让相机进入不响应状态。
+        int free = -1, bat = -1;
         session = new Session(info.manufacturer, info.model, info.deviceVersion, info.serial,
                 usbMode, free, bat);
         return session;
@@ -375,6 +372,15 @@ public final class Fuji {
         }
         Log.i(TAG, "能力探测完成：" + out.size() + " 条属性描述");
         return out;
+    }
+
+    /** 可选状态读取：失败不影响主流程 */
+    public void refreshStatus() {
+        if (session == null) return;
+        int free = readU16Or(Ptp.DPC_FREE_SDRAM, -1);
+        int bat = readU16Or(Ptp.DPC_BATTERY, -1);
+        session = new Session(session.manufacturer, session.model, session.version, session.serial,
+                session.usbMode, free, bat);
     }
 
     public boolean heartbeat() {
