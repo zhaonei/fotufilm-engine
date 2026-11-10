@@ -247,12 +247,12 @@ public final class CameraEngine {
                         reopenUsb();
                         doUpload(job.file);
                     } catch (IOException second) {
-                        // 仍然失败：自动跑 SendObjectInfo 变体扫描，把答案找出来
-                        status("仍失败，正在自动探测相机接受的 Upload 形态（约 30 秒）…");
-                        String path = runVariantSweep(job.file.length());
+                        String path = lastLogPath;
                         throw new IOException(second.getMessage()
-                                + "\n\n已自动探测上传形态，结果见：" + path
-                                + "\n请把该文件分享给开发者。");
+                                + "\n\n当前上传通道形态 = " + Fuji.UPLOAD_CHANNEL
+                                + "（可在「自检 → ⑥ 选择上传通道」切换）"
+                                + "\n**请拔插数据线后再试**（相机此刻已卡死，不拔插必然继续失败）"
+                                + (path.isEmpty() ? "" : "\n诊断日志：" + path));
                     }
                 }
                 break;
@@ -480,7 +480,9 @@ public final class CameraEngine {
         sb.append("== SendObjectInfo 变体自检 ==\n");
         sb.append("相机: ").append(session != null ? session.title() : "?")
                 .append(" 文件大小=").append(fileSize).append('\n');
-        sb.append("每个变体都新建 USB 连接；\"管道正常\" 表示该变体没有被相机 STALL。\n\n");
+        sb.append("当前通道形态 = ").append(Fuji.UPLOAD_CHANNEL).append('\n');
+        sb.append("注意：相机在上一次失败后可能已卡死，本项只测当前通道；\n");
+        sb.append("要测别的形态，请先「自检 → ⑥」切换，再拔插数据线后重跑本项。\n\n");
 
         if (lastDevice == null) {
             android.hardware.usb.UsbManager um =
@@ -494,9 +496,9 @@ public final class CameraEngine {
         if (lastDevice == null) {
             sb.append("找不到相机设备（请先点一次「连接相机」）\n");
         } else {
-            for (int v = 0; v <= 6; v++) {
+            for (int v = Fuji.UPLOAD_CHANNEL; v <= Fuji.UPLOAD_CHANNEL; v++) {
                 final int vv = v + 1;
-                main.post(() -> listener.onStatus("变体自检 " + vv + "/7 …"));
+                main.post(() -> listener.onStatus("测试通道 " + Fuji.UPLOAD_CHANNEL + " …"));
                 try {
                     shutdown();
                     transport = new UsbPtp(ctx, lastDevice);

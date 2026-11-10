@@ -336,9 +336,10 @@ public final class UsbPtp implements Closeable {
         int have = bulkIn(first, 0, USB_BULK_MAX, CMD_TIMEOUT);
         if (have < 0) {
             // 关键：-1 是超时/错误，绝不能拿它当偏移继续读（曾导致 off=-1 len=513 的内部越界）
-            throw new IOException("相机没有回应（bulk IN 超时 " + (CMD_TIMEOUT / 1000) + "s）。"
-                    + "请确认相机 CONNECTION MODE = USB RAW CONV./BACKUP RESTORE，"
-                    + "并拔插数据线后重试。");
+            throw new IOException("相机没有回应（bulk IN 超时 " + (CMD_TIMEOUT / 1000) + "s）。\n"
+                    + "如果刚才有过一次上传失败，相机固件很可能已卡死——这是富士的已知行为：\n"
+                    + "**请拔掉数据线、等 3 秒再插上（或关机重开），然后重新「连接相机」**。\n"
+                    + "若刚启动就出现此提示，请确认相机 CONNECTION MODE = USB RAW CONV./BACKUP RESTORE。");
         }
         while (have < 12) {
             int n = bulkIn(first, have, USB_BULK_MAX - have, CMD_TIMEOUT);

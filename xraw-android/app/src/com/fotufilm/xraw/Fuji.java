@@ -151,16 +151,35 @@ public final class Fuji {
         t.commandDataIn(Ptp.OC_GET_DEVICE_INFO);
     }
 
+    /** 上传通道形态：见 trySendObjectInfo 的 0..6，默认 2（libpict 风格，与 libfuji 一致） */
+    public static volatile int UPLOAD_CHANNEL = 2;
+
     private void uploadOnce(File raf, UsbPtp.Progress progress) throws IOException {
-        byte[] oi = buildObjectInfo((int) raf.length(), UPLOAD_NAME);
-        // ---- 主通道：富士专用 SendObjectInfo/SendObject2 ----
+        int ch = UPLOAD_CHANNEL;
+        int size = (int) raf.length();
+        int[] params;
+        byte[] oi;
+        switch (ch) {
+            case 0: params = new int[]{0, 0, 0}; oi = buildObjectInfo(size, UPLOAD_NAME, OBJ_FORMAT_RAF); break;
+            case 2: params = new int[]{0, 0, 0}; oi = buildObjectInfoEmptyStringsAsNull(size, UPLOAD_NAME); break;
+            case 3: params = new int[]{0, 0, 0}; oi = buildObjectInfo(size, UPLOAD_NAME, OBJ_FORMAT_RAF); break;
+            case 4: params = new int[]{0, 0, 0, 0}; oi = buildObjectInfo(size, UPLOAD_NAME, OBJ_FORMAT_RAF); break;
+            case 5: params = new int[]{0, 0, 0}; oi = buildObjectInfo(size, UPLOAD_NAME, 0x3000); break;
+            case 6: params = new int[]{0, 0, 0}; oi = new byte[0]; break;
+            case 1: params = new int[]{0, 0}; oi = buildObjectInfo(size, UPLOAD_NAME, OBJ_FORMAT_RAF); break;
+            default: params = new int[]{0, 0, 0}; oi = buildObjectInfoEmptyStringsAsNull(size, UPLOAD_NAME); break;
+        }
+        if (ch == 3) params[0] = firstStorageId();
+        // ---- 主通道：按选择的形态发送 ----
         String firstErr = null;
+        int infoOp = (ch == 1) ? Ptp.OC_SEND_OBJECT_INFO : Ptp.OC_FUJI_SEND_OBJECT_INFO;
+        int dataOp = (ch == 1) ? Ptp.OC_SEND_OBJECT : Ptp.OC_FUJI_SEND_OBJECT2;
         try {
-            UsbPtp.Resp r1 = t.commandDataOut(Ptp.OC_FUJI_SEND_OBJECT_INFO, new int[]{0, 0, 0}, oi);
+            UsbPtp.Resp r1 = t.commandDataOut(infoOp, params, oi);
             if (!r1.ok()) {
                 throw new IOException("0x900C 被拒绝(" + r1 + ")");
             }
-            UsbPtp.Resp r2 = t.commandDataOutStream(Ptp.OC_FUJI_SEND_OBJECT2, new int[0], raf, progress);
+            UsbPtp.Resp r2 = t.commandDataOutStream(dataOp, new int[0], raf, progress);
             r2.requireOk();
             Log.i(TAG, "上传完成(0x900C/0x900D) " + raf.getName() + " " + raf.length() / 1048576 + "MB");
             return;

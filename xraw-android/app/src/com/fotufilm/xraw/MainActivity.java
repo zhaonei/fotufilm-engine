@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "1.2.6";
+    static final String APP_VERSION = "1.3.0";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001;
     private static final int REQ_RAF_BATCH = 1002;
@@ -85,6 +85,9 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         instance = this;
+
+        Fuji.UPLOAD_CHANNEL = getSharedPreferences("xraw", MODE_PRIVATE)
+                .getInt("uploadChannel", 2);
 
         if (engine == null) {
             engine = new CameraEngine(getApplicationContext(), forwarder);
@@ -696,7 +699,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         "② 读取相机能力（高光/阴影等参数的真实 min/max/步进）",
                         "③ 胶片模拟扫描：逐值渲染缩略图，确认 BB/怀旧负片/REALA ACE 的枚举值",
                         "④ 从相机读回当前 RAF 的机内参数到面板",
-                        "⑤ 上传变体自检（7 种 SendObjectInfo 形态逐个试，找出这台机器接受的那一种）"
+                        "⑤ 测试当前上传通道（先拔插数据线，再跑本项）",
+                        "⑥ 选择上传通道形态（0-6；默认 2 = libpict 风格，改完必须拔插数据线）"
                 }, (d, which) -> {
                     if (which == 0) { engine.probeDump(); return; }   // 连不上时也要能导出
                     if (!engine.isConnected()) { toast("请先连接相机"); return; }
@@ -710,9 +714,11 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         if (loadedRaf == null) { toast("请先导入一张 RAF"); return; }
                         engine.upload(loadedRaf);     // 已装载则不重传，只重新读回 0xD185
                         toast("正在从相机回读机内参数…");
-                    } else {
-                        toast("开始变体自检（7 次独立连接，约 1 分钟）");
+                    } else if (which == 4) {
+                        toast("测试当前通道（请确保刚拔插过数据线）");
                         engine.diagUploadVariants();
+                    } else {
+                        chooseUploadChannel();
                     }
                 })
                 .setNegativeButton("关闭", null)
@@ -825,6 +831,35 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         + "里面有设备信息、d185 全字段、USB 端点与每一步 PTP 事务的响应码。")
                 .setPositiveButton("分享", (d, w) -> shareLog())
                 .setNegativeButton("知道了", null)
+                .show();
+    }
+
+    /** 选择上传通道形态：0-6，持久化后需要拔插数据线才生效（相机会记住失败状态） */
+    private void chooseUploadChannel() {
+        final String[] items = {
+                "0 · 0x900C + 3 参数，空串写 0x00",
+                "1 · 标准 0x100C + 2 参数",
+                "2 · 0x900C + 3 参数，空串按规范（长度1+终止符，libfuji 同款）【默认】",
+                "3 · 0x900C + 3 参数，用真实 StorageID",
+                "4 · 0x900C + 4 参数",
+                "5 · ObjectFormat = 0x3000",
+                "6 · 不带数据阶段（只验 opcode）"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("上传通道形态（当前 " + Fuji.UPLOAD_CHANNEL + "）")
+                .setSingleChoiceItems(items, Fuji.UPLOAD_CHANNEL, (d, which) -> {
+                    Fuji.UPLOAD_CHANNEL = which;
+                    getSharedPreferences("xraw", MODE_PRIVATE).edit()
+                            .putInt("uploadChannel", which).apply();
+                    d.dismiss();
+                    new AlertDialog.Builder(this)
+                            .setTitle("已选择通道 " + which)
+                            .setMessage("请现在**拔掉数据线、等 3 秒再插上**（相机会记住上一次失败状态，不拔插必然继续失败），"
+                                    + "然后点「连接相机」→「导入 RAF」。")
+                            .setPositiveButton("知道了", null)
+                            .show();
+                })
+                .setNegativeButton("取消", null)
                 .show();
     }
 
