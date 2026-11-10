@@ -67,6 +67,7 @@ public final class CameraEngine {
     private volatile String lastTransportLog = "";
     private volatile String lastLogPath = "";
     private volatile android.net.Uri lastLogUri;
+    private volatile Fuji.DeviceInfo deviceInfo;
 
     public CameraEngine(Context ctx, Listener l) {
         this.ctx = ctx.getApplicationContext();
@@ -218,6 +219,7 @@ public final class CameraEngine {
                 status("握手 / 校验 USB RAW CONV. 模式…");
                 final Fuji.Session s = fuji.handshake();
                 session = s;
+                deviceInfo = fuji.info();
                 // 注意：这里绝不能再读任何"可选属性"。
                 // 实测日志：读 0xD20E/0xD242 得到两次 0x200A(DevicePropNotSupported) 之后，
                 // 紧接着的第一个 bulk OUT 就返回 -1（v1.1.0 与 v1.2.3 均复现）。
@@ -228,6 +230,12 @@ public final class CameraEngine {
                 main.post(() -> {
                     listener.onSession(s);
                     listener.onCaps(c);
+                    if (deviceInfo != null && deviceInfo.operations.length > 0
+                            && !deviceInfo.supportsOperation(Ptp.OC_FUJI_SEND_OBJECT_INFO)) {
+                        listener.onStatus("已连接 " + s.title()
+                                + " · ⚠ 相机未声明支持 0x900C（上传通道可能不同，见自检⑥）");
+                        return;
+                    }
                     listener.onStatus("已连接 " + s.title()
                             + (s.freeSdram >= 0 ? " · 可缓存 " + s.freeSdram + " 张" : "")
                             + (s.battery >= 0 ? " · 电量 " + s.battery + "%" : ""));
@@ -372,7 +380,8 @@ public final class CameraEngine {
                 } else {
                     sb.append("(无)\n");
                 }
-                if (baseProfile != null) sb.append("\n== d185 ==\n").append(baseProfile.hexDump());
+                sb.append("\n").append(deviceInfoText());
+            if (baseProfile != null) sb.append("\n== d185 ==\n").append(baseProfile.hexDump());
                 sb.append("\n== iop code ==\n");
                 try {
                     sb.append("0xD184 = ").append(fuji.getString(Ptp.DPC_IOP_CODE)).append('\n');
@@ -458,6 +467,7 @@ public final class CameraEngine {
                 for (java.util.Map.Entry<Integer, PropDesc> e : caps.entrySet())
                     sb.append(e.getValue().describe()).append('\n');
             }
+            sb.append("\n").append(deviceInfoText());
             if (baseProfile != null) sb.append("\n== d185 ==\n").append(baseProfile.hexDump());
             sb.append("\n== USB 信息 ==\n")
                     .append(transport != null ? transport.describe() : "transport=null").append('\n');
@@ -560,6 +570,34 @@ public final class CameraEngine {
         Job j = new Job(J_DIAG_UPLOAD);
         j.label = "上传变体自检";
         post(j);
+    }
+
+    /** 把 opcode / 属性列表格式化成可读文本（含关键 opcode 是否支持） */
+    private String deviceInfoText() {
+        Fuji.DeviceInfo di = deviceInfo;
+        if (di == null) return "== DeviceInfo == (未获取)\n";
+        StringBuilder sb = new StringBuilder();
+        sb.append("== DeviceInfo ==\n");
+        sb.append("manufacturer=").append(di.manufacturer).append('\n');
+        sb.append("model=").append(di.model).append('\n');
+        sb.append("version=").append(di.deviceVersion).append('\n');
+        sb.append("serial=").append(di.serial).append('\n');
+        sb.append("ops(").append(di.operations.length).append("): ");
+        for (int op : di.operations) sb.append(String.format("%04X ", op));
+        sb.append('\n');
+        sb.append("props(").append(di.properties.length).append("): ");
+        for (int pr : di.properties) sb.append(String.format("%04X ", pr));
+        sb.append('\n');
+        sb.append("关键 opcode：0x900C=")
+                .append(di.supportsOperation(Ptp.OC_FUJI_SEND_OBJECT_INFO) ? "支持" : "未声明")
+                .append("  0x900D=")
+                .append(di.supportsOperation(Ptp.OC_FUJI_SEND_OBJECT2) ? "支持" : "未声明")
+                .append("  0x901D=")
+                .append(di.supportsOperation(Ptp.OC_FUJI_SEND_OBJECT) ? "支持" : "未声明")
+                .append("  0x100C=")
+                .append(di.supportsOperation(Ptp.OC_SEND_OBJECT_INFO) ? "支持" : "未声明")
+                .append('\n');
+        return sb.toString();
     }
 
     private void requireSession() throws IOException {

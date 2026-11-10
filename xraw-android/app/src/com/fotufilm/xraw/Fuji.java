@@ -102,6 +102,9 @@ public final class Fuji {
 
     public Session session() { return session; }
 
+    /** 握手时拿到的 DeviceInfo（opcode/属性列表），失败后也要能打印出来 */
+    public DeviceInfo info() { return deviceInfo; }
+
     public Session handshake() throws IOException {
         t.openSession(1);
 
