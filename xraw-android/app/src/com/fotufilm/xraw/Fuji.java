@@ -181,6 +181,60 @@ public final class Fuji {
         Log.i(TAG, "上传完成(标准 0x100C/0x100D) " + raf.getName());
     }
 
+    /** 变体自检用：按不同形态发送 SendObjectInfo，只取相机返回码（不传数据本体） */
+    public String trySendObjectInfo(int variant, long fileSize) {
+        try {
+            int[] params;
+            byte[] oi;
+            switch (variant) {
+                case 0:  // 现状：0x900C + 3 参数 + 空字符串写 0x00
+                    params = new int[]{0, 0, 0};
+                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME);
+                    break;
+                case 1:  // 标准 opcode 0x100C + 2 参数
+                    params = new int[]{0, 0};
+                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME);
+                    break;
+                case 2:  // 空字符串按 PTP 规范写「长度1 + 终止符」
+                    params = new int[]{0, 0, 0};
+                    oi = buildObjectInfoEmptyStringsAsNull((int) fileSize, UPLOAD_NAME);
+                    break;
+                case 3:  // 用相机真实 StorageID
+                    params = new int[]{firstStorageId(), 0, 0};
+                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME);
+                    break;
+                default: // 4 个参数（部分机型如此）
+                    params = new int[]{0, 0, 0, 0};
+                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME);
+                    break;
+            }
+            int opcode = variant == 1 ? Ptp.OC_SEND_OBJECT_INFO : Ptp.OC_FUJI_SEND_OBJECT_INFO;
+            UsbPtp.Resp r = t.commandDataOut(opcode, params, oi);
+            return String.format("变体%d op=0x%04X params=%d oiLen=%d -> 响应 %s",
+                    variant, opcode, params.length, oi.length, r);
+        } catch (Exception e) {
+            return "变体" + variant + " -> 异常: " + e.getMessage();
+        }
+    }
+
+    private int firstStorageId() {
+        try {
+            UsbPtp.DataIn r = t.commandDataIn(Ptp.OC_GET_STORAGE_IDS);
+            if (r.resp.ok() && r.data.length >= 8) return UsbPtp.le32(r.data, 4);
+        } catch (Exception ignored) { }
+        return 0;
+    }
+
+    private static byte[] buildObjectInfoEmptyStringsAsNull(int size, String filename) throws IOException {
+        // 与标准实现一致，但三个空字符串写成「长度=1 + 0x0000」，libpict 就是这种风格
+        byte[] base = buildObjectInfo(size, filename);
+        int tailEmptyStart = base.length - 3;      // 三个 0x00
+        ByteArrayOutputStream o = new ByteArrayOutputStream(base.length + 6);
+        o.write(base, 0, tailEmptyStart);
+        for (int i = 0; i < 3; i++) { o.write(1); write16(o, 0); }
+        return o.toByteArray();
+    }
+
     private static byte[] buildObjectInfo(int size, String filename) throws IOException {
         ByteArrayOutputStream o = new ByteArrayOutputStream(80);
         write32(o, 0);                 // StorageID

@@ -422,10 +422,11 @@ public final class UsbPtp implements Closeable {
                 log(String.format("bulk OUT %d/%d ret=%d attempt=%d chunk=%d",
                         written, len, n, attempt, chunk));
                 if (attempt <= OUT_RETRIES) {
-                    // 只退避重试 + 逐步缩小 chunk；不再 CLEAR_FEATURE(ENDPOINT_HALT)：
-                    // 真机日志显示对未 halt 的端点清 halt 会复位 toggle，反而让端点彻底失步。
+                    // 先只做退避 + 缩小 chunk；重试 3 次仍失败时，才作为最后手段清一次 halt
+                    // （相机确实 STALL 时只有 CLEAR_FEATURE 能救；但不要在正常情况下乱清）
                     try { Thread.sleep(150L * attempt); } catch (InterruptedException ignored) { }
                     if (attempt >= 2) chunk = Math.max(chunk / 4, CHUNK_MIN);
+                    if (attempt == 3) clearHalt(epOut.getAddress());
                     continue;
                 }
                 throw new IOException(String.format(

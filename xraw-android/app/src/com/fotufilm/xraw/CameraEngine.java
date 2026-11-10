@@ -37,7 +37,7 @@ public final class CameraEngine {
 
     private static final int J_CONNECT = 1, J_UPLOAD = 2, J_PREVIEW = 3, J_EXPORT = 4,
             J_BATCH = 5, J_PROBE_DUMP = 6, J_PROBE_SIMS = 7, J_DISCONNECT = 8, J_CLOSE = 9,
-            J_PROBE_CAPS = 10;
+            J_PROBE_CAPS = 10, J_DIAG_UPLOAD = 11;
 
     private static final class Job {
         final int kind;
@@ -236,21 +236,49 @@ public final class CameraEngine {
             }
             case J_UPLOAD: {
                 requireSession();
-                // 已装载同一文件则跳过上传（这正是「不重传也能改参数」的收益点）
-                if (loadedRaf != null && loadedRaf.getAbsolutePath().equals(job.file.getAbsolutePath())
-                        && baseProfile != null) {
-                    status("该 RAF 已装载，跳过上传");
-                } else {
-                    status("上传 RAF：" + job.file.getName() + " …");
-                    fuji.uploadRaf(job.file, (sent, total) ->
-                            main.post(() -> listener.onProgress("上传", sent, total)));
-                    loadedRaf = job.file;
+                try {
+                    doUpload(job.file);
+                } catch (IOException first) {
+                    // 关键：相机 STALL 之后整条管道作废，只重建 PTP 会话没用，
+                    // 必须把 USB 连接整个关掉重开（复位端点状态）。
+                    status("上传失败，重开 USB 连接后重试…（" + first.getMessage() + "）");
+                    captureLog();
+                    reopenUsb();
+                    doUpload(job.file);
                 }
-                status("读取机内原始配置档 (0xD185)…");
-                baseProfile = fuji.readProfile();
-                final D185 b = baseProfile;
-                final Recipe fromCam = Recipe.fromD185(b);
-                main.post(() -> listener.onBaseProfile(b, fromCam));
+                break;
+            }
+            case J_DIAG_UPLOAD: {
+                long size = loadedRaf != null ? loadedRaf.length() : 32L * 1024 * 1024;
+                StringBuilder sb = new StringBuilder();
+                sb.append("== SendObjectInfo 变体自检 ==\n");
+                sb.append("文件大小=").append(size).append(" 字节\n");
+                sb.append("每个变体都用**全新 USB 连接**，避免上一次 STALL 影响下一次。\n\n");
+                for (int v = 0; v <= 4; v++) {
+                    final int vv = v + 1;
+                    main.post(() -> listener.onStatus("变体自检 " + vv + "/5 …"));
+                    try {
+                        shutdown();
+                        if (lastDevice == null) throw new IOException("没有可用设备");
+                        transport = new UsbPtp(ctx, lastDevice);
+                        transport.open();
+                        fuji = new Fuji(transport);
+                        fuji.handshake();
+                        String r = fuji.trySendObjectInfo(v, size);
+                        sb.append("  ").append(r).append('\n');
+                    } catch (Exception e) {
+                        sb.append("  变体").append(v).append(" -> 连接/握手失败: ")
+                                .append(e.getMessage()).append('\n');
+                    }
+                }
+                shutdown();
+                sb.append("\n== PTP 事务日志（最后一个变体）==\n").append(lastTransportLog);
+                MediaSaver.Exported ex = MediaSaver.exportText(ctx, "probe_upload_variants.txt", sb.toString());
+                lastLogPath = ex.displayPath();
+                lastLogUri = ex.uri;
+                final String path = lastLogPath;
+                main.post(() -> listener.onProbeDone(path));
+                status("变体自检完成：" + path);
                 break;
             }
             case J_PREVIEW: {
@@ -458,6 +486,42 @@ public final class CameraEngine {
         } catch (Exception e) {
             Log.w(TAG, "写日志失败: " + e);
         }
+    }
+
+    private void doUpload(File file) throws IOException {
+        requireSession();
+        if (loadedRaf != null && loadedRaf.getAbsolutePath().equals(file.getAbsolutePath())
+                && baseProfile != null) {
+            status("该 RAF 已装载，跳过上传");
+        } else {
+            status("上传 RAF：" + file.getName() + " …");
+            fuji.uploadRaf(file, (sent, total) ->
+                    main.post(() -> listener.onProgress("上传", sent, total)));
+            loadedRaf = file;
+        }
+        status("读取机内原始配置档 (0xD185)…");
+        baseProfile = fuji.readProfile();
+        final D185 b = baseProfile;
+        final Recipe fromCam = Recipe.fromD185(b);
+        main.post(() -> listener.onBaseProfile(b, fromCam));
+    }
+
+    /** 关掉 USB 连接再重开（复位端点 toggle/halt，比只重建 PTP 会话更彻底） */
+    private void reopenUsb() throws IOException {
+        transport_close();
+        if (lastDevice == null) throw new IOException("没有可用设备，请拔插数据线重连");
+        transport = new UsbPtp(ctx, lastDevice);
+        transport.open();
+        fuji = new Fuji(transport);
+        final Fuji.Session s2 = fuji.handshake();
+        session = s2;
+        main.post(() -> listener.onSession(s2));
+    }
+
+    public void diagUploadVariants() {
+        Job j = new Job(J_DIAG_UPLOAD);
+        j.label = "上传变体自检";
+        post(j);
     }
 
     private void requireSession() throws IOException {

@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "1.2.4";
+    static final String APP_VERSION = "1.2.5";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001;
     private static final int REQ_RAF_BATCH = 1002;
@@ -690,12 +690,13 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
     private void probeDialog() {
         new AlertDialog.Builder(this)
-                .setTitle("自检 / 机型探测")
+                .setTitle("自检 / 机型探测（连不上时用 ① 或 ⑤）")
                 .setItems(new String[]{
                         "① 导出诊断日志（设备信息 + d185 + USB 事务日志 → 下载/FotofilmXRAW）",
                         "② 读取相机能力（高光/阴影等参数的真实 min/max/步进）",
                         "③ 胶片模拟扫描：逐值渲染缩略图，确认 BB/怀旧负片/REALA ACE 的枚举值",
-                        "④ 从相机读回当前 RAF 的机内参数到面板"
+                        "④ 从相机读回当前 RAF 的机内参数到面板",
+                        "⑤ 上传变体自检（逐个试 SendObjectInfo 形态，找出这台机器接受的那一种）"
                 }, (d, which) -> {
                     if (which == 0) { engine.probeDump(); return; }   // 连不上时也要能导出
                     if (!engine.isConnected()) { toast("请先连接相机"); return; }
@@ -705,10 +706,13 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         if (loadedRaf == null) { toast("请先导入一张 RAF"); return; }
                         toast("开始扫描，约 1~2 分钟");
                         engine.probeSims(recipe);
-                    } else {
+                    } else if (which == 3) {
                         if (loadedRaf == null) { toast("请先导入一张 RAF"); return; }
                         engine.upload(loadedRaf);     // 已装载则不重传，只重新读回 0xD185
                         toast("正在从相机回读机内参数…");
+                    } else {
+                        toast("开始变体自检（5 次独立连接，约 30 秒）");
+                        engine.diagUploadVariants();
                     }
                 })
                 .setNegativeButton("关闭", null)
