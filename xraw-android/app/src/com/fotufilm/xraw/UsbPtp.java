@@ -31,8 +31,11 @@ import java.io.OutputStream;
 public final class UsbPtp implements Closeable {
     private static final String TAG = "UsbPtp";
 
-    /** 与 filmkit 的 CHUNK_SIZE 一致（WebUSB 版在同一相机上验证可用） */
-    public static final int CHUNK_DEFAULT = 512 * 1024;
+    /**
+     * 真机日志显示 512KB 单次 URB 在这台手机上会返回 -1（需要降级后才能传），
+     * 因此默认直接用实测可用的 128KB，避免白白消耗两次超时。
+     */
+    public static final int CHUNK_DEFAULT = 128 * 1024;
     public static final int CHUNK_MAX = 512 * 1024;
     public static final int CHUNK_MIN = 4 * 1024;
     private static final int CMD_TIMEOUT = 8000;

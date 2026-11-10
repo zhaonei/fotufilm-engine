@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "1.4.0";
+    static final String APP_VERSION = "1.4.1";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001;
     private static final int REQ_RAF_BATCH = 1002;
@@ -671,7 +671,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         "③ 胶片模拟扫描：逐值渲染缩略图，确认 BB/怀旧负片/REALA ACE 的枚举值",
                         "④ 从相机读回当前 RAF 的机内参数到面板",
                         "⑤ 测试当前上传通道（先拔插数据线，再跑本项）",
-                        "⑥ 选择上传通道形态（0-6；默认 2 = libpict 风格，改完必须拔插数据线）"
+                        "⑥ 选择上传通道形态（0-6；默认 2 = libpict 风格，改完必须拔插数据线）",
+                        "⑦ 字段绑定自校准（逐个参数写读对比，定位真实字段索引）"
                 }, (d, which) -> {
                     if (which == 0) { engine.probeDump(); return; }   // 连不上时也要能导出
                     if (!engine.isConnected()) { toast("请先连接相机"); return; }
@@ -688,8 +689,12 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                     } else if (which == 4) {
                         toast("测试当前通道（请确保刚拔插过数据线）");
                         engine.diagUploadVariants();
-                    } else {
+                    } else if (which == 5) {
                         chooseUploadChannel();
+                    } else {
+                        if (loadedRaf == null) { toast("请先导入一张 RAF"); return; }
+                        toast("开始自校准（约 20 秒）");
+                        engine.calibrate();
                     }
                 })
                 .setNegativeButton("关闭", null)

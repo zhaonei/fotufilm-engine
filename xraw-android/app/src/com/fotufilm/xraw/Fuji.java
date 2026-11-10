@@ -339,11 +339,15 @@ public final class Fuji {
     /** @param full true=全分辨率(D183=1) ; false=预览(D183=0 + GetThumb) */
     public byte[] render(boolean full, long timeoutMs) throws IOException {
         drainObjects();
+        // filmkit 的做法：触发转换写 0，然后用 GetObject 取回真正的转换结果。
+        // 早前用 GetThumb 取预览，拿到的往往是原 RAF 的缩略图 → 改参数"看不出变化"。
         setU16(Ptp.DPC_START_RAW_CONV, full ? 1 : 0);
 
         int handle = waitForObject(timeoutMs);
         try {
-            return full ? getObject(handle) : getThumbOrObject(handle);
+            byte[] data = getObject(handle);
+            if (data.length > 512) return data;
+            return getThumbOrObject(handle);
         } finally {
             try { deleteObject(handle); } catch (Exception e) { Log.w(TAG, "DeleteObject 失败: " + e); }
         }

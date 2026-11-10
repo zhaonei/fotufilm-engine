@@ -37,7 +37,7 @@ public final class CameraEngine {
 
     private static final int J_CONNECT = 1, J_UPLOAD = 2, J_PREVIEW = 3, J_EXPORT = 4,
             J_BATCH = 5, J_PROBE_DUMP = 6, J_PROBE_SIMS = 7, J_DISCONNECT = 8, J_CLOSE = 9,
-            J_PROBE_CAPS = 10, J_DIAG_UPLOAD = 11;
+            J_PROBE_CAPS = 10, J_DIAG_UPLOAD = 11, J_CALIB = 12;
 
     private static final class Job {
         final int kind;
@@ -412,6 +412,13 @@ public final class CameraEngine {
                 status("已读取 " + c.size() + " 条属性约束");
                 break;
             }
+            case J_CALIB: {
+                requireLoaded();
+                final String path = runCalibration();
+                main.post(() -> listener.onProbeDone(path));
+                status("自校准完成：" + path);
+                break;
+            }
             case J_PROBE_SIMS: {
                 requireLoaded();
                 File outDir = new File(Recipe.dir(ctx), "simsweep");
@@ -536,6 +543,84 @@ public final class CameraEngine {
         return lastLogPath;
     }
 
+    /**
+     * 字段绑定自校准：逐个参数写入一个独特值 → 回读 profile → 对比。
+     * 报告里会指出「期望索引 vs 实际变化索引」，从而在真机上确定字段映射。
+     */
+    private String runCalibration() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("== 字段绑定自校准 ==\n");
+        sb.append("相机: ").append(session != null ? session.title() : "?")
+                .append("  基础档长度=").append(baseProfile.size())
+                .append(" propCount=").append(baseProfile.propCount())
+                .append(" propsOffset=").append(baseProfile.propsOffset()).append("\n\n");
+        sb.append("做法：每次只改一个字段 → 写回 → 回读 → 列出实际发生变化的索引。\n");
+        sb.append("若「实际变化索引」≠「写入索引」，说明该机型字段映射需要平移。\n\n");
+
+        int[][] cases = {
+                {D185.Idx.FILM_SIM, 11, 0},
+                {D185.Idx.DYNAMIC_RANGE, 200, 1},
+                {D185.Idx.WIDE_DRANGE, 2, 2},
+                {D185.Idx.GRAIN, 5, 3},
+                {D185.Idx.CHROME, 3, 4},
+                {D185.Idx.FX_BLUE, 3, 5},
+                {D185.Idx.SMOOTH_SKIN, 3, 6},
+                {D185.Idx.WB_MODE, 0x8007, 7},
+                {D185.Idx.WB_SHIFT_R, 5, 8},
+                {D185.Idx.WB_SHIFT_B, -5, 9},
+                {D185.Idx.WB_COLOR_TEMP, 6000, 10},
+                {D185.Idx.HIGHLIGHT, 20, 11},
+                {D185.Idx.SHADOW, -20, 12},
+                {D185.Idx.COLOR, 30, 13},
+                {D185.Idx.SHARPNESS, 30, 14},
+                {D185.Idx.NOISE_RED, 0x5000, 15},
+                {D185.Idx.CLARITY, 30, 16},
+                {D185.Idx.EXPOSURE_BIAS, 1000, 17},
+        };
+        String[] names = {
+                "FilmSim=11(ClassicChrome)", "DR=200", "DRPriority=2(Strong)", "Grain=5(强+大)",
+                "Chrome=3(强)", "FXBlue=3(强)", "SmoothSkin=3(强)", "WB=0x8007(色温)",
+                "WBShiftR=+5", "WBShiftB=-5", "ColorTemp=6000", "Highlight=+2(20)",
+                "Shadow=-2(-20)", "Color=+3(30)", "Sharpness=+3(30)", "NR=0x5000(+4)",
+                "Clarity=+3(30)", "ExposureBias=1000(+1EV)",
+        };
+
+        for (int c = 0; c < cases.length; c++) {
+            final int idx = cases[c][0], value = cases[c][1];
+            main.post(() -> listener.onStatus("校准 " + (idx) + " …"));
+            try {
+                D185 p = D185.parse(baseProfile.raw());
+                p.set(idx, value);
+                fuji.writeProfile(p);
+                D185 back = fuji.readProfile();
+                StringBuilder changed = new StringBuilder();
+                for (int i = 0; i < back.propCount(); i++) {
+                    int a = baseProfile.get(i), b = back.get(i);
+                    if (a != b) changed.append(String.format("idx%d:%d→%d ", i, a, b));
+                }
+                boolean ok = back.get(idx) == value;
+                sb.append(String.format("%-26s 写入 idx%-2d = %-6d %s  变化: %s%n",
+                        names[c], idx, value, ok ? "回读一致" : "回读不一致(被规范化/被忽略)",
+                        changed.length() == 0 ? "（无变化！）" : changed.toString().trim()));
+            } catch (IOException e) {
+                sb.append(String.format("%-26s 写入 idx%-2d 失败: %s%n", names[c], idx, e.getMessage()));
+                fuji.drainObjects();
+            }
+        }
+        // 恢复原始档
+        try { fuji.writeProfile(baseProfile); } catch (IOException ignored) { }
+        sb.append("\n（已把原始档写回相机）\n");
+
+        try {
+            MediaSaver.Exported ex = MediaSaver.exportText(ctx, "calib.txt", sb.toString());
+            lastLogPath = ex.displayPath();
+            lastLogUri = ex.uri;
+        } catch (IOException e) {
+            lastLogPath = "写入失败: " + e.getMessage();
+        }
+        return lastLogPath;
+    }
+
     private void doUpload(File file) throws IOException {
         requireSession();
         if (loadedRaf != null && loadedRaf.getAbsolutePath().equals(file.getAbsolutePath())
@@ -564,6 +649,12 @@ public final class CameraEngine {
         final Fuji.Session s2 = fuji.handshake();
         session = s2;
         main.post(() -> listener.onSession(s2));
+    }
+
+    public void calibrate() {
+        Job j = new Job(J_CALIB);
+        j.label = "字段绑定自校准";
+        post(j);
     }
 
     public void diagUploadVariants() {
