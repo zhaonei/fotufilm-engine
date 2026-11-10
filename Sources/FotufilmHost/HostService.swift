@@ -990,6 +990,10 @@ public final class HostService {
         var plan: HostFrames.Plan?
         var contentHeadroom: Float
         var capture: [String: Any]?
+        /// The photograph and the request behind it: a selective adjustment is blended over the
+        /// photograph's own develop, and an export used to develop the ground alone.
+        var image: HostImage?
+        var body: [String: Any] = [:]
     }
 
     func stillJob(_ prepared: Prepared, scene: [Float], body: [String: Any]) throws -> StillJob {
@@ -1005,25 +1009,72 @@ public final class HostService {
         }
         return StillJob(scene: scene, width: width, height: height, edit: edit, plan: plan,
                         contentHeadroom: prepared.image.contentHeadroom,
-                        capture: prepared.image.captureMetadata)
+                        capture: prepared.image.captureMetadata,
+                        image: prepared.image, body: body)
     }
 
     /// Develops a still job. Photo Quality: exact film math unless the page asks for Fast, as the
     /// Mac app exports.
+    /// The request's selective adjustment, when it has one.
+    private func selectiveAdjustment(_ body: [String: Any]) -> HostSelection? {
+        guard let saved = (body["edit"] as? [String: Any])?["selective"] as? [String: Any],
+              let data = try? JSONSerialization.data(withJSONObject: saved),
+              let selection = try? JSONDecoder().decode(HostSelection.self, from: data),
+              selection.isActive else { return nil }
+        return selection
+    }
+
     func developStill(_ job: StillJob, deep: Bool, hdr: Bool, exact: Bool) throws -> HostStill {
         let (width, height) = (job.width, job.height)
-        func develop(_ format: HostEngine.PixelFormat) throws -> [UInt8] {
+        // A selective adjustment develops twice and blends the two, as the shown picture does in
+        // `developSelective`. An export never did: it developed the photograph alone, so every
+        // mask and every local light and colour change was silently dropped from the file.
+        var blend: (selection: HostSelection, subject: [Float]?)? = nil
+        if let selection = selectiveAdjustment(job.body), let image = job.image {
+            if selection.isSubject {
+                // With nobody found the photograph stays as it is, as the preview leaves it.
+                if let found = subjects(job.scene, width: width, height: height, image: image),
+                   found.count > 0 {
+                    blend = (selection, found.weights(at: selection.point, width: width,
+                                                     height: height, edge: selection.subjectEdge,
+                                                     feather: selection.subjectFeather))
+                }
+            } else {
+                blend = (selection, nil)
+            }
+        }
+        func develop(_ format: HostEngine.PixelFormat, _ edit: WebNativeEdit) throws -> [UInt8] {
             let stride = format == .rgba8DisplayP3 ? 4 : 16
             var pixels = [UInt8](repeating: 0, count: width * height * stride)
             try pixels.withUnsafeMutableBytes { buffer in
                 try engine.develop(job.scene, width: width, height: height,
                                    contentHeadroom: job.contentHeadroom,
-                                   edit: job.edit, exactMath: exact,
+                                   edit: edit, exactMath: exact,
                                    into: .init(maxEdge: 0, format: format,
                                                pixels: buffer.baseAddress!,
                                                rowBytes: width * stride, capacity: buffer.count))
             }
             return pixels
+        }
+        /// The photograph's own develop, with the selection's blended over it.
+        func displayed(_ edit: WebNativeEdit) throws -> [UInt8] {
+            let ground = try develop(.rgba8DisplayP3, edit)
+            guard let blend else { return ground }
+            let selected = try develop(.rgba8DisplayP3, blend.selection.develop(edit))
+            return blend.selection.composite(ground: ground, selected: selected, scene: job.scene,
+                                             width: width, height: height, showMask: false,
+                                             subject: blend.subject)
+        }
+        /// The same in linear light, for a deep file or the HDR picture.
+        func linearLight(_ edit: WebNativeEdit) throws -> [Float] {
+            var ground = try develop(.rgba32FloatLinearP3, edit)
+                .withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+            guard let blend else { return ground }
+            let selected = try develop(.rgba32FloatLinearP3, blend.selection.develop(edit))
+                .withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+            blend.selection.composite(ground: &ground, selected: selected, scene: job.scene,
+                                      width: width, height: height, subject: blend.subject)
+            return ground
         }
         let stock = engine.stock(job.edit.edit.stock)
         let knee = stock.flatMap { stock in
@@ -1032,13 +1083,11 @@ public final class HostService {
         } ?? FilmSDRDelivery.boundedShoulderKnee
         let wantsHDR = hdr && job.plan == nil && deliversHDR(job.edit)
         // One develop in linear light serves both a deep file and the HDR picture.
-        let linear = deep || wantsHDR
-            ? try develop(.rgba32FloatLinearP3).withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
-            : nil
+        let linear = deep || wantsHDR ? try linearLight(job.edit) : nil
         var still = HostStill(
             pixels: deep ? .display16(HostExport.display16(linear: linear!, width: width,
                                                            height: height, knee: knee))
-                         : .display8(try develop(.rgba8DisplayP3)),
+                         : .display8(try displayed(job.edit)),
             width: width, height: height, frame: job.plan?.configuration,
             capture: job.capture)
         if wantsHDR, let linear {

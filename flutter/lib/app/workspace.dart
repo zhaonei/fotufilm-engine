@@ -153,8 +153,12 @@ class _WorkspaceState extends State<Workspace> {
 
   /// A click outside the viewer gives the keys back to the editor.
   void _pointerDown(PointerDownEvent event) {
+    // The focused node's context can outlive its element by a frame -- a sheet just closed, a field
+    // just removed -- and walking a defunct element's ancestors throws (`Element.widget` is null
+    // once it is unmounted), which filled the log with a null-check error on every tap.
     final viewer = FocusManager.instance.primaryFocus?.context;
-    if (viewer == null || viewer.findAncestorWidgetOfExactType<VideoKeys>() == null) return;
+    if (viewer == null || !viewer.mounted) return;
+    if (viewer.findAncestorWidgetOfExactType<VideoKeys>() == null) return;
     final box = viewer.findRenderObject();
     if (box is! RenderBox || !box.attached) return;
     if (!(box.localToGlobal(Offset.zero) & box.size).contains(event.position)) {
