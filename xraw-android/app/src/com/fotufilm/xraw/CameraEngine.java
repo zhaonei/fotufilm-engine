@@ -243,40 +243,23 @@ public final class CameraEngine {
                     // 必须把 USB 连接整个关掉重开（复位端点状态）。
                     status("上传失败，重开 USB 连接后重试…（" + first.getMessage() + "）");
                     captureLog();
-                    reopenUsb();
-                    doUpload(job.file);
+                    try {
+                        reopenUsb();
+                        doUpload(job.file);
+                    } catch (IOException second) {
+                        // 仍然失败：自动跑 SendObjectInfo 变体扫描，把答案找出来
+                        status("仍失败，正在自动探测相机接受的 Upload 形态（约 30 秒）…");
+                        String path = runVariantSweep(job.file.length());
+                        throw new IOException(second.getMessage()
+                                + "\n\n已自动探测上传形态，结果见：" + path
+                                + "\n请把该文件分享给开发者。");
+                    }
                 }
                 break;
             }
             case J_DIAG_UPLOAD: {
                 long size = loadedRaf != null ? loadedRaf.length() : 32L * 1024 * 1024;
-                StringBuilder sb = new StringBuilder();
-                sb.append("== SendObjectInfo 变体自检 ==\n");
-                sb.append("文件大小=").append(size).append(" 字节\n");
-                sb.append("每个变体都用**全新 USB 连接**，避免上一次 STALL 影响下一次。\n\n");
-                for (int v = 0; v <= 4; v++) {
-                    final int vv = v + 1;
-                    main.post(() -> listener.onStatus("变体自检 " + vv + "/5 …"));
-                    try {
-                        shutdown();
-                        if (lastDevice == null) throw new IOException("没有可用设备");
-                        transport = new UsbPtp(ctx, lastDevice);
-                        transport.open();
-                        fuji = new Fuji(transport);
-                        fuji.handshake();
-                        String r = fuji.trySendObjectInfo(v, size);
-                        sb.append("  ").append(r).append('\n');
-                    } catch (Exception e) {
-                        sb.append("  变体").append(v).append(" -> 连接/握手失败: ")
-                                .append(e.getMessage()).append('\n');
-                    }
-                }
-                shutdown();
-                sb.append("\n== PTP 事务日志（最后一个变体）==\n").append(lastTransportLog);
-                MediaSaver.Exported ex = MediaSaver.exportText(ctx, "probe_upload_variants.txt", sb.toString());
-                lastLogPath = ex.displayPath();
-                lastLogUri = ex.uri;
-                final String path = lastLogPath;
+                final String path = runVariantSweep(size);
                 main.post(() -> listener.onProbeDone(path));
                 status("变体自检完成：" + path);
                 break;
@@ -486,6 +469,59 @@ public final class CameraEngine {
         } catch (Exception e) {
             Log.w(TAG, "写日志失败: " + e);
         }
+    }
+
+    /**
+     * 用 7 种 ObjectInfo 形态逐个问相机「你接受哪种」。
+     * 每个变体都开一条**全新 USB 连接**，避免上一次 STALL 影响下一次。
+     */
+    private String runVariantSweep(long fileSize) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("== SendObjectInfo 变体自检 ==\n");
+        sb.append("相机: ").append(session != null ? session.title() : "?")
+                .append(" 文件大小=").append(fileSize).append('\n');
+        sb.append("每个变体都新建 USB 连接；\"管道正常\" 表示该变体没有被相机 STALL。\n\n");
+
+        if (lastDevice == null) {
+            android.hardware.usb.UsbManager um =
+                    (android.hardware.usb.UsbManager) ctx.getSystemService(Context.USB_SERVICE);
+            if (um != null) {
+                for (UsbDevice d : um.getDeviceList().values()) {
+                    if (d.getVendorId() == Ptp.VID_FUJIFILM) { lastDevice = d; break; }
+                }
+            }
+        }
+        if (lastDevice == null) {
+            sb.append("找不到相机设备（请先点一次「连接相机」）\n");
+        } else {
+            for (int v = 0; v <= 6; v++) {
+                final int vv = v + 1;
+                main.post(() -> listener.onStatus("变体自检 " + vv + "/7 …"));
+                try {
+                    shutdown();
+                    transport = new UsbPtp(ctx, lastDevice);
+                    transport.open();
+                    fuji = new Fuji(transport);
+                    fuji.handshake();
+                    String r = fuji.trySendObjectInfo(v, fileSize);
+                    sb.append("  ").append(r).append('\n');
+                    lastTransportLog = transport.dumpLog();
+                } catch (Exception e) {
+                    sb.append("  变体").append(v).append(" -> 连接/握手失败: ")
+                            .append(e.getMessage()).append('\n');
+                }
+            }
+            shutdown();
+        }
+        sb.append("\n== PTP 事务日志（最后一个变体）==\n").append(lastTransportLog);
+        try {
+            MediaSaver.Exported ex = MediaSaver.exportText(ctx, "probe_upload_variants.txt", sb.toString());
+            lastLogPath = ex.displayPath();
+            lastLogUri = ex.uri;
+        } catch (IOException e) {
+            lastLogPath = "写入失败: " + e.getMessage();
+        }
+        return lastLogPath;
     }
 
     private void doUpload(File file) throws IOException {

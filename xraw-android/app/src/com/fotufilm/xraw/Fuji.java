@@ -181,37 +181,60 @@ public final class Fuji {
         Log.i(TAG, "上传完成(标准 0x100C/0x100D) " + raf.getName());
     }
 
-    /** 变体自检用：按不同形态发送 SendObjectInfo，只取相机返回码（不传数据本体） */
+    /** 变体自检用：按不同形态发送 SendObjectInfo，只取相机返回码（不发数据本体） */
     public String trySendObjectInfo(int variant, long fileSize) {
         try {
+            int opcode;
             int[] params;
             byte[] oi;
             switch (variant) {
-                case 0:  // 现状：0x900C + 3 参数 + 空字符串写 0x00
+                case 0:  // 当前实现：0x900C + 3 参数 + 空字符串写 0x00
+                    opcode = Ptp.OC_FUJI_SEND_OBJECT_INFO;
                     params = new int[]{0, 0, 0};
-                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME);
+                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME, OBJ_FORMAT_RAF);
                     break;
                 case 1:  // 标准 opcode 0x100C + 2 参数
+                    opcode = Ptp.OC_SEND_OBJECT_INFO;
                     params = new int[]{0, 0};
-                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME);
+                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME, OBJ_FORMAT_RAF);
                     break;
-                case 2:  // 空字符串按 PTP 规范写「长度1 + 终止符」
+                case 2:  // 空字符串按 PTP 规范写「长度1 + 终止符」（libpict 风格，libfuji 就是这个）
+                    opcode = Ptp.OC_FUJI_SEND_OBJECT_INFO;
                     params = new int[]{0, 0, 0};
                     oi = buildObjectInfoEmptyStringsAsNull((int) fileSize, UPLOAD_NAME);
                     break;
                 case 3:  // 用相机真实 StorageID
+                    opcode = Ptp.OC_FUJI_SEND_OBJECT_INFO;
                     params = new int[]{firstStorageId(), 0, 0};
-                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME);
+                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME, OBJ_FORMAT_RAF);
                     break;
-                default: // 4 个参数（部分机型如此）
+                case 4:  // 4 个参数
+                    opcode = Ptp.OC_FUJI_SEND_OBJECT_INFO;
                     params = new int[]{0, 0, 0, 0};
-                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME);
+                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME, OBJ_FORMAT_RAF);
+                    break;
+                case 5:  // 对象格式用通用 Undefined (0x3000)
+                    opcode = Ptp.OC_FUJI_SEND_OBJECT_INFO;
+                    params = new int[]{0, 0, 0};
+                    oi = buildObjectInfo((int) fileSize, UPLOAD_NAME, 0x3000);
+                    break;
+                default: // 完全不带数据阶段的命令（验证 opcode 本身是否被支持）
+                    opcode = Ptp.OC_FUJI_SEND_OBJECT_INFO;
+                    params = new int[]{0, 0, 0};
+                    oi = new byte[0];
                     break;
             }
-            int opcode = variant == 1 ? Ptp.OC_SEND_OBJECT_INFO : Ptp.OC_FUJI_SEND_OBJECT_INFO;
             UsbPtp.Resp r = t.commandDataOut(opcode, params, oi);
-            return String.format("变体%d op=0x%04X params=%d oiLen=%d -> 响应 %s",
-                    variant, opcode, params.length, oi.length, r);
+            // 再发一条纯命令确认管道是否还活着（判断相机是不是 STALL 了）
+            String health;
+            try {
+                t.commandDataIn(Ptp.OC_GET_DEVICE_INFO);
+                health = "管道正常";
+            } catch (IOException e) {
+                health = "管道已失效(" + e.getMessage() + ")";
+            }
+            return String.format("变体%d op=0x%04X params=%d oiLen=%d -> 响应 %s ; %s",
+                    variant, opcode, params.length, oi.length, r, health);
         } catch (Exception e) {
             return "变体" + variant + " -> 异常: " + e.getMessage();
         }
@@ -236,9 +259,13 @@ public final class Fuji {
     }
 
     private static byte[] buildObjectInfo(int size, String filename) throws IOException {
+        return buildObjectInfo(size, filename, OBJ_FORMAT_RAF);
+    }
+
+    private static byte[] buildObjectInfo(int size, String filename, int objFormat) throws IOException {
         ByteArrayOutputStream o = new ByteArrayOutputStream(80);
         write32(o, 0);                 // StorageID
-        write16(o, OBJ_FORMAT_RAF);    // ObjectFormat
+        write16(o, objFormat);         // ObjectFormat
         write16(o, 0);                 // ProtectionStatus
         write32(o, size);              // CompressedSize
         write16(o, 0);                 // ThumbFormat

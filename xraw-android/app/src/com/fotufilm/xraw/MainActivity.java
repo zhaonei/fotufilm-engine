@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "1.2.5";
+    static final String APP_VERSION = "1.2.6";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001;
     private static final int REQ_RAF_BATCH = 1002;
@@ -696,7 +696,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         "② 读取相机能力（高光/阴影等参数的真实 min/max/步进）",
                         "③ 胶片模拟扫描：逐值渲染缩略图，确认 BB/怀旧负片/REALA ACE 的枚举值",
                         "④ 从相机读回当前 RAF 的机内参数到面板",
-                        "⑤ 上传变体自检（逐个试 SendObjectInfo 形态，找出这台机器接受的那一种）"
+                        "⑤ 上传变体自检（7 种 SendObjectInfo 形态逐个试，找出这台机器接受的那一种）"
                 }, (d, which) -> {
                     if (which == 0) { engine.probeDump(); return; }   // 连不上时也要能导出
                     if (!engine.isConnected()) { toast("请先连接相机"); return; }
@@ -711,7 +711,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         engine.upload(loadedRaf);     // 已装载则不重传，只重新读回 0xD185
                         toast("正在从相机回读机内参数…");
                     } else {
-                        toast("开始变体自检（5 次独立连接，约 30 秒）");
+                        toast("开始变体自检（7 次独立连接，约 1 分钟）");
                         engine.diagUploadVariants();
                     }
                 })
