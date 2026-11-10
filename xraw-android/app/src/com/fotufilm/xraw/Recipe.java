@@ -2,7 +2,6 @@ package com.fotufilm.xraw;
 
 import android.content.Context;
 
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -13,75 +12,66 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 一套「配方」的 UI 侧模型（单位与 X RAW Studio / 机内菜单一致），负责：
- *  - applyTo(D185)：把 UI 值写进 d185 的 29 个字段
- *  - fromD185(D185)：从相机回读的 d185 还原成 UI 值（这是「读取原 RAF 机内配方」的实现）
- *  - JSON 存取：/data/.../files/recipes/*.json
+ * 一套「配方」的 UI 模型。单位与机内菜单一致（整数刻度），
+ * 与 d185 的编码转换全部在 {@link #applyTo(D185)} 里完成：
+ *   色调/色彩/锐度/清晰度 ×10；效果类 +1（1-indexed）；颗粒→扁平枚举；降噪用专有码表。
  */
 public final class Recipe {
     public String name = "未命名配方";
 
-    public int filmSim = D185.SIM_VALUES[10];           // CLASSIC CHROME
+    public int filmSim = 17;                 // CLASSIC Neg.
     public int dr = D185.DR_100;
     public int drPriority = D185.DRP_OFF;
-    public int grainEffect = D185.GRAIN_OFF;
+    public int grainStrength = 0;            // 0=关 1=弱 2=强
     public boolean grainLarge = false;
-    public int chrome = D185.CHROME_OFF;
-    public int fxBlue = D185.FXB_OFF;
-    public int wbIndex = 0;                             // index of D185.WB_VALUES
+    public int chrome = 0;                   // 0=关 1=弱 2=强
+    public int fxBlue = 0;
+    public int smoothSkin = 0;
+    public int wbIndex = 0;                  // WB_VALUES 下标
     public int wbTemp = 5500;
     public int wbR = 0, wbB = 0;
-    // 高光/阴影保存「线上编码值（×10）」：-20..40；机内实际步进由相机回报决定（0.5 或 1）
-    public int highlight = 0;                           // 编码值，-20..40
-    public int shadow = 0;                              // 编码值，-20..40
-    public int color = 0;                               // -4..4（线上 ×10）
-    public int sharpness = 0;                            // -4..4（线上 ×10）
-    public int nr = 0;                                   // -4..4（线上非线性）
-    public int clarity = 0;                              // -5..5（线上 ×10）
-    public int lmo = D185.LMO_ON;
-    public int imageSizeIdx = 0;                         // L 3:2
-    public int qualityIdx = 0;                           // FINE
-    public int fileTypeIdx = 0;                          // JPEG
-    public int colorSpaceIdx = 0;                        // sRGB
-    public int expBiasThirds = 0;                        // -9..9 (1/3 EV)
-    public int monoWC = 0, monoMG = 0;                   // -18..18（线上 ×10）
+    public int highlight = 0;                // -4..+4（整数）
+    public int shadow = 0;
+    public int color = 0;                    // -4..+4
+    public int sharpness = 0;                // -4..+4
+    public int nr = 0;                       // -4..+4
+    public int clarity = 0;                  // -5..+5
+    public int expBiasThirds = 0;            // -9..+9（1/3 EV）
 
-    // ---------------------------------------------------------------- d185 桥接
+    // 以下四项在相机原生 d185 里的字段未确认，暂不写入（UI 会标注）
+    public int imageSizeIdx = 0, qualityIdx = 0, fileTypeIdx = 0, colorSpaceIdx = 0;
+
+    // ---------------------------------------------------------------- 应用
 
     public void applyTo(D185 p) {
-        p.set(D185.IDX_FILM_SIM, filmSim);
-        p.set(D185.IDX_WIDE_DRANGE, drPriority);
-        if (drPriority == D185.DRP_OFF) p.set(D185.IDX_DYNAMIC_RANGE, dr);
-        p.set(D185.IDX_GRAIN, grainEffect + (grainLarge ? D185.GRAIN_SIZE_LARGE : 0));
-        p.set(D185.IDX_CHROME, chrome);
-        p.set(D185.IDX_FX_BLUE, fxBlue);
-        // 「按拍摄时 (As Shot)」= 只置 WBShootCond=ON，不写 WB 模式，让相机沿用原 RAF 的白平衡
-        if (wbIndex == D185.WB_VALUES.length - 1) {
-            p.set(D185.IDX_WB_SHOOT_COND, D185.WB_SHOOT_COND_ON);
-        } else {
-            p.set(D185.IDX_WB_SHOOT_COND, D185.WB_SHOOT_COND_OFF);
-            p.set(D185.IDX_WB_MODE, D185.WB_VALUES[Math.max(0, Math.min(D185.WB_VALUES.length - 1, wbIndex))]);
-        }
-        p.set(D185.IDX_WB_COLOR_TEMP, wbTemp);
-        p.set(D185.IDX_WB_SHIFT_R, wbR * 10);
-        p.set(D185.IDX_WB_SHIFT_B, wbB * 10);
-        p.set(D185.IDX_HIGHLIGHT, D185.clamp(highlight, -20, 40));
-        p.set(D185.IDX_SHADOW, D185.clamp(shadow, -20, 40));
-        if (p.isMono()) {
-            p.set(D185.IDX_BLACK_IMAGE_TONE, monoWC * 10);
-            p.set(D185.IDX_MONO_RG, monoMG * 10);
-        } else {
-            p.set(D185.IDX_COLOR, color * 10);
-            p.set(D185.IDX_SHARPNESS, sharpness * 10);
-        }
-        p.set(D185.IDX_NOISE_RED, D185.nrFromStep(nr));
-        p.set(D185.IDX_CLARITY, D185.clamp(clarity, D185.CLARITY_MIN, D185.CLARITY_MAX) * 10);
-        p.set(D185.IDX_LMO, lmo);
-        p.set(D185.IDX_IMAGE_SIZE, D185.IMAGE_SIZE_VALUES[clampIdx(imageSizeIdx, D185.IMAGE_SIZE_VALUES.length)]);
-        p.set(D185.IDX_IMAGE_QUALITY, D185.QUALITY_VALUES[clampIdx(qualityIdx, D185.QUALITY_VALUES.length)]);
-        p.set(D185.IDX_FILE_TYPE, D185.FILE_TYPE_VALUES[clampIdx(fileTypeIdx, D185.FILE_TYPE_VALUES.length)]);
-        p.set(D185.IDX_COLOR_SPACE, D185.COLOR_SPACE_VALUES[clampIdx(colorSpaceIdx, D185.COLOR_SPACE_VALUES.length)]);
-        p.set(D185.IDX_EXPOSURE_BIAS, Math.round(expBiasThirds * 1000f / 3f));
+        p.set(D185.Idx.FILM_SIM, filmSim);
+        p.set(D185.Idx.EXPOSURE_BIAS, Math.round(expBiasThirds * 1000f / 3f));
+
+        p.set(D185.Idx.WIDE_DRANGE, drPriority);
+        if (drPriority == D185.DRP_OFF) p.set(D185.Idx.DYNAMIC_RANGE, dr);
+
+        // 颗粒：强度+大小 → 扁平枚举
+        int grain;
+        if (grainStrength <= 0) grain = D185.GRAIN_OFF;
+        else if (grainStrength == 1) grain = grainLarge ? D185.GRAIN_WEAK_LARGE : D185.GRAIN_WEAK_SMALL;
+        else grain = grainLarge ? D185.GRAIN_STRONG_LARGE : D185.GRAIN_STRONG_SMALL;
+        p.set(D185.Idx.GRAIN, grain);
+
+        p.set(D185.Idx.CHROME, chrome + 1);
+        p.set(D185.Idx.FX_BLUE, fxBlue + 1);
+        p.set(D185.Idx.SMOOTH_SKIN, smoothSkin + 1);
+
+        p.set(D185.Idx.WB_MODE, D185.WB_VALUES[clampIdx(wbIndex, D185.WB_VALUES.length)]);
+        p.set(D185.Idx.WB_COLOR_TEMP, wbTemp);
+        p.set(D185.Idx.WB_SHIFT_R, wbR);
+        p.set(D185.Idx.WB_SHIFT_B, wbB);
+
+        p.set(D185.Idx.HIGHLIGHT, highlight * 10);
+        p.set(D185.Idx.SHADOW, shadow * 10);
+        p.set(D185.Idx.COLOR, color * 10);
+        p.set(D185.Idx.SHARPNESS, sharpness * 10);
+        p.set(D185.Idx.NOISE_RED, D185.nrEncode(nr));
+        p.set(D185.Idx.CLARITY, clarity * 10);
     }
 
     private static int clampIdx(int i, int n) { return Math.max(0, Math.min(n - 1, i)); }
@@ -89,74 +79,56 @@ public final class Recipe {
     public static Recipe fromD185(D185 p) {
         Recipe r = new Recipe();
         r.filmSim = p.filmSim();
+        r.expBiasThirds = Math.round(p.exposureBias() * 3f / 1000f);
         r.drPriority = p.drPriority();
-        int dr = p.get(D185.IDX_DYNAMIC_RANGE);
+        int dr = p.dr();
         r.dr = (dr == D185.DR_200 || dr == D185.DR_400) ? dr : D185.DR_100;
-        int g = p.get(D185.IDX_GRAIN);
-        r.grainLarge = g > D185.GRAIN_STRONG;
-        r.grainEffect = r.grainLarge ? g - D185.GRAIN_SIZE_LARGE : g;
-        if (r.grainEffect < D185.GRAIN_OFF || r.grainEffect > D185.GRAIN_STRONG) r.grainEffect = D185.GRAIN_OFF;
-        r.chrome = clampRange(p.get(D185.IDX_CHROME), D185.CHROME_OFF, D185.CHROME_STRONG);
-        r.fxBlue = clampRange(p.get(D185.IDX_FX_BLUE), D185.FXB_OFF, D185.FXB_STRONG);
-        boolean asShot = p.get(D185.IDX_WB_SHOOT_COND) == D185.WB_SHOOT_COND_ON;
+
+        int g = p.get(D185.Idx.GRAIN);
+        if (g <= D185.GRAIN_OFF) { r.grainStrength = 0; r.grainLarge = false; }
+        else if (g == D185.GRAIN_WEAK_SMALL) { r.grainStrength = 1; r.grainLarge = false; }
+        else if (g == D185.GRAIN_STRONG_SMALL) { r.grainStrength = 2; r.grainLarge = false; }
+        else if (g == D185.GRAIN_WEAK_LARGE) { r.grainStrength = 1; r.grainLarge = true; }
+        else { r.grainStrength = 2; r.grainLarge = true; }
+
+        r.chrome = clamp(p.get(D185.Idx.CHROME) - 1, 0, 2);
+        r.fxBlue = clamp(p.get(D185.Idx.FX_BLUE) - 1, 0, 2);
+        r.smoothSkin = clamp(p.get(D185.Idx.SMOOTH_SKIN) - 1, 0, 2);
+
         int wb = p.wbMode();
-        r.wbIndex = D185.WB_VALUES.length - 1;      // 默认视为「按拍摄时」
-        if (!asShot) {
-            for (int i = 0; i < D185.WB_VALUES.length; i++) {
-                if (D185.WB_VALUES[i] == wb) { r.wbIndex = i; break; }
-            }
-        }
-        r.wbTemp = D185.clamp(p.get(D185.IDX_WB_COLOR_TEMP), 2500, 10000);
-        r.wbR = p.get(D185.IDX_WB_SHIFT_R) / 10;
-        r.wbB = p.get(D185.IDX_WB_SHIFT_B) / 10;
-        r.highlight = p.get(D185.IDX_HIGHLIGHT);   // 保持编码值
-        r.shadow = p.get(D185.IDX_SHADOW);
-        r.color = p.get(D185.IDX_COLOR) / 10;
-        r.sharpness = p.get(D185.IDX_SHARPNESS) / 10;
-        r.nr = D185.nrToStep(p.get(D185.IDX_NOISE_RED));
-        r.clarity = Math.round(p.get(D185.IDX_CLARITY) / 10f);
-        r.lmo = p.get(D185.IDX_LMO) == D185.LMO_OFF ? D185.LMO_OFF : D185.LMO_ON;
-        r.imageSizeIdx = indexOf(D185.IMAGE_SIZE_VALUES, p.get(D185.IDX_IMAGE_SIZE));
-        r.qualityIdx = indexOf(D185.QUALITY_VALUES, p.get(D185.IDX_IMAGE_QUALITY));
-        r.fileTypeIdx = indexOf(D185.FILE_TYPE_VALUES, p.get(D185.IDX_FILE_TYPE));
-        r.colorSpaceIdx = indexOf(D185.COLOR_SPACE_VALUES, p.get(D185.IDX_COLOR_SPACE));
-        r.expBiasThirds = Math.round(p.get(D185.IDX_EXPOSURE_BIAS) * 3f / 1000f);
-        r.monoWC = p.get(D185.IDX_BLACK_IMAGE_TONE) / 10;
-        r.monoMG = p.get(D185.IDX_MONO_RG) / 10;
+        r.wbIndex = D185.WB_VALUES.length - 1;      // 默认按拍摄时
+        for (int i = 0; i < D185.WB_VALUES.length; i++) if (D185.WB_VALUES[i] == wb) { r.wbIndex = i; break; }
+        r.wbTemp = clamp(p.get(D185.Idx.WB_COLOR_TEMP), 2500, 10000);
+        r.wbR = clamp(p.get(D185.Idx.WB_SHIFT_R), -9, 9);
+        r.wbB = clamp(p.get(D185.Idx.WB_SHIFT_B), -9, 9);
+
+        r.highlight = clamp(D185.decodeTenths(p.get(D185.Idx.HIGHLIGHT)), -4, 4);
+        r.shadow = clamp(D185.decodeTenths(p.get(D185.Idx.SHADOW)), -4, 4);
+        r.color = clamp(D185.decodeTenths(p.get(D185.Idx.COLOR)), -4, 4);
+        r.sharpness = clamp(D185.decodeTenths(p.get(D185.Idx.SHARPNESS)), -4, 4);
+        r.nr = clamp(D185.nrDecode(p.get(D185.Idx.NOISE_RED)), -4, 4);
+        r.clarity = clamp(D185.decodeTenths(p.get(D185.Idx.CLARITY)), -5, 5);
         return r;
     }
 
-    private static int clampRange(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
-
-    private static int indexOf(int[] arr, int v) {
-        for (int i = 0; i < arr.length; i++) if (arr[i] == v) return i;
-        return 0;
-    }
-
-    public String summaryText() {
-        StringBuilder sb = new StringBuilder(D185.simName(filmSim));
-        if (drPriority != D185.DRP_OFF) sb.append(" · DR优先");
-        else sb.append(" · DR").append(dr);
-        sb.append(" · 高光").append(tone(highlight)).append(" 阴影").append(tone(shadow));
-        sb.append(" · ").append(D185.FILE_TYPE_NAMES[clampIdx(fileTypeIdx, 3)]);
-        sb.append(' ').append(D185.IMAGE_SIZE_NAMES[clampIdx(imageSizeIdx, 9)]);
-        return sb.toString();
-    }
+    public static int clamp(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
     private static String signed(int v) { return v > 0 ? "+" + v : String.valueOf(v); }
 
-    /** 编码值 → 显示（有 0.5 档就带一位小数，否则整数） */
-    private static String tone(int encoded) {
-        if (encoded % 10 == 0) return signed(encoded / 10);
-        return String.format(java.util.Locale.US, "%s%.1f", encoded > 0 ? "+" : "", encoded / 10.0);
+    public String summaryText() {
+        StringBuilder sb = new StringBuilder(D185.simName(filmSim));
+        if (drPriority != D185.DRP_OFF) sb.append(" · DR优先").append(drPriority);
+        else sb.append(" · DR").append(dr);
+        sb.append(" · 高光").append(signed(highlight)).append(" 阴影").append(signed(shadow));
+        sb.append(" · 色彩").append(signed(color)).append(" 锐度").append(signed(sharpness));
+        sb.append(" 清晰度").append(signed(clarity));
+        return sb.toString();
     }
 
-    public String exportExtension() {
-        int ft = D185.FILE_TYPE_VALUES[clampIdx(fileTypeIdx, 3)];
-        return ft == D185.FILE_JPG ? ".jpg" : ".tif";
-    }
+    /** 输出扩展名：相机原生 d185 未确认文件类型字段，暂按 JPEG */
+    public String exportExtension() { return ".jpg"; }
 
-    // ---------------------------------------------------------------- JSON
+    // ---------------------------------------------------------------- JSON / 配方库
 
     public JSONObject toJson() {
         JSONObject o = new JSONObject();
@@ -165,10 +137,11 @@ public final class Recipe {
             o.put("filmSim", filmSim);
             o.put("dr", dr);
             o.put("drPriority", drPriority);
-            o.put("grainEffect", grainEffect);
+            o.put("grainStrength", grainStrength);
             o.put("grainLarge", grainLarge);
             o.put("chrome", chrome);
             o.put("fxBlue", fxBlue);
+            o.put("smoothSkin", smoothSkin);
             o.put("wbIndex", wbIndex);
             o.put("wbTemp", wbTemp);
             o.put("wbR", wbR);
@@ -179,14 +152,7 @@ public final class Recipe {
             o.put("sharpness", sharpness);
             o.put("nr", nr);
             o.put("clarity", clarity);
-            o.put("lmo", lmo);
-            o.put("imageSizeIdx", imageSizeIdx);
-            o.put("qualityIdx", qualityIdx);
-            o.put("fileTypeIdx", fileTypeIdx);
-            o.put("colorSpaceIdx", colorSpaceIdx);
             o.put("expBiasThirds", expBiasThirds);
-            o.put("monoWC", monoWC);
-            o.put("monoMG", monoMG);
         } catch (Exception ignored) { }
         return o;
     }
@@ -197,10 +163,11 @@ public final class Recipe {
         r.filmSim = o.optInt("filmSim", r.filmSim);
         r.dr = o.optInt("dr", r.dr);
         r.drPriority = o.optInt("drPriority", r.drPriority);
-        r.grainEffect = o.optInt("grainEffect", r.grainEffect);
+        r.grainStrength = o.optInt("grainStrength", r.grainStrength);
         r.grainLarge = o.optBoolean("grainLarge", r.grainLarge);
         r.chrome = o.optInt("chrome", r.chrome);
         r.fxBlue = o.optInt("fxBlue", r.fxBlue);
+        r.smoothSkin = o.optInt("smoothSkin", r.smoothSkin);
         r.wbIndex = o.optInt("wbIndex", r.wbIndex);
         r.wbTemp = o.optInt("wbTemp", r.wbTemp);
         r.wbR = o.optInt("wbR", r.wbR);
@@ -211,18 +178,9 @@ public final class Recipe {
         r.sharpness = o.optInt("sharpness", r.sharpness);
         r.nr = o.optInt("nr", r.nr);
         r.clarity = o.optInt("clarity", r.clarity);
-        r.lmo = o.optInt("lmo", r.lmo);
-        r.imageSizeIdx = o.optInt("imageSizeIdx", r.imageSizeIdx);
-        r.qualityIdx = o.optInt("qualityIdx", r.qualityIdx);
-        r.fileTypeIdx = o.optInt("fileTypeIdx", r.fileTypeIdx);
-        r.colorSpaceIdx = o.optInt("colorSpaceIdx", r.colorSpaceIdx);
         r.expBiasThirds = o.optInt("expBiasThirds", r.expBiasThirds);
-        r.monoWC = o.optInt("monoWC", r.monoWC);
-        r.monoMG = o.optInt("monoMG", r.monoMG);
         return r;
     }
-
-    // ---------------------------------------------------------------- 本地配方库
 
     public static File dir(Context c) {
         File d = new File(c.getFilesDir(), "recipes");
@@ -250,8 +208,7 @@ public final class Recipe {
         for (File f : files) {
             if (!f.getName().endsWith(".json")) continue;
             try {
-                String s = readFile(f);
-                out.add(fromJson(new JSONObject(s)));
+                out.add(fromJson(new JSONObject(readFile(f))));
             } catch (Exception ignored) { }
         }
         return out;
@@ -268,11 +225,5 @@ public final class Recipe {
         } finally {
             in.close();
         }
-    }
-
-    public static String toJsonArray(List<Recipe> rs) {
-        JSONArray arr = new JSONArray();
-        for (Recipe r : rs) arr.put(r.toJson());
-        return arr.toString();
     }
 }

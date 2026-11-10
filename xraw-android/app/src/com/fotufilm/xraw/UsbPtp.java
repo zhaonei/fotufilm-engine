@@ -31,7 +31,8 @@ import java.io.OutputStream;
 public final class UsbPtp implements Closeable {
     private static final String TAG = "UsbPtp";
 
-    public static final int CHUNK_DEFAULT = 16 * 1024;   // 64KB 在部分手机 USB 控制器上不稳，16KB 是经典安全值
+    /** 与 filmkit 的 CHUNK_SIZE 一致（WebUSB 版在同一相机上验证可用） */
+    public static final int CHUNK_DEFAULT = 512 * 1024;
     public static final int CHUNK_MAX = 512 * 1024;
     public static final int CHUNK_MIN = 4 * 1024;
     private static final int CMD_TIMEOUT = 8000;
@@ -208,7 +209,7 @@ public final class UsbPtp implements Closeable {
         sendCommand(opcode, tid, params);
         byte[] data = new byte[0];
         while (true) {
-            Container c = readContainer(null);
+            Container c = readContainer(null, CMD_TIMEOUT);
             if (c.type == Ptp.CT_DATA) data = c.payload;
             else if (c.type == Ptp.CT_RESPONSE) {
                 Resp r = new Resp(c.code, opcode, c.params);
@@ -220,9 +221,7 @@ public final class UsbPtp implements Closeable {
 
     public synchronized Resp commandDataOut(int opcode, int[] params, byte[] data) throws IOException {
         int tid = ++txId;
-        sendCommand(opcode, tid, params);
-        sendDataHeader(opcode, tid, 12 + data.length);
-        writeAll(data, 0, data.length, DATA_TIMEOUT);
+        sendCommandAndData(opcode, tid, params, data);
         Resp r = waitResponse(tid, opcode);
         log(String.format("cmd(out) 0x%04X %s outLen=%d -> %s", opcode, ints(params), data.length, r));
         return r;
@@ -234,10 +233,28 @@ public final class UsbPtp implements Closeable {
         if (total <= 0 || total > Integer.MAX_VALUE) throw new IOException("文件大小异常: " + total);
         int tid = ++txId;
         sendCommand(opcode, tid, params);
-        sendDataHeader(opcode, tid, (int) (12 + total));
+
+        // DATA 容器的 header 必须和第一批负载在同一个 USB 传输里（filmkit 的做法）
+        int dataLen = (int) (12 + total);
+        int firstPayload = (int) Math.min(chunk - 12L, total);
+        if (firstPayload < 0) firstPayload = 0;
+        byte[] first = new byte[12 + firstPayload];
+        UsbPtp.put32(first, 0, dataLen);
+        UsbPtp.put16(first, 4, Ptp.CT_DATA);
+        UsbPtp.put16(first, 6, opcode);
+        UsbPtp.put32(first, 8, tid);
+
         long sent = 0;
         InputStream in = new FileInputStream(file);
         try {
+            if (firstPayload > 0) {
+                int got = readFully(in, first, 12, firstPayload);
+                if (got != firstPayload) throw new IOException("读取文件失败");
+            }
+            writeAll(first, 0, first.length, LARGE_TIMEOUT);
+            sent = firstPayload;
+            if (p != null) p.onProgress(sent, total);
+
             byte[] buf = new byte[UPLOAD_CHUNK];
             int n;
             while ((n = in.read(buf)) > 0) {
@@ -249,7 +266,8 @@ public final class UsbPtp implements Closeable {
             try { in.close(); } catch (IOException ignored) { }
         }
         if (sent != total) throw new IOException("上传字节数不符 " + sent + "/" + total);
-        Resp r = waitResponse(tid, opcode);
+        // 大文件发完后相机要处理/校验，filmkit 这里给 60s
+        Resp r = waitResponse(tid, opcode, LARGE_TIMEOUT);
         log(String.format("upload 0x%04X %d bytes -> %s", opcode, total, r));
         return r;
     }
@@ -259,7 +277,7 @@ public final class UsbPtp implements Closeable {
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         while (true) {
-            Container c = readContainer(sink);
+            Container c = readContainer(sink, LARGE_TIMEOUT);
             if (c.type == Ptp.CT_RESPONSE) {
                 Resp r = new Resp(c.code, opcode, c.params);
                 log(String.format("download 0x%04X -> %s", opcode, r));
@@ -294,29 +312,48 @@ public final class UsbPtp implements Closeable {
         return commandDataIn(Ptp.OC_GET_DEVICE_PROP_DESC, code);
     }
 
-    private void sendCommand(int opcode, int tid, int[] params) throws IOException {
-        if (params.length > 5) throw new IOException("PTP 命令最多 5 个参数");
-        byte[] b = new byte[12 + params.length * 4];
+    /** 构造一个完整的 PTP 容器字节流（header + params/data 必须连续） */
+    private static byte[] buildContainer(int type, int opcode, int tid, int[] params, byte[] data, int dataOff, int dataLen) {
+        int paramBytes = params == null ? 0 : params.length * 4;
+        int payload = data == null ? 0 : dataLen;
+        byte[] b = new byte[12 + paramBytes + payload];
         put32(b, 0, b.length);
-        put16(b, 4, Ptp.CT_COMMAND);
+        put16(b, 4, type);
         put16(b, 6, opcode);
         put32(b, 8, tid);
-        for (int i = 0; i < params.length; i++) put32(b, 12 + i * 4, params[i]);
+        int o = 12;
+        if (params != null) for (int v : params) { put32(b, o, v); o += 4; }
+        if (data != null && payload > 0) System.arraycopy(data, dataOff, b, o, payload);
+        return b;
+    }
+
+    /**
+     * 发出 COMMAND 容器（无 DATA 阶段）。
+     * 容器的 header 与参数必须在同一次 USB 传输里——USB bulk 以短包表示传输结束，
+     * 把 12 字节头单独发一个 URB，相机就会认为数据阶段被截断并 STALL 端点。
+     */
+    private void sendCommand(int opcode, int tid, int[] params) throws IOException {
+        if (params.length > 5) throw new IOException("PTP 命令最多 5 个参数");
+        byte[] b = buildContainer(Ptp.CT_COMMAND, opcode, tid, params, null, 0, 0);
         writeAll(b, 0, b.length, CMD_TIMEOUT);
     }
 
-    private void sendDataHeader(int opcode, int tid, int totalLen) throws IOException {
-        byte[] b = new byte[12];
-        put32(b, 0, totalLen);
-        put16(b, 4, Ptp.CT_DATA);
-        put16(b, 6, opcode);
-        put32(b, 8, tid);
-        writeAll(b, 0, 12, CMD_TIMEOUT);
+    /** COMMAND + DATA（小数据）：两个容器各自一次性发完，header 与 payload 不分离 */
+    private void sendCommandAndData(int opcode, int tid, int[] params, byte[] data) throws IOException {
+        if (params.length > 5) throw new IOException("PTP 命令最多 5 个参数");
+        byte[] cmd = buildContainer(Ptp.CT_COMMAND, opcode, tid, params, null, 0, 0);
+        writeAll(cmd, 0, cmd.length, CMD_TIMEOUT);
+        byte[] dat = buildContainer(Ptp.CT_DATA, opcode, tid, null, data, 0, data.length);
+        writeAll(dat, 0, dat.length, DATA_TIMEOUT);
     }
 
     private Resp waitResponse(int tid, int opcode) throws IOException {
+        return waitResponse(tid, opcode, CMD_TIMEOUT);
+    }
+
+    private Resp waitResponse(int tid, int opcode, int headerTimeout) throws IOException {
         while (true) {
-            Container c = readContainer(null);
+            Container c = readContainer(null, headerTimeout);
             if (c.type == Ptp.CT_RESPONSE) {
                 if (c.tid != tid) log("事务号不匹配 期望 " + tid + " 收到 " + c.tid);
                 return new Resp(c.code, opcode, c.params);
@@ -332,8 +369,12 @@ public final class UsbPtp implements Closeable {
     }
 
     private Container readContainer(OutputStream sink) throws IOException {
+        return readContainer(sink, CMD_TIMEOUT);
+    }
+
+    private Container readContainer(OutputStream sink, int headerTimeout) throws IOException {
         byte[] first = new byte[USB_BULK_MAX];
-        int have = bulkIn(first, 0, USB_BULK_MAX, CMD_TIMEOUT);
+        int have = bulkIn(first, 0, USB_BULK_MAX, headerTimeout);
         if (have < 0) {
             // 关键：-1 是超时/错误，绝不能拿它当偏移继续读（曾导致 off=-1 len=513 的内部越界）
             throw new IOException("相机没有回应（bulk IN 超时 " + (CMD_TIMEOUT / 1000) + "s）。\n"
@@ -342,7 +383,7 @@ public final class UsbPtp implements Closeable {
                     + "若刚启动就出现此提示，请确认相机 CONNECTION MODE = USB RAW CONV./BACKUP RESTORE。");
         }
         while (have < 12) {
-            int n = bulkIn(first, have, USB_BULK_MAX - have, CMD_TIMEOUT);
+            int n = bulkIn(first, have, USB_BULK_MAX - have, headerTimeout);
             if (n < 0) throw new IOException("读取容器头超时（已收到 " + have + " 字节）");
             if (n == 0) throw new IOException("读取容器头得到 0 字节（已收到 " + have + "）");
             have += n;
@@ -380,6 +421,16 @@ public final class UsbPtp implements Closeable {
     }
 
     /** 统一的 bulk 读：显式校验 offset/length，避免 Android checkBounds 抛裸 IAE */
+    private static int readFully(InputStream in, byte[] buf, int off, int len) throws IOException {
+        int done = 0;
+        while (done < len) {
+            int n = in.read(buf, off + done, len - done);
+            if (n <= 0) break;
+            done += n;
+        }
+        return done;
+    }
+
     private int bulkIn(byte[] buf, int off, int len, int timeout) throws IOException {
         if (conn == null || epIn == null) throw new IOException("USB 未打开");
         checkBounds("IN", buf, off, len);

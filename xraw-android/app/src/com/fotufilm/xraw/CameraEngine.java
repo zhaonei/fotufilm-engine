@@ -276,7 +276,7 @@ public final class CameraEngine {
                 requireLoaded();
                 D185 p = D185.parse(baseProfile.raw());
                 job.recipe.applyTo(p);
-                p.sanitize(baseProfile.dr());
+                p.sanitize();
                 fuji.writeProfile(p);
                 status("渲染预览…");
                 byte[] jpeg = fuji.render(false, 20000);
@@ -289,7 +289,7 @@ public final class CameraEngine {
                 requireLoaded();
                 D185 p = D185.parse(baseProfile.raw());
                 job.recipe.applyTo(p);
-                p.sanitize(baseProfile.dr());
+                p.sanitize();
                 fuji.writeProfile(p);
                 status("渲染全分辨率（机身处理中）…");
                 byte[] data = fuji.render(true, 60000);
@@ -314,7 +314,7 @@ public final class CameraEngine {
                                 main.post(() -> listener.onProgress("上传 " + nm, sent, total)));
                         D185 p = fuji.readProfile();
                         job.recipe.applyTo(p);
-                        p.sanitize(p.dr());
+                        p.sanitize();
                         fuji.writeProfile(p);
                         byte[] data = fuji.render(true, 60000);
                         File out = MediaSaver.save(ctx, data, baseName(raf) + "_" + tag(p),
@@ -423,8 +423,8 @@ public final class CameraEngine {
                     try {
                         D185 p = D185.parse(baseProfile.raw());
                         job.recipe.applyTo(p);
-                        p.set(D185.IDX_FILM_SIM, sims[i]);
-                        p.sanitize(baseProfile.dr());
+                        p.set(D185.Idx.FILM_SIM, sims[i]);
+                        p.sanitize();
                         fuji.writeProfile(p);
                         byte[] jpg = fuji.render(false, 20000);
                         File out = new File(outDir, String.format("sim_%02d_%d.jpg", sims[i], sims[i]));

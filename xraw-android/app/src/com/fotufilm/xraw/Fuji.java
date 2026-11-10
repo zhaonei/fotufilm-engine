@@ -323,8 +323,8 @@ public final class Fuji {
     public D185 readProfile() throws IOException {
         UsbPtp.DataIn r = t.commandDataIn(Ptp.OC_GET_DEVICE_PROP_VALUE, Ptp.DPC_RAW_CONV_PROFILE);
         r.resp.requireOk();
-        if (r.data.length < D185.MIN_SIZE)
-            throw new IOException("d185 长度异常：" + r.data.length + "（期望 ≥ " + D185.MIN_SIZE + "）");
+        if (r.data.length < 64)
+            throw new IOException("d185 长度异常：" + r.data.length);
         return D185.parse(r.data);
     }
 
