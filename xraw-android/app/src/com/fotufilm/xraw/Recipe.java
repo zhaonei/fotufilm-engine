@@ -12,72 +12,45 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 一套「配方」的 UI 模型。单位与机内菜单一致（整数刻度），
- * 与 d185 的编码转换全部在 {@link #applyTo(D185)} 里完成：
- *   色调/色彩/锐度/清晰度 ×10；效果类 +1（1-indexed）；颗粒→扁平枚举；降噪用专有码表。
+ * 一套「配方」的 UI 模型 + **差量打包**逻辑。
+ *
+ * 设计要点（这是修掉"白平衡严重偏移/参数互斥错乱"的关键）：
+ *   1. 从相机读回的原始档保存为 {@link #base}（29 字段基线）。
+ *   2. 用户改哪个参数就只改对应字段；打包时拿 base 副本套用 UI 值，
+ *      **只把与 base 不同的字段写进 d185**，其余原样保留。
+ *   3. 于是「按拍摄时(As Shot)」这种哨兵状态永远不会被无意覆盖
+ *      （以前把色温 5500 一起写回去，导致 WB 大幅偏移）。
  */
 public final class Recipe {
     public String name = "未命名配方";
 
-    public int filmSim = 17;                 // CLASSIC Neg.
+    private int[] base = new int[D185.PROPS];
+
+    public int filmSim = 17;
     public int dr = D185.DR_100;
     public int drPriority = D185.DRP_OFF;
-    public int grainStrength = 0;            // 0=关 1=弱 2=强
+    public int grainStrength = 0;
     public boolean grainLarge = false;
-    public int chrome = 0;                   // 0=关 1=弱 2=强
+    public int chrome = 0;
     public int fxBlue = 0;
-    public int smoothSkin = 0;
-    public int wbIndex = 0;                  // WB_VALUES 下标
+    public int wbIndex = D185.WB_VALUES.length - 1;   // 默认「按拍摄时」
     public int wbTemp = 5500;
     public int wbR = 0, wbB = 0;
-    public int highlight = 0;                // -4..+4（整数）
-    public int shadow = 0;
-    public int color = 0;                    // -4..+4
-    public int sharpness = 0;                // -4..+4
-    public int nr = 0;                       // -4..+4
-    public int clarity = 0;                  // -5..+5
-    public int expBiasThirds = 0;            // -9..+9（1/3 EV）
+    public int highlight = 0, shadow = 0;
+    public int color = 0, sharpness = 0;
+    public int nr = 0;
+    public int clarity = 0;
+    public int expBiasThirds = 0;
 
-    // 以下四项在相机原生 d185 里的字段未确认，暂不写入（UI 会标注）
+    // 输出相关（相机原生 d185 中未确认，暂不下发）
     public int imageSizeIdx = 0, qualityIdx = 0, fileTypeIdx = 0, colorSpaceIdx = 0;
 
-    // ---------------------------------------------------------------- 应用
-
-    public void applyTo(D185 p) {
-        p.set(D185.Idx.FILM_SIM, filmSim);
-        p.set(D185.Idx.EXPOSURE_BIAS, Math.round(expBiasThirds * 1000f / 3f));
-
-        p.set(D185.Idx.WIDE_DRANGE, drPriority);
-        if (drPriority == D185.DRP_OFF) p.set(D185.Idx.DYNAMIC_RANGE, dr);
-
-        // 颗粒：强度+大小 → 扁平枚举
-        int grain;
-        if (grainStrength <= 0) grain = D185.GRAIN_OFF;
-        else if (grainStrength == 1) grain = grainLarge ? D185.GRAIN_WEAK_LARGE : D185.GRAIN_WEAK_SMALL;
-        else grain = grainLarge ? D185.GRAIN_STRONG_LARGE : D185.GRAIN_STRONG_SMALL;
-        p.set(D185.Idx.GRAIN, grain);
-
-        p.set(D185.Idx.CHROME, chrome + 1);
-        p.set(D185.Idx.FX_BLUE, fxBlue + 1);
-        p.set(D185.Idx.SMOOTH_SKIN, smoothSkin + 1);
-
-        p.set(D185.Idx.WB_MODE, D185.WB_VALUES[clampIdx(wbIndex, D185.WB_VALUES.length)]);
-        p.set(D185.Idx.WB_COLOR_TEMP, wbTemp);
-        p.set(D185.Idx.WB_SHIFT_R, wbR);
-        p.set(D185.Idx.WB_SHIFT_B, wbB);
-
-        p.set(D185.Idx.HIGHLIGHT, highlight * 10);
-        p.set(D185.Idx.SHADOW, shadow * 10);
-        p.set(D185.Idx.COLOR, color * 10);
-        p.set(D185.Idx.SHARPNESS, sharpness * 10);
-        p.set(D185.Idx.NOISE_RED, D185.nrEncode(nr));
-        p.set(D185.Idx.CLARITY, clarity * 10);
-    }
-
-    private static int clampIdx(int i, int n) { return Math.max(0, Math.min(n - 1, i)); }
+    // ---------------------------------------------------------------- 读回
 
     public static Recipe fromD185(D185 p) {
         Recipe r = new Recipe();
+        r.base = p.values().clone();
+
         r.filmSim = p.filmSim();
         r.expBiasThirds = Math.round(p.exposureBias() * 3f / 1000f);
         r.drPriority = p.drPriority();
@@ -85,35 +58,91 @@ public final class Recipe {
         r.dr = (dr == D185.DR_200 || dr == D185.DR_400) ? dr : D185.DR_100;
 
         int g = p.get(D185.Idx.GRAIN);
-        if (g <= D185.GRAIN_OFF) { r.grainStrength = 0; r.grainLarge = false; }
-        else if (g == D185.GRAIN_WEAK_SMALL) { r.grainStrength = 1; r.grainLarge = false; }
-        else if (g == D185.GRAIN_STRONG_SMALL) { r.grainStrength = 2; r.grainLarge = false; }
-        else if (g == D185.GRAIN_WEAK_LARGE) { r.grainStrength = 1; r.grainLarge = true; }
-        else { r.grainStrength = 2; r.grainLarge = true; }
+        r.grainLarge = g > D185.GRAIN_STRONG;
+        r.grainStrength = Math.max(0, (r.grainLarge ? g - D185.GRAIN_SIZE_LARGE : g) - 1);
 
-        r.chrome = clamp(p.get(D185.Idx.CHROME) - 1, 0, 2);
-        r.fxBlue = clamp(p.get(D185.Idx.FX_BLUE) - 1, 0, 2);
-        r.smoothSkin = clamp(p.get(D185.Idx.SMOOTH_SKIN) - 1, 0, 2);
+        r.chrome = Math.max(0, Math.min(2, p.get(D185.Idx.CHROME) - 1));
+        r.fxBlue = Math.max(0, Math.min(2, p.get(D185.Idx.FX_BLUE) - 1));
 
-        int wb = p.wbMode();
-        r.wbIndex = D185.WB_VALUES.length - 1;      // 默认按拍摄时
-        for (int i = 0; i < D185.WB_VALUES.length; i++) if (D185.WB_VALUES[i] == wb) { r.wbIndex = i; break; }
-        r.wbTemp = clamp(p.get(D185.Idx.WB_COLOR_TEMP), 2500, 10000);
-        r.wbR = clamp(p.get(D185.Idx.WB_SHIFT_R), -9, 9);
-        r.wbB = clamp(p.get(D185.Idx.WB_SHIFT_B), -9, 9);
+        // WB：WBShootCond=ON 表示沿用 RAW 的「按拍摄时」
+        boolean asShot = p.wbShootCond() == D185.WB_SHOOT_ON;
+        r.wbIndex = D185.WB_VALUES.length - 1;
+        if (!asShot) {
+            int wb = p.wbMode();
+            for (int i = 0; i < D185.WB_VALUES.length; i++) {
+                if (D185.WB_VALUES[i] == wb) { r.wbIndex = i; break; }
+            }
+        }
+        r.wbTemp = p.get(D185.Idx.WB_COLOR_TEMP);        // 保留原值（0 = 未使用），不强行夹到 2500
+        r.wbR = D185.clamp((short) (p.get(D185.Idx.WB_SHIFT_R) & 0xFFFF), -9, 9);
+        r.wbB = D185.clamp((short) (p.get(D185.Idx.WB_SHIFT_B) & 0xFFFF), -9, 9);
 
-        r.highlight = clamp(D185.decodeTenths(p.get(D185.Idx.HIGHLIGHT)), -4, 4);
-        r.shadow = clamp(D185.decodeTenths(p.get(D185.Idx.SHADOW)), -4, 4);
-        r.color = clamp(D185.decodeTenths(p.get(D185.Idx.COLOR)), -4, 4);
-        r.sharpness = clamp(D185.decodeTenths(p.get(D185.Idx.SHARPNESS)), -4, 4);
-        r.nr = clamp(D185.nrDecode(p.get(D185.Idx.NOISE_RED)), -4, 4);
-        r.clarity = clamp(D185.decodeTenths(p.get(D185.Idx.CLARITY)), -5, 5);
+        r.highlight = D185.clamp(D185.decodeTenths(p.get(D185.Idx.HIGHLIGHT)), -4, 4);
+        r.shadow = D185.clamp(D185.decodeTenths(p.get(D185.Idx.SHADOW)), -4, 4);
+        r.color = D185.clamp(D185.decodeTenths(p.get(D185.Idx.COLOR)), -4, 4);
+        r.sharpness = D185.clamp(D185.decodeTenths(p.get(D185.Idx.SHARPNESS)), -4, 4);
+        r.nr = D185.clamp(D185.nrDecode(p.get(D185.Idx.NOISE_RED)), -4, 4);
+        r.clarity = D185.clamp(D185.decodeTenths(p.get(D185.Idx.CLARITY)), -5, 5);
         return r;
     }
 
-    public static int clamp(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
+    // ---------------------------------------------------------------- 差量打包
 
-    private static String signed(int v) { return v > 0 ? "+" + v : String.valueOf(v); }
+    /** 把 UI 值套到 base 的副本上，**只把与 base 不同的字段**写进 d185 */
+    public void applyTo(D185 p) {
+        int[] want = base.clone();
+
+        want[D185.Idx.FILM_SIM] = filmSim;
+        want[D185.Idx.EXPOSURE_BIAS] = Math.round(expBiasThirds * 1000f / 3f);
+        want[D185.Idx.WIDE_DRANGE] = drPriority;
+        if (drPriority == D185.DRP_OFF) want[D185.Idx.DYNAMIC_RANGE] = dr;
+
+        int grain;
+        if (grainStrength <= 0) grain = D185.GRAIN_OFF;
+        else if (grainStrength == 1) grain = D185.GRAIN_WEAK + (grainLarge ? D185.GRAIN_SIZE_LARGE : 0);
+        else grain = D185.GRAIN_STRONG + (grainLarge ? D185.GRAIN_SIZE_LARGE : 0);
+        want[D185.Idx.GRAIN] = grain;
+
+        // 效果类：若基线是 0（哨兵/未设置）且用户没改，保持 0，避免把"未设置"变成"关闭"
+        want[D185.Idx.CHROME] = (chrome == 0 && base[D185.Idx.CHROME] == 0) ? 0 : chrome + 1;
+        want[D185.Idx.FX_BLUE] = (fxBlue == 0 && base[D185.Idx.FX_BLUE] == 0) ? 0 : fxBlue + 1;
+
+        // 白平衡：As Shot 时只置 WBShootCond，绝不覆盖 WB 模式/色温
+        if (wbIndex == D185.WB_VALUES.length - 1) {
+            want[D185.Idx.WB_SHOOT_COND] = D185.WB_SHOOT_ON;
+        } else {
+            int mode = D185.WB_VALUES[Math.max(0, Math.min(D185.WB_VALUES.length - 1, wbIndex))];
+            want[D185.Idx.WB_SHOOT_COND] = D185.WB_SHOOT_OFF;
+            want[D185.Idx.WB_MODE] = mode;
+            want[D185.Idx.WB_SHIFT_R] = wbR;
+            want[D185.Idx.WB_SHIFT_B] = wbB;
+            if (mode == D185.WB_TEMPERATURE) {
+                want[D185.Idx.WB_COLOR_TEMP] = D185.clamp(wbTemp, 2500, 10000);
+            }
+        }
+
+        want[D185.Idx.HIGHLIGHT] = D185.encodeTenths(highlight);
+        want[D185.Idx.SHADOW] = D185.encodeTenths(shadow);
+        want[D185.Idx.COLOR] = D185.encodeTenths(color);
+        want[D185.Idx.SHARPNESS] = D185.encodeTenths(sharpness);
+        want[D185.Idx.NOISE_RED] = D185.nrEncode(nr);
+        want[D185.Idx.CLARITY] = D185.encodeTenths(clarity);
+
+        for (int i = 0; i < D185.PROPS; i++) {
+            if (want[i] != base[i]) p.set(i, want[i]);
+        }
+    }
+
+    /** 供 UI 展示「有多少个字段与原始档不同」 */
+    public int changedCount() {
+        int[] want = base.clone();
+        D185 tmp = D185Holder.of(want);
+        applyTo(tmp);
+        int n = 0;
+        int[] after = tmp.values();
+        for (int i = 0; i < D185.PROPS; i++) if (after[i] != base[i]) n++;
+        return n;
+    }
 
     public String summaryText() {
         StringBuilder sb = new StringBuilder(D185.simName(filmSim));
@@ -122,10 +151,12 @@ public final class Recipe {
         sb.append(" · 高光").append(signed(highlight)).append(" 阴影").append(signed(shadow));
         sb.append(" · 色彩").append(signed(color)).append(" 锐度").append(signed(sharpness));
         sb.append(" 清晰度").append(signed(clarity));
+        sb.append(" · 改动 ").append(changedCount()).append(" 项");
         return sb.toString();
     }
 
-    /** 输出扩展名：相机原生 d185 未确认文件类型字段，暂按 JPEG */
+    private static String signed(int v) { return v > 0 ? "+" + v : String.valueOf(v); }
+
     public String exportExtension() { return ".jpg"; }
 
     // ---------------------------------------------------------------- JSON / 配方库
@@ -141,7 +172,6 @@ public final class Recipe {
             o.put("grainLarge", grainLarge);
             o.put("chrome", chrome);
             o.put("fxBlue", fxBlue);
-            o.put("smoothSkin", smoothSkin);
             o.put("wbIndex", wbIndex);
             o.put("wbTemp", wbTemp);
             o.put("wbR", wbR);
@@ -167,7 +197,6 @@ public final class Recipe {
         r.grainLarge = o.optBoolean("grainLarge", r.grainLarge);
         r.chrome = o.optInt("chrome", r.chrome);
         r.fxBlue = o.optInt("fxBlue", r.fxBlue);
-        r.smoothSkin = o.optInt("smoothSkin", r.smoothSkin);
         r.wbIndex = o.optInt("wbIndex", r.wbIndex);
         r.wbTemp = o.optInt("wbTemp", r.wbTemp);
         r.wbR = o.optInt("wbR", r.wbR);
@@ -224,6 +253,21 @@ public final class Recipe {
             return new String(bos.toByteArray(), StandardCharsets.UTF_8);
         } finally {
             in.close();
+        }
+    }
+
+    /** 内部小工具：用给定字段数组造一个 D185（用于统计改动数） */
+    private static final class D185Holder {
+        static D185 of(int[] values) {
+            try {
+                // 用一个全零包解析后覆盖，避免暴露 D185 的私有构造
+                byte[] zero = FpNative.create(new int[D185.PROPS], 0);
+                D185 d = D185.parse(zero);
+                for (int i = 0; i < D185.PROPS; i++) d.set(i, values[i]);
+                return d;
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 }

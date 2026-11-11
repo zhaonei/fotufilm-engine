@@ -36,7 +36,8 @@ jobs:
           echo "SDK=$SDK"
           # ubuntu-latest 预装 Android SDK；缺什么补什么
           yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
-          "$SDK/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973" > /dev/null
+          echo "ANDROID_NDK_HOME=$SDK/ndk/27.0.12077973" >> "$GITHUB_ENV"
           ls -d "$SDK/platforms/android-35/android.jar" "$SDK/build-tools/35.0.0/lib/d8.jar"
 
       - name: Unit self-test (d185 codec / recipe round-trip)

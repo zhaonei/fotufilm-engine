@@ -328,9 +328,11 @@ public final class Fuji {
         return D185.parse(r.data);
     }
 
+    /** 一次性打包成 629 字节标准包后写回（C 层序列化） */
     public void writeProfile(D185 p) throws IOException {
+        byte[] pack = p.create();
         UsbPtp.Resp r = t.commandDataOut(Ptp.OC_SET_DEVICE_PROP_VALUE,
-                new int[]{Ptp.DPC_RAW_CONV_PROFILE}, p.raw());
+                new int[]{Ptp.DPC_RAW_CONV_PROFILE}, pack);
         r.requireOk();
     }
 

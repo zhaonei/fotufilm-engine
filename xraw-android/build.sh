@@ -38,6 +38,16 @@ $JAVAC -encoding UTF-8 --release 11 -nowarn -Xlint:-options \
     -classpath "$PLATFORM" -d "$OUT/classes" \
     $(find app/src -name '*.java')
 
+echo "== 1.5/5 libfpx.so（d185 结构体编解码，C/NDK）"
+NDK="${ANDROID_NDK_HOME:-$HOME/dl/android-ndk-r27c}"
+SYSROOT="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+LIBCXX="$SYSROOT/usr/lib/aarch64-linux-android"
+CC="$(pwd)/toolchain/aarch64-linux-android28-clang"
+mkdir -p "$OUT/lib/arm64-v8a"
+"$CC" -std=c11 -O2 -fPIC -shared -fvisibility=hidden \
+  -o "$OUT/lib/arm64-v8a/libfpx.so" jni/fp_d185.c jni/fp_jni.c
+ls -l "$OUT/lib/arm64-v8a/libfpx.so"
+
 echo "== 2/5 d8 → classes.dex (min-api $MIN_API)"
 $JAVA -cp "$BT/lib/d8.jar" com.android.tools.r8.D8 \
     --release --min-api $MIN_API --lib "$PLATFORM" \
@@ -62,7 +72,9 @@ if [ -n "$AAPT2" ]; then
   cp "$OUT/base.apk" "$OUT/$APK_NAME-unsigned.apk"
   rm -rf "$OUT/dexroot" && mkdir -p "$OUT/dexroot"
   cp "$OUT/dex/classes.dex" "$OUT/dexroot/"
-  ( cd "$OUT/dexroot" && zip -q -X "../$APK_NAME-unsigned.apk" classes.dex )
+  mkdir -p "$OUT/dexroot/lib/arm64-v8a"
+  cp "$OUT/lib/arm64-v8a/libfpx.so" "$OUT/dexroot/lib/arm64-v8a/"
+  ( cd "$OUT/dexroot" && zip -q -X -r "../$APK_NAME-unsigned.apk" classes.dex lib )
   if [ -x "$BT/zipalign" ]; then
     "$BT/zipalign" -f -p 4 "$OUT/$APK_NAME-unsigned.apk" "$OUT/$APK_NAME-aligned.apk"
     mv "$OUT/$APK_NAME-aligned.apk" "$OUT/$APK_NAME-unsigned.apk"
@@ -75,6 +87,8 @@ else
   mkdir -p "$STAGE"
   cp "$OUT/AndroidManifest.xml" "$STAGE/"
   cp "$OUT/dex/classes.dex" "$STAGE/"
+  mkdir -p "$STAGE/lib/arm64-v8a"
+  cp "$OUT/lib/arm64-v8a/libfpx.so" "$STAGE/lib/arm64-v8a/"
   ( cd "$STAGE" && zip -q -r -X "../$APK_NAME-unsigned.apk" . )
   echo "!! 注意：未经过 aapt2，缺 resources.arsc，真机可能报「解析包失败」——交付请用 CI 产物"
 fi

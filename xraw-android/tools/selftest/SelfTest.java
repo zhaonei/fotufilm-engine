@@ -1,5 +1,6 @@
 import com.fotufilm.xraw.D185;
 import com.fotufilm.xraw.Recipe;
+import com.fotufilm.xraw.FpNative;
 
 /**
  * JVM 自测：d185 动态偏移解析 / 原生字段索引 / 原生编码 / 配方往返。
@@ -13,9 +14,9 @@ public final class SelfTest {
         D185 p = D185.parse(raw);
 
         // 1) 动态偏移：propsOffset = 总长 - propCount*4（不是硬编码 0x201）
-        check("propCount=29", p.propCount() == 29);
-        check("propsOffset = len-116", p.propsOffset() == raw.length - 29 * 4);
-        check("propsOffset 不是 0x201", p.propsOffset() != 0x201);
+        check("propCount=29", p.rawPropCount() == 29);
+        check("布局固定 0x201/29", D185.PROPS == 29 && FpNative.PROPS_OFFSET == 0x201);
+        check("629 字节总长", FpNative.SIZE == 629);
 
         // 2) 往返不漂移
         Recipe r = Recipe.fromD185(p);
@@ -55,7 +56,7 @@ public final class SelfTest {
         r.grainStrength = 2; r.grainLarge = true;
         D185 g = D185.parse(raw);
         r.applyTo(g);
-        check("颗粒 强+大 → 5", g.get(D185.Idx.GRAIN) == D185.GRAIN_STRONG_LARGE);
+        check("颗粒 强+大 → 5", g.get(D185.Idx.GRAIN) == D185.GRAIN_STRONG + D185.GRAIN_SIZE_LARGE);
         r.grainStrength = 0;
         D185 g0 = D185.parse(raw);
         r.applyTo(g0);
@@ -113,17 +114,23 @@ public final class SelfTest {
         b[p++] = 0; b[p++] = 0;
         int off = b.length - 29 * 4;
         int[] def = new int[29];
-        def[4] = 0;
-        def[6] = 100;
-        def[7] = 0;
-        def[8] = 17;
-        def[9] = 1;
-        def[10] = 1;
-        def[11] = 1;
-        def[12] = 2;
-        def[15] = 5500;
-        def[20] = 0x2000;
-        def[25] = 1;
+        // libfuji 布局（真机 629 字节包实测一致）
+        def[D185.Idx.SHOOTING_COND] = 2;
+        def[D185.Idx.FILE_TYPE] = 7;          // JPG
+        def[D185.Idx.IMAGE_SIZE] = 7;         // L3:2
+        def[D185.Idx.IMAGE_QUALITY] = 2;      // FINE
+        def[D185.Idx.EXPOSURE_BIAS] = 0;
+        def[D185.Idx.DYNAMIC_RANGE] = 100;
+        def[D185.Idx.WIDE_DRANGE] = 0;
+        def[D185.Idx.FILM_SIM] = 17;          // CLASSIC Neg.
+        def[D185.Idx.GRAIN] = 1;              // Off
+        def[D185.Idx.CHROME] = 1;             // Off
+        def[D185.Idx.WB_SHOOT_COND] = 1;      // As Shot
+        def[D185.Idx.WB_MODE] = 2;            // Auto
+        def[D185.Idx.WB_COLOR_TEMP] = 5500;
+        def[D185.Idx.NOISE_RED] = 0x2000;     // 0
+        def[D185.Idx.FX_BLUE] = 1;            // Off
+        def[D185.Idx.CLARITY] = 0;
         for (int i = 0; i < 29; i++) {
             int o = off + i * 4;
             b[o] = (byte) def[i]; b[o + 1] = (byte) (def[i] >>> 8);

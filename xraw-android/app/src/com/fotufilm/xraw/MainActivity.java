@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "1.4.1";
+    static final String APP_VERSION = "2.0.0";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001;
     private static final int REQ_RAF_BATCH = 1002;
@@ -651,7 +651,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     private static void copyInto(Recipe dst, Recipe src) {
         dst.name = src.name;
         dst.filmSim = src.filmSim; dst.dr = src.dr; dst.drPriority = src.drPriority;
-        dst.grainStrength = src.grainStrength; dst.grainLarge = src.grainLarge; dst.smoothSkin = src.smoothSkin;
+        dst.grainStrength = src.grainStrength; dst.grainLarge = src.grainLarge;
         dst.chrome = src.chrome; dst.fxBlue = src.fxBlue;
         dst.wbIndex = src.wbIndex; dst.wbTemp = src.wbTemp; dst.wbR = src.wbR; dst.wbB = src.wbB;
         dst.highlight = src.highlight; dst.shadow = src.shadow;

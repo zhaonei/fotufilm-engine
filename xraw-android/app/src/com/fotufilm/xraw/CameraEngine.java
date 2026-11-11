@@ -274,9 +274,8 @@ public final class CameraEngine {
             }
             case J_PREVIEW: {
                 requireLoaded();
-                D185 p = D185.parse(baseProfile.raw());
+                D185 p = baseProfile.copy();
                 job.recipe.applyTo(p);
-                p.sanitize();
                 fuji.writeProfile(p);
                 status("渲染预览…");
                 byte[] jpeg = fuji.render(false, 20000);
@@ -287,9 +286,8 @@ public final class CameraEngine {
             }
             case J_EXPORT: {
                 requireLoaded();
-                D185 p = D185.parse(baseProfile.raw());
+                D185 p = baseProfile.copy();
                 job.recipe.applyTo(p);
-                p.sanitize();
                 fuji.writeProfile(p);
                 status("渲染全分辨率（机身处理中）…");
                 byte[] data = fuji.render(true, 60000);
@@ -314,8 +312,7 @@ public final class CameraEngine {
                                 main.post(() -> listener.onProgress("上传 " + nm, sent, total)));
                         D185 p = fuji.readProfile();
                         job.recipe.applyTo(p);
-                        p.sanitize();
-                        fuji.writeProfile(p);
+                                fuji.writeProfile(p);
                         byte[] data = fuji.render(true, 60000);
                         File out = MediaSaver.save(ctx, data, baseName(raf) + "_" + tag(p),
                                 job.recipe.exportExtension());
@@ -428,11 +425,10 @@ public final class CameraEngine {
                     final int idx = i + 1;
                     main.post(() -> listener.onStatus("模拟扫描 " + idx + "/" + sims.length));
                     try {
-                        D185 p = D185.parse(baseProfile.raw());
+                        D185 p = baseProfile.copy();
                         job.recipe.applyTo(p);
                         p.set(D185.Idx.FILM_SIM, sims[i]);
-                        p.sanitize();
-                        fuji.writeProfile(p);
+                                fuji.writeProfile(p);
                         byte[] jpg = fuji.render(false, 20000);
                         File out = new File(outDir, String.format("sim_%02d_%d.jpg", sims[i], sims[i]));
                         FileOutputStream fos = new FileOutputStream(out);
@@ -551,9 +547,9 @@ public final class CameraEngine {
         StringBuilder sb = new StringBuilder();
         sb.append("== 字段绑定自校准 ==\n");
         sb.append("相机: ").append(session != null ? session.title() : "?")
-                .append("  基础档长度=").append(baseProfile.size())
-                .append(" propCount=").append(baseProfile.propCount())
-                .append(" propsOffset=").append(baseProfile.propsOffset()).append("\n\n");
+                .append("  基础档长度=").append(baseProfile.rawLength())
+                .append(" nProps=").append(baseProfile.rawPropCount())
+                .append(" 布局=0x201/29 native=").append(FpNative.available()).append("\n\n");
         sb.append("做法：每次只改一个字段 → 写回 → 回读 → 列出实际发生变化的索引。\n");
         sb.append("若「实际变化索引」≠「写入索引」，说明该机型字段映射需要平移。\n\n");
 
@@ -564,7 +560,6 @@ public final class CameraEngine {
                 {D185.Idx.GRAIN, 5, 3},
                 {D185.Idx.CHROME, 3, 4},
                 {D185.Idx.FX_BLUE, 3, 5},
-                {D185.Idx.SMOOTH_SKIN, 3, 6},
                 {D185.Idx.WB_MODE, 0x8007, 7},
                 {D185.Idx.WB_SHIFT_R, 5, 8},
                 {D185.Idx.WB_SHIFT_B, -5, 9},
@@ -589,12 +584,12 @@ public final class CameraEngine {
             final int idx = cases[c][0], value = cases[c][1];
             main.post(() -> listener.onStatus("校准 " + (idx) + " …"));
             try {
-                D185 p = D185.parse(baseProfile.raw());
+                D185 p = baseProfile.copy();
                 p.set(idx, value);
                 fuji.writeProfile(p);
                 D185 back = fuji.readProfile();
                 StringBuilder changed = new StringBuilder();
-                for (int i = 0; i < back.propCount(); i++) {
+                for (int i = 0; i < D185.PROPS; i++) {
                     int a = baseProfile.get(i), b = back.get(i);
                     if (a != b) changed.append(String.format("idx%d:%d→%d ", i, a, b));
                 }

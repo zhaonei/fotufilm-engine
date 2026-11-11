@@ -1,0 +1,25 @@
+#!/bin/sh
+# Cross-compile driver for Android arm64 (API 28) on this aarch64/musl host.
+#
+# The Android NDK only ships x86_64 host compilers, which cannot run here, so we drive the
+# *host native* clang (aarch64 Alpine) and point it at the NDK's target pieces, which are
+# host-independent: bionic sysroot, libc++ for android, compiler-rt builtins and libunwind.
+#
+# Alpine's clang adds -lssp_nonshared (musl hardening); Android has no such library, so an
+# empty archive satisfies the driver.
+set -eu
+NDK="${ANDROID_NDK_HOME:-$HOME/dl/android-ndk-r27c}"
+PREBUILT="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
+SYSROOT="$PREBUILT/sysroot"
+RESOURCE_DIR="$PREBUILT/lib/clang/18"
+SHIM="$(cd "$(dirname "$0")" && pwd)/shim"
+
+exec clang++ \
+  --target=aarch64-linux-android28 \
+  --sysroot="$SYSROOT" \
+  -resource-dir="$RESOURCE_DIR" \
+  -L"$SYSROOT/usr/lib/aarch64-linux-android/28" \
+  -L"$SYSROOT/usr/lib/aarch64-linux-android" \
+  -L"$SHIM" \
+  -fno-stack-protector \
+  "$@"
