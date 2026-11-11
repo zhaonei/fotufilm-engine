@@ -29,16 +29,25 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Accept SDK licenses and install platform/build-tools
+      - name: Accept SDK licenses and install platform/build-tools/NDK
         run: |
           set -e
           SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
-          echo "SDK=$SDK"
-          # ubuntu-latest 预装 Android SDK；缺什么补什么
-          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
-          "$SDK/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973" > /dev/null
-          echo "ANDROID_NDK_HOME=$SDK/ndk/27.0.12077973" >> "$GITHUB_ENV"
-          ls -d "$SDK/platforms/android-35/android.jar" "$SDK/build-tools/35.0.0/lib/d8.jar"
+          SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SM" --licenses > /dev/null 2>&1 || true
+          "$SM" "platforms;android-35" "build-tools;35.0.0" > /dev/null
+          NDK_DIR=$(ls -d "$SDK"/ndk/* 2>/dev/null | sort -V | tail -1 || true)
+          if [ -z "$NDK_DIR" ]; then
+            for pkg in "ndk;27.0.12077973" "ndk;27.2.12479018" "ndk;26.3.11579264"; do
+              if "$SM" "$pkg" > /dev/null 2>&1; then
+                NDK_DIR=$(ls -d "$SDK"/ndk/* 2>/dev/null | sort -V | tail -1 || true); break
+              fi
+            done
+          fi
+          [ -n "$NDK_DIR" ] || { echo "NDK 安装失败" >&2; exit 1; }
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "NDK=$NDK_DIR"
+          ls -l "$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang"
 
       - name: Unit self-test (d185 codec / recipe round-trip)
         working-directory: xraw-android

@@ -42,7 +42,17 @@ echo "== 1.5/5 libfpx.so（d185 结构体编解码，C/NDK）"
 NDK="${ANDROID_NDK_HOME:-$HOME/dl/android-ndk-r27c}"
 SYSROOT="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
 LIBCXX="$SYSROOT/usr/lib/aarch64-linux-android"
-CC="$(pwd)/toolchain/aarch64-linux-android28-clang"
+# 选择 C 编译器：
+#   1) NDK 自带的 prebuilt clang（x86_64 CI 用这个）
+#   2) 本机包装脚本（aarch64/musl 宿主机用这个；它驱动宿主 clang 指向 NDK sysroot）
+CC=""
+for cand in "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${MIN_API}-clang" \
+            "$(pwd)/toolchain/aarch64-linux-android${MIN_API}-clang"; do
+  [ -x "$cand" ] || continue
+  if "$cand" --version >/dev/null 2>&1; then CC="$cand"; break; fi
+done
+[ -n "$CC" ] || { echo "找不到可用的 aarch64 clang" >&2; exit 1; }
+echo "   CC=$CC"
 mkdir -p "$OUT/lib/arm64-v8a"
 "$CC" -std=c11 -O2 -fPIC -shared -fvisibility=hidden \
   -o "$OUT/lib/arm64-v8a/libfpx.so" jni/fp_d185.c jni/fp_jni.c
