@@ -63,10 +63,14 @@ class PrintFrame extends ChangeNotifier {
   List<Json> get _printLights =>
       ((editor.catalogue.profileMenus['printLight'] as List?) ?? const []).cast<Json>();
 
+  /// Whether the host draws frames at all: the desktop editor does, and this build does not, so
+  /// a frame the edit still carries asks for nothing -- the engine would leave it alone anyway.
+  bool get supported => editor.engine?.capabilities['printFrames'] == true;
+
   /// The frame request for `doc`'s finished picture: only the photograph as it will print, never
   /// the crop tool's uncropped frame or a pipeline stage (and small pictures never ask).
   Json _options(PhotoDocument doc) {
-    if (!framesPicture(doc.edit)) return const {};
+    if (!supported || !framesPicture(doc.edit)) return const {};
     final others = {
       for (final source in editor.renderOptionSources)
         if (source != _options) ...source(doc),
@@ -76,7 +80,8 @@ class PrintFrame extends ChangeNotifier {
   }
 
   /// The frame an export of `edit` is developed in, or null.
-  Json? request(Json edit) => framesPicture(edit) ? frameRequest(edit, _printLights) : null;
+  Json? request(Json edit) =>
+      supported && framesPicture(edit) ? frameRequest(edit, _printLights) : null;
 
   // ── The plan ──────────────────────────────────────────────────────────────────────────────
 

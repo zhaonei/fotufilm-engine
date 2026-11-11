@@ -10,10 +10,33 @@ class PrintFrameSection extends StatelessWidget {
   final EditorModel editor;
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-        listenable: editor.printFrame,
-        builder: (context, _) => _build(),
-      );
+  Widget build(BuildContext context) {
+    // A host that draws no frames cannot show one. The list used to be offered anyway, and every
+    // choice changed the photograph -- a Film Border re-decodes a RAW uncropped and recolours it --
+    // while adding no border at all, which read as the picture being deformed by each option.
+    if (editor.engine?.capabilities['printFrames'] != true) {
+      final framed = (editor.edit['printFrame'] as String? ?? 'none') != 'none';
+      final rawCorrections = editor.edit['rawCorrections'] as bool? ?? true;
+      return Section(title: 'Frame', children: [
+        const Note('Frames are drawn by the desktop editor; this build develops the photograph '
+            'without one.'),
+        // Choosing a frame also turned RAW Corrections off; that stays in the edit and keeps
+        // reframing a RAW until it is put back.
+        if (framed || !rawCorrections)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: QuietButton(
+              label: 'Reset Frame Settings',
+              onPressed: () => editor.change({'printFrame': 'none', 'rawCorrections': true}),
+            ),
+          ),
+      ]);
+    }
+    return ListenableBuilder(
+          listenable: editor.printFrame,
+          builder: (context, _) => _build(),
+        );
+  }
 
   Widget _build() {
     final frames = editor.printFrame..follow();

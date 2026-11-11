@@ -38,6 +38,12 @@ enum HostFrames {
 
     static func plan(_ request: [String: Any], width: Int, height: Int) throws -> Plan? {
         guard let frame = request["frame"] as? String, frame != "none" else { return nil }
+        // A host that draws no frames leaves the photograph alone. Half a frame is worse than
+        // none: the develop settings a frame implies still changed the picture -- a Film Border
+        // turns RAW Corrections off, which re-decodes a RAW with the whole sensor's framing, and
+        // its medium and print light recolour it -- while no border was ever drawn, so every
+        // option in the Frame list deformed the photograph and added nothing to it.
+        guard HostPlatform.current.frames != nil else { return nil }
         var body = request
         body["width"] = width
         body["height"] = height
