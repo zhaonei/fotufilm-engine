@@ -96,6 +96,8 @@ public final class Fuji {
 
     private final UsbPtp t;
     private Session session;
+    /** 本会话被相机拒绝过的属性码：不再重复尝试，避免反复 0x201C 诱发端点 STALL */
+    private final java.util.Set<Integer> refusedProps = new java.util.HashSet<>();
     private DeviceInfo deviceInfo;
 
     public Fuji(UsbPtp transport) { this.t = transport; }
@@ -366,23 +368,51 @@ public final class Fuji {
      * 写入顺序遵循 zgrimz 规格：大体升序；Kelvin(0xD19C) 紧跟 WB 模式(0xD199)；
      * WB 偏移(0xD19A/0xD19B) 在 Kelvin 之后。
      */
-    public PropResult applyParamsViaProps(Recipe r) {
+    public PropResult applyParamsViaProps(Recipe r, D185 base) {
         PropResult res = new PropResult();
 
-        // DR：优先开启时相机接管，DR 本身会被拒
-        if (r.drPriority == 0) put(res, "DR", Ptp.DPC_DR_PERCENT, r.dr);
-        put(res, "DR优先", Ptp.DPC_DR_PRIORITY, r.drPriority);
+        // DR / DR优先：富士规则——「动态范围优先」只有在 DR=AUTO(0xFFFF) 时才可启用；
+        // 反过来，优先≠Off 时写 DR 会被拒(0x201C)。顺序必须是：先 DR=Auto → 再写优先；
+        // 关闭优先时：先关优先 → 再写具体 DR。
+        int basePrio = base == null ? -1 : base.drPriority();
+        int baseDr = base == null ? -1 : base.dr();
+        if (r.drPriority != 0) {
+            if (basePrio != r.drPriority) {
+                put(res, "DR=Auto", Ptp.DPC_DR_PERCENT, 0xFFFF);
+                put(res, "DR优先", Ptp.DPC_DR_PRIORITY, r.drPriority);
+            }
+        } else {
+            if (basePrio != 0) put(res, "DR优先=关", Ptp.DPC_DR_PRIORITY, 0);
+            if (baseDr != r.dr) put(res, "DR", Ptp.DPC_DR_PERCENT, r.dr);
+        }
 
-        put(res, "胶片模拟", 0xD192, r.filmSim);
+        if (base == null || base.filmSim() != r.filmSim) put(res, "胶片模拟", 0xD192, r.filmSim);
 
         int grain;
         if (r.grainStrength <= 0) grain = 1;
         else if (r.grainStrength == 1) grain = r.grainLarge ? 4 : 2;
         else grain = r.grainLarge ? 5 : 3;
-        put(res, "颗粒", 0xD195, grain);
+        int baseGrain = base == null ? -1 : base.get(D185.Idx.GRAIN);
+        if (baseGrain >= 6) baseGrain = 1;               // 6/7 = Off
+        if (baseGrain != grain) put(res, "颗粒", 0xD195, grain);
 
-        put(res, "彩色铬", 0xD196, r.chrome + 1);
-        put(res, "FX蓝", 0xD197, r.fxBlue + 1);
+        if (base == null || base.get(D185.Idx.CHROME) != r.chrome + 1)
+            put(res, "彩色铬", 0xD196, r.chrome + 1);
+        if (base == null || base.get(D185.Idx.FX_BLUE) != r.fxBlue + 1)
+            put(res, "FX蓝", 0xD197, r.fxBlue + 1);
+
+        if (base == null || base.get(D185.Idx.HIGHLIGHT) != r.highlight)
+            put(res, "高光", 0xD19D, r.highlight);
+        if (base == null || base.get(D185.Idx.SHADOW) != r.shadow)
+            put(res, "阴影", 0xD19E, r.shadow);
+        if (base == null || base.get(D185.Idx.COLOR) != r.color * 10)
+            put(res, "色彩", 0xD19F, r.color * 10);
+        if (base == null || base.get(D185.Idx.SHARPNESS) != r.sharpness * 10)
+            put(res, "锐度", 0xD1A0, r.sharpness * 10);
+        if (base == null || D185.nrDecode(base.get(D185.Idx.NOISE_RED)) != r.nr)
+            put(res, "降噪", 0xD1A1, D185.nrEncode(r.nr));
+        if (base == null || base.get(D185.Idx.CLARITY) != r.clarity * 10)
+            put(res, "清晰度", 0xD1A2, r.clarity * 10);
 
         int wbMode = D185.WB_VALUES[Math.max(0, Math.min(D185.WB_VALUES.length - 1, r.wbIndex))];
         if (wbMode == D185.WB_AS_SHOT) {
@@ -404,11 +434,16 @@ public final class Fuji {
     }
 
     private void put(PropResult res, String name, int code, int value) {
+        if (refusedProps.contains(code)) { res.failed.add(name + "(本会话已被拒，跳过)"); return; }
         try {
             byte[] d = {(byte) value, (byte) (value >>> 8)};
             UsbPtp.Resp resp = t.commandDataOut(Ptp.OC_SET_DEVICE_PROP_VALUE, new int[]{code}, d);
-            if (resp.ok()) res.ok.add(name);
-            else res.failed.add(name + "(" + resp + ")");
+            if (resp.ok()) {
+                res.ok.add(name);
+            } else {
+                refusedProps.add(code);                 // 记住，本会话不再重试
+                res.failed.add(name + "(" + resp + ")");
+            }
         } catch (IOException e) {
             res.failed.add(name + "(io:" + e.getMessage() + ")");
         }

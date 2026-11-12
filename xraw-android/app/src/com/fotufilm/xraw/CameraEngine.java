@@ -675,9 +675,12 @@ public final class CameraEngine {
      */
     private void applyParams(Recipe r) {
         try {
-            Fuji.PropResult pr = fuji.applyParamsViaProps(r);
+            Fuji.PropResult pr = fuji.applyParamsViaProps(r, baseProfile);
             status(pr.summarize());
             if (transport != null) transport.note(pr.summarize());
+            // 关键：属性优先模式下，DR/优先由相机管理，**绝不能**再写进 629 字节包，
+            // 否则会破坏包内联动字段 → 整幅偏绿（已在真机复现多次）。
+            r.skipDrInProfile = true;
             D185 cam = fuji.readProfile();
             baseProfile = cam;
             r.setBaseline(cam.values());
