@@ -328,18 +328,58 @@ public final class Fuji {
         return D185.parse(r.data);
     }
 
-    /** 一次性打包成 629 字节标准包后写回（C 层序列化） */
+    /** 相机拒绝了参数包（例如 DR 高于原片、DR 优先开启时写 DR/高光/阴影） */
+    public static final class ParamRejectedException extends IOException {
+        ParamRejectedException(String msg) { super(msg); }
+    }
+
+    /**
+     * 写档：失败时先重新对齐管道重试一次；仍失败则重建 PTP 会话再试一次。
+     * 只有相机明确返回错误码/彻底失联才抛出，避免"一次参数不合就把整场会话废掉"。
+     */
     public void writeProfile(D185 p) throws IOException {
         byte[] pack = p.create();
-        UsbPtp.Resp r = t.commandDataOut(Ptp.OC_SET_DEVICE_PROP_VALUE,
-                new int[]{Ptp.DPC_RAW_CONV_PROFILE}, pack);
-        r.requireOk();
+        IOException last = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                UsbPtp.Resp r = t.commandDataOut(Ptp.OC_SET_DEVICE_PROP_VALUE,
+                        new int[]{Ptp.DPC_RAW_CONV_PROFILE}, pack);
+                if (!r.ok()) {
+                    throw new ParamRejectedException("相机拒绝这组参数（" + r + "）。"
+                            + "常见原因：动态范围高于原 RAW、或「动态范围优先」开启时又去改 DR/高光/阴影。");
+                }
+                if (attempt > 0) Log.i(TAG, "写档第 " + (attempt + 1) + " 次成功");
+                return;
+            } catch (ParamRejectedException e) {
+                throw e;                      // 相机明确拒绝：不必重试，交给上层提示
+            } catch (IOException e) {
+                last = e;
+                Log.w(TAG, "写档失败(第 " + (attempt + 1) + " 次): " + e.getMessage());
+                try {
+                    if (attempt == 0) t.resync();
+                    else recover();
+                } catch (Exception ignored) { }
+            }
+        }
+        throw new IOException("写入参数失败：" + (last == null ? "未知" : last.getMessage()), last);
     }
 
     // ------------------------------------------------------------ 渲染
 
     /** @param full true=全分辨率(D183=1) ; false=预览(D183=0 + GetThumb) */
     public byte[] render(boolean full, long timeoutMs) throws IOException {
+        try {
+            return renderOnce(full, timeoutMs);
+        } catch (IOException e) {
+            // 读图阶段中断（数据阶段中断 xx/yy）时，重新对齐管道并重建会话后重试一次
+            Log.w(TAG, "渲染失败，尝试恢复后重试: " + e.getMessage());
+            t.resync();
+            recover();
+            return renderOnce(full, timeoutMs);
+        }
+    }
+
+    private byte[] renderOnce(boolean full, long timeoutMs) throws IOException {
         drainObjects();
         // filmkit 的做法：触发转换写 0，然后用 GetObject 取回真正的转换结果。
         // 早前用 GetThumb 取预览，拿到的往往是原 RAF 的缩略图 → 改参数"看不出变化"。

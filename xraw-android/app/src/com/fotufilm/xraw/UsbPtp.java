@@ -303,6 +303,26 @@ public final class UsbPtp implements Closeable {
         }
     }
 
+    /**
+     * 管道重新对齐：清 halt + 把 IN 端点上残留的垃圾读干净。
+     * 相机拒绝某个参数包时会 STALL 端点，若不清理，后续读到的就是残包
+     * （典型症状：把 JPEG 里的 0x20202020 当成容器长度）。
+     */
+    public synchronized void resync() {
+        clearHalts();
+        byte[] tmp = new byte[USB_BULK_MAX];
+        for (int i = 0; i < 256; i++) {
+            int n;
+            try {
+                n = conn == null || epIn == null ? -1 : conn.bulkTransfer(epIn, tmp, 0, tmp.length, 30);
+            } catch (Exception e) {
+                return;
+            }
+            if (n <= 0) return;
+            log("resync 丢弃 " + n + " 字节");
+        }
+    }
+
     /** 上传前一次性清两个端点的 halt：相机 STALL 之后不清 halt，后续所有写都会 -1 */
     public synchronized void clearHalts() {
         if (epOut != null) clearHalt(epOut.getAddress());

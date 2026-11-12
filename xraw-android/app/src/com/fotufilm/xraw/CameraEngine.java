@@ -68,6 +68,7 @@ public final class CameraEngine {
     private volatile String lastLogPath = "";
     private volatile android.net.Uri lastLogUri;
     private volatile Fuji.DeviceInfo deviceInfo;
+    private volatile String lastNote = "";
 
     public CameraEngine(Context ctx, Listener l) {
         this.ctx = ctx.getApplicationContext();
@@ -276,8 +277,8 @@ public final class CameraEngine {
                 requireLoaded();
                 D185 p = baseProfile.copy();
                 job.recipe.applyTo(p);
-                fuji.writeProfile(p);
-                verifyWriteBack(p);
+                lastNote = job.recipe.note;
+                writeProfileSafely(p);
                 status("渲染预览…");
                 byte[] jpeg = fuji.render(false, 20000);
                 final String sum = p.summary();
@@ -615,6 +616,25 @@ public final class CameraEngine {
             lastLogPath = "写入失败: " + e.getMessage();
         }
         return lastLogPath;
+    }
+
+    /**
+     * 写档统一入口：相机拒绝时**恢复原始档**并给出提示，但**保留会话**，
+     * 让用户可以继续调别的参数、并把日志一次导出来。
+     */
+    private void writeProfileSafely(D185 p) throws IOException {
+        try {
+            fuji.writeProfile(p);
+            verifyWriteBack(p);
+            String n = lastNote;
+            if (n != null && !n.isEmpty()) status("⚠ " + n);
+        } catch (Fuji.ParamRejectedException e) {
+            Log.w(TAG, "参数被相机拒绝: " + e.getMessage());
+            try { fuji.writeProfile(baseProfile); } catch (IOException ignored) { }
+            baseProfile = fuji.readProfile();          // 以相机真实状态为基准重建
+            final String msg = e.getMessage() + "（已自动恢复原参数，会话仍可用）";
+            main.post(() -> listener.onError(msg));
+        }
     }
 
     /** 写档后回读校验：把"写入的字段"与"相机回读的字段"比对，不一致立刻告警 */

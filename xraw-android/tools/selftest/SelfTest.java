@@ -70,9 +70,12 @@ public final class SelfTest {
         check("NR 反查 0x6000 → +3", D185.nrDecode(0x6000) == 3);
 
         // 7) 动态范围原值 + 优先抑制
+        // 相机硬约束：DR 不得高于原片（夹具原片是 DR100）
         r.dr = 400; r.drPriority = 0;
         D185 h = D185.parse(raw); r.applyTo(h);
-        check("DR → 400（百分比原值）", h.get(D185.Idx.DYNAMIC_RANGE) == 400);
+        check("DR400 被收窄到原片 DR100", h.get(D185.Idx.DYNAMIC_RANGE) == 100);
+        check("并给出降级说明", r.note != null && r.note.contains("DR"));
+        r.dr = 100;
         r.drPriority = 2;
         D185 h2 = D185.parse(raw); int before = h2.dr(); r.applyTo(h2);
         check("DR 优先开启时不写 DR", h2.dr() == before);

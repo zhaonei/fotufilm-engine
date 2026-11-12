@@ -25,6 +25,8 @@ public final class Recipe {
     public String name = "未命名配方";
 
     private int[] base = new int[D185.PROPS];
+    /** 本次打包发生的"降级/受限"说明，UI 会显示出来 */
+    public transient String note = "";
 
     public int filmSim = 17;
     public int dr = D185.DR_100;
@@ -95,7 +97,23 @@ public final class Recipe {
         want[D185.Idx.FILM_SIM] = filmSim;
         want[D185.Idx.EXPOSURE_BIAS] = Math.round(expBiasThirds * 1000f / 3f);
         want[D185.Idx.WIDE_DRANGE] = drPriority;
-        if (drPriority == D185.DRP_OFF) want[D185.Idx.DYNAMIC_RANGE] = dr;
+        note = "";
+        if (drPriority == D185.DRP_OFF) {
+            // 相机硬约束：DR 不得高于原 RAF 拍摄时的 DR
+            int baseDr = base[D185.Idx.DYNAMIC_RANGE];
+            if (baseDr == D185.DR_100 || baseDr == D185.DR_200 || baseDr == D185.DR_400) {
+                if (dr > baseDr) {
+                    note = "DR" + dr + " 高于原片 DR" + baseDr + "，已按原片收窄";
+                    dr = baseDr;
+                }
+            }
+            want[D185.Idx.DYNAMIC_RANGE] = dr;
+        } else {
+            // 「动态范围优先」开启时，相机接管 DR / 高光 / 阴影，并会拒绝整包写入 → 一律不写
+            want[D185.Idx.HIGHLIGHT] = base[D185.Idx.HIGHLIGHT];
+            want[D185.Idx.SHADOW] = base[D185.Idx.SHADOW];
+            note = "动态范围优先开启：DR/高光/阴影由相机接管（这三项本次不下发）";
+        }
 
         int grain;
         if (grainStrength <= 0) grain = D185.GRAIN_OFF;
@@ -121,8 +139,10 @@ public final class Recipe {
             }
         }
 
-        want[D185.Idx.HIGHLIGHT] = D185.clamp(highlight, -20, 40);
-        want[D185.Idx.SHADOW] = D185.clamp(shadow, -20, 40);
+        if (drPriority == D185.DRP_OFF) {
+            want[D185.Idx.HIGHLIGHT] = D185.clamp(highlight, -20, 40);
+            want[D185.Idx.SHADOW] = D185.clamp(shadow, -20, 40);
+        }
         want[D185.Idx.COLOR] = D185.encodeTenths(color);
         want[D185.Idx.SHARPNESS] = D185.encodeTenths(sharpness);
         want[D185.Idx.NOISE_RED] = D185.nrEncode(nr);
