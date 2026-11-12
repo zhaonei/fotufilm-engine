@@ -18,7 +18,7 @@ import java.io.OutputStream;
  */
 public final class Fuji {
     private static final String TAG = "Fuji";
-    private static final int POLL_MS = 50;
+    private static final int POLL_MS = 200;
     private static final int OBJ_FORMAT_RAF = 0xF802;
     private static final String UPLOAD_NAME = "FUP_FILE.dat";
 
@@ -350,6 +350,70 @@ public final class Fuji {
         }
     }
 
+    /** 属性下发的成功/失败明细，便于诊断 */
+    public static final class PropResult {
+        public final java.util.List<String> ok = new java.util.ArrayList<>();
+        public final java.util.List<String> failed = new java.util.ArrayList<>();
+        public String summarize() {
+            return "属性下发 成功" + ok.size() + " 项" + (failed.isEmpty() ? "" : "，失败: " + failed);
+        }
+    }
+
+    /**
+     * **属性优先**：用文档确认的属性码把参数写给相机，再回读 0xD185
+     * （让相机自己生成配置包里的联动字段），最后才用 profile 补差。
+     *
+     * 写入顺序遵循 zgrimz 规格：大体升序；Kelvin(0xD19C) 紧跟 WB 模式(0xD199)；
+     * WB 偏移(0xD19A/0xD19B) 在 Kelvin 之后。
+     */
+    public PropResult applyParamsViaProps(Recipe r) {
+        PropResult res = new PropResult();
+
+        // DR：优先开启时相机接管，DR 本身会被拒
+        if (r.drPriority == 0) put(res, "DR", Ptp.DPC_DR_PERCENT, r.dr);
+        put(res, "DR优先", Ptp.DPC_DR_PRIORITY, r.drPriority);
+
+        put(res, "胶片模拟", 0xD192, r.filmSim);
+
+        int grain;
+        if (r.grainStrength <= 0) grain = 1;
+        else if (r.grainStrength == 1) grain = r.grainLarge ? 4 : 2;
+        else grain = r.grainLarge ? 5 : 3;
+        put(res, "颗粒", 0xD195, grain);
+
+        put(res, "彩色铬", 0xD196, r.chrome + 1);
+        put(res, "FX蓝", 0xD197, r.fxBlue + 1);
+
+        int wbMode = D185.WB_VALUES[Math.max(0, Math.min(D185.WB_VALUES.length - 1, r.wbIndex))];
+        if (wbMode == D185.WB_AS_SHOT) {
+            // 按拍摄时：不写 WB 相关，保持相机原样
+        } else {
+            put(res, "白平衡", 0xD199, wbMode);
+            if (wbMode == D185.WB_TEMPERATURE) put(res, "色温", 0xD19C, D185.clamp(r.wbTemp, 2500, 10000));
+            put(res, "WB偏移R", 0xD19A, r.wbR);
+            put(res, "WB偏移B", 0xD19B, r.wbB);
+        }
+
+        put(res, "高光", 0xD19D, r.highlight);
+        put(res, "阴影", 0xD19E, r.shadow);
+        put(res, "色彩", 0xD19F, r.color * 10);
+        put(res, "锐度", 0xD1A0, r.sharpness * 10);
+        put(res, "降噪", 0xD1A1, D185.nrEncode(r.nr));
+        put(res, "清晰度", 0xD1A2, r.clarity * 10);
+        return res;
+    }
+
+    private void put(PropResult res, String name, int code, int value) {
+        try {
+            byte[] d = {(byte) value, (byte) (value >>> 8)};
+            UsbPtp.Resp resp = t.commandDataOut(Ptp.OC_SET_DEVICE_PROP_VALUE, new int[]{code}, d);
+            if (resp.ok()) res.ok.add(name);
+            else res.failed.add(name + "(" + resp + ")");
+        } catch (IOException e) {
+            res.failed.add(name + "(io:" + e.getMessage() + ")");
+        }
+    }
+
     /** 相机拒绝了参数包（例如 DR 高于原片、DR 优先开启时写 DR/高光/阴影） */
     public static final class ParamRejectedException extends IOException {
         ParamRejectedException(String msg) { super(msg); }
@@ -390,15 +454,7 @@ public final class Fuji {
 
     /** @param full true=全分辨率(D183=1) ; false=预览(D183=0 + GetThumb) */
     public byte[] render(boolean full, long timeoutMs) throws IOException {
-        try {
-            return renderOnce(full, timeoutMs);
-        } catch (IOException e) {
-            // 读图阶段中断（数据阶段中断 xx/yy）时，重新对齐管道并重建会话后重试一次
-            Log.w(TAG, "渲染失败，尝试恢复后重试: " + e.getMessage());
-            t.resync();
-            recover();
-            return renderOnce(full, timeoutMs);
-        }
+        return renderOnce(full, timeoutMs);
     }
 
     private byte[] renderOnce(boolean full, long timeoutMs) throws IOException {
@@ -431,9 +487,17 @@ public final class Fuji {
 
     private int waitForObject(long timeoutMs) throws IOException {
         long deadline = SystemClock.elapsedRealtime() + timeoutMs;
+        int stable = 0;
         while (SystemClock.elapsedRealtime() < deadline) {
             int h = firstHandle();
-            if (h != 0) return h;
+            if (h != 0) {
+                if (++stable >= 2) {                 // 连续两次看到同一句柄才认为写完
+                    try { Thread.sleep(250); } catch (InterruptedException ignored) { }
+                    return h;
+                }
+            } else {
+                stable = 0;
+            }
             try { Thread.sleep(POLL_MS); } catch (InterruptedException e) { throw new IOException("已取消"); }
         }
         boolean alive = heartbeat();
@@ -476,11 +540,24 @@ public final class Fuji {
         }
     }
 
+    /**
+     * 取回对象。**失败时绝不 resync/重开会话**：对象还在相机里，
+     * 重新发一次 GetObject 即可（中止传输才是把端点搞死的原因）。
+     */
     private byte[] getObject(int handle) throws IOException {
-        UsbPtp.DataIn r = t.commandDataIn(Ptp.OC_GET_OBJECT, handle);
-        r.resp.requireOk();
-        if (r.data.length == 0) throw new IOException("GetObject 返回空数据");
-        return r.data;
+        IOException last = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                UsbPtp.DataIn r = t.commandDataIn(Ptp.OC_GET_OBJECT, handle);
+                if (r.resp.ok() && r.data.length > 0) return r.data;
+                last = new IOException("GetObject 返回 " + r.resp + " len=" + r.data.length);
+            } catch (IOException e) {
+                last = e;
+            }
+            Log.w(TAG, "GetObject 第 " + (attempt + 1) + " 次失败: " + last.getMessage());
+            try { Thread.sleep(400L * (attempt + 1)); } catch (InterruptedException ignored) { }
+        }
+        throw last == null ? new IOException("GetObject 失败") : last;
     }
 
     private byte[] getThumbOrObject(int handle) throws IOException {

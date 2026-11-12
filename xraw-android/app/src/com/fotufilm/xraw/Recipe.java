@@ -51,6 +51,12 @@ public final class Recipe {
 
     // ---------------------------------------------------------------- 读回
 
+    /** 属性下发后，相机可能已自行更新 profile：同步基线，使差量仍然准确 */
+    public void setBaseline(int[] values) {
+        if (values == null || values.length < D185.PROPS) return;
+        System.arraycopy(values, 0, base, 0, D185.PROPS);
+    }
+
     public static Recipe fromD185(D185 p) {
         Recipe r = new Recipe();
         r.base = p.values().clone();

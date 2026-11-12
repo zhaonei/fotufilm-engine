@@ -298,7 +298,8 @@ public final class CameraEngine {
                     break;
                 }
                 D185 p = baseProfile.copy();
-                applyDrIfChanged(job.recipe);
+                applyParams(job.recipe);
+                p = baseProfile.copy();
                 job.recipe.applyTo(p);
                 lastNote = job.recipe.note;
                 writeProfileSafely(p);
@@ -665,6 +666,29 @@ public final class CameraEngine {
      * DR / DR优先：优先用相机自己的属性(0xD191/0xD190)下发，再回读 profile，
      * 让相机把联动字段填好——直接把两个字段塞进 d185 会导致整幅偏绿。
      */
+    /**
+     * 参数下发主流程（属性优先）：
+     *   1) 用文档确认的属性码把参数交给相机（含 DR/WB/色调/色彩/锐度/NR/清晰度/颗粒/效果）
+     *   2) 回读 0xD185——相机若认这些属性，会自己把 profile 里的联动字段填好
+     *   3) 用 profile 补差：把属性通道没覆盖/被拒的项补进 629 字节包
+     * 这样即使相机不认属性，也仍然退回原来的 profile 通道，不会丢功能。
+     */
+    private void applyParams(Recipe r) {
+        try {
+            Fuji.PropResult pr = fuji.applyParamsViaProps(r);
+            status(pr.summarize());
+            if (transport != null) transport.note(pr.summarize());
+            D185 cam = fuji.readProfile();
+            baseProfile = cam;
+            r.setBaseline(cam.values());
+            if (transport != null) transport.note("属性后回读: DR=" + cam.dr()
+                    + " 优先=" + cam.drPriority() + " 模拟=" + cam.filmSim()
+                    + " WB=" + Integer.toHexString(cam.wbMode()));
+        } catch (IOException e) {
+            Log.w(TAG, "属性优先下发失败，退回 profile 通道: " + e.getMessage());
+        }
+    }
+
     private void applyDrIfChanged(Recipe r) {
         if (baseProfile == null) return;
         r.skipDrInProfile = false;
