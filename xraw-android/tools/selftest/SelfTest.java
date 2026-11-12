@@ -16,6 +16,7 @@ public final class SelfTest {
         // 1) 动态偏移：propsOffset = 总长 - propCount*4（不是硬编码 0x201）
         check("propCount=29", p.rawPropCount() == 29);
         check("布局固定 0x201/29", D185.PROPS == 29 && FpNative.PROPS_OFFSET == 0x201);
+        check("629 包解析出的字段数=29", p.values().length == 29);
         check("629 字节总长", FpNative.SIZE == 629);
 
         // 2) 往返不漂移

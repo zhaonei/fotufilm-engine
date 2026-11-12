@@ -277,6 +277,7 @@ public final class CameraEngine {
                 D185 p = baseProfile.copy();
                 job.recipe.applyTo(p);
                 fuji.writeProfile(p);
+                verifyWriteBack(p);
                 status("渲染预览…");
                 byte[] jpeg = fuji.render(false, 20000);
                 final String sum = p.summary();
@@ -614,6 +615,28 @@ public final class CameraEngine {
             lastLogPath = "写入失败: " + e.getMessage();
         }
         return lastLogPath;
+    }
+
+    /** 写档后回读校验：把"写入的字段"与"相机回读的字段"比对，不一致立刻告警 */
+    private void verifyWriteBack(D185 written) {
+        try {
+            D185 back = fuji.readProfile();
+            StringBuilder diff = new StringBuilder();
+            int n = 0;
+            for (int i = 0; i < D185.PROPS; i++) {
+                if (back.get(i) != written.get(i)) {
+                    n++;
+                    if (n <= 6) diff.append(String.format("idx%d:%d→%d ", i, written.get(i), back.get(i)));
+                }
+            }
+            if (n > 0) {
+                final String msg = "⚠ 相机回读与写入有 " + n + " 处不一致：" + diff;
+                status(msg);
+                Log.w(TAG, msg);
+            }
+        } catch (IOException e) {
+            Log.w(TAG, "回读校验失败: " + e.getMessage());
+        }
     }
 
     private void doUpload(File file) throws IOException {

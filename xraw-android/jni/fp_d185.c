@@ -37,10 +37,16 @@ int fp_d185_parse(const uint8_t *buf, int len, fp_d185 *out) {
     }
     out->iop_code = code;
 
-    /* 属性区：libfuji 固定 0x201；若包更短则按 len - n*4 兜底 */
+    /* 属性区固定 0x201（libfuji 布局）。
+     * 注意：相机返回包里 u16@0 实测是 30（不是属性个数），
+     * 若按 len - n*4 计算会得到 509，导致整条数组错位一格 →
+     * 差量比较把几乎所有字段都当成"已修改"，最终把画面写成一片绿。
+     * 只有包短到放不下 29 个 u32 时才回退。 */
     int base = FP_D185_PROPS_OFFSET;
-    if (base + n * 4 > len) base = len - n * 4;
-    if (base < 3) return -3;
+    if (base + FP_D185_PROPS * 4 > len) {
+        base = len - n * 4;
+        if (base < 3) return -3;
+    }
 
     for (int i = 0; i < FP_D185_PROPS; i++) {
         int off = base + i * 4;

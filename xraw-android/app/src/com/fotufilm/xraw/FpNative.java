@@ -39,8 +39,8 @@ public final class FpNative {
 
     static int[] parseFallback(byte[] raw) {
         int n = UsbPtp.le16(raw, 0);
-        int base = PROPS_OFFSET;
-        if (base + n * 4 > raw.length) base = raw.length - n * 4;
+        int base = PROPS_OFFSET;                       // 固定 0x201（相机真实布局）
+        if (base + PROPS * 4 > raw.length) base = raw.length - n * 4;
         int[] out = new int[32];
         for (int i = 0; i < PROPS; i++) {
             int off = base + i * 4;
