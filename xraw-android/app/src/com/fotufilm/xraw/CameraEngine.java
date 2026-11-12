@@ -186,27 +186,66 @@ public final class CameraEngine {
                 job = queue.removeFirst();
                 refreshQueue();
             }
-            try {
-                handle(job);
-            } catch (IOException e) {
-                Log.e(TAG, "作业失败: " + job.label, e);
-                captureLog();
-                // 已经 resync/recover 过仍失败 → 用心跳判定会话是否真的死了，避免无限重试造成"卡死"
-                if (fuji != null && !fuji.heartbeat()) {
-                    sessionDead = true;
-                    if (transport != null) transport.note("会话判定死亡（心跳失败）");
+            runJob(job);
+        }
+    }
+
+    /**
+     * 执行一个作业：出错时**自动重连相机并重试一次**，
+     * 仍失败才报错——绝不因为一次异常就中断后续操作。
+     */
+    private void runJob(Job job) {
+        try {
+            handle(job);
+        } catch (IOException e) {
+            Log.e(TAG, "作业失败: " + job.label, e);
+            captureLog();
+            boolean retryable = job.kind == J_PREVIEW || job.kind == J_EXPORT || job.kind == J_CALIB;
+            if (retryable) {
+                main.post(() -> listener.onError("出错：" + e.getMessage() + "\n正在自动重连相机并重试…"));
+                if (recoverSession()) {
+                    try {
+                        handle(job);
+                        status("已自动恢复并重试成功");
+                        return;
+                    } catch (IOException e2) {
+                        Log.e(TAG, "重试仍失败", e2);
+                        sessionDead = true;
+                        final String m = "重试仍失败：" + e2.getMessage()
+                                + "\n（请拔插数据线后点「连接相机」，其余按钮不受影响）";
+                        main.post(() -> listener.onError(m));
+                        return;
+                    }
                 }
-                final String msg = (job.label == null ? "" : job.label + "：") + e.getMessage()
-                        + (sessionDead ? "\n（会话已失效，请拔插数据线后重新连接）" : "");
-                main.post(() -> listener.onError(msg));
-                if (job.kind != J_PREVIEW) {   // 预览失败不打断会话
-                    // 会话可能已死：保留 fuji，但清掉易失状态
-                    baseProfile = null;
-                }
-            } catch (Throwable e) {
-                Log.e(TAG, "作业异常", e);
-                main.post(() -> listener.onError("内部错误：" + e));
+                sessionDead = true;
             }
+            if (fuji != null && !fuji.heartbeat()) sessionDead = true;
+            final String msg = (job.label == null ? "" : job.label + "：") + e.getMessage()
+                    + (sessionDead ? "\n（会话已失效，请拔插数据线后重新连接）" : "");
+            main.post(() -> listener.onError(msg));
+        } catch (Throwable t) {
+            Log.e(TAG, "作业异常", t);
+            main.post(() -> listener.onError("内部错误：" + t));
+        }
+    }
+
+    /** 关掉 USB 连接重开 + 重新握手（不依赖用户拔插的自动恢复） */
+    private boolean recoverSession() {
+        try {
+            transport_close();
+            if (lastDevice == null) return false;
+            transport = new UsbPtp(ctx, lastDevice);
+            transport.open();
+            fuji = new Fuji(transport);
+            final Fuji.Session s2 = fuji.handshake();
+            session = s2;
+            sessionDead = false;
+            if (loadedRaf != null) baseProfile = fuji.readProfile();
+            main.post(() -> listener.onSession(s2));
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "自动重连失败: " + e.getMessage());
+            return false;
         }
     }
 

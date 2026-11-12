@@ -96,8 +96,13 @@ public final class Fuji {
 
     private final UsbPtp t;
     private Session session;
-    /** 本会话被相机拒绝过的属性码：不再重复尝试，避免反复 0x201C 诱发端点 STALL */
-    private final java.util.Set<Integer> refusedProps = new java.util.HashSet<>();
+    /**
+     * 上次被拒的 (属性码, 值)：**只抑制完全相同的重复尝试**。
+     * 不能用永久黑名单——像色温这种有前置条件(需先切到色温模式)的属性，
+     * 一旦被永久拉黑，后面切到正确模式也再也写不进去。
+     */
+    private int lastFailedCode = -1;
+    private int lastFailedValue = Integer.MIN_VALUE;
     private DeviceInfo deviceInfo;
 
     public Fuji(UsbPtp transport) { this.t = transport; }
@@ -434,14 +439,19 @@ public final class Fuji {
     }
 
     private void put(PropResult res, String name, int code, int value) {
-        if (refusedProps.contains(code)) { res.failed.add(name + "(本会话已被拒，跳过)"); return; }
+        if (code == lastFailedCode && value == lastFailedValue) {
+            res.failed.add(name + "(该值刚被拒，跳过重复尝试)");
+            return;
+        }
         try {
             byte[] d = {(byte) value, (byte) (value >>> 8)};
             UsbPtp.Resp resp = t.commandDataOut(Ptp.OC_SET_DEVICE_PROP_VALUE, new int[]{code}, d);
             if (resp.ok()) {
                 res.ok.add(name);
+                lastFailedCode = -1;
             } else {
-                refusedProps.add(code);                 // 记住，本会话不再重试
+                lastFailedCode = code;
+                lastFailedValue = value;
                 res.failed.add(name + "(" + resp + ")");
             }
         } catch (IOException e) {
@@ -489,7 +499,13 @@ public final class Fuji {
 
     /** @param full true=全分辨率(D183=1) ; false=预览(D183=0 + GetThumb) */
     public byte[] render(boolean full, long timeoutMs) throws IOException {
-        return renderOnce(full, timeoutMs);
+        try {
+            return renderOnce(full, timeoutMs);
+        } finally {
+            // 无论成败都清理残留对象：相机 SDRAM 被转换结果灌满后会直接停止响应，
+            // 这是"越用越容易挂"的另一个来源。
+            try { drainObjects(); } catch (Exception ignored) { }
+        }
     }
 
     private byte[] renderOnce(boolean full, long timeoutMs) throws IOException {
