@@ -10,6 +10,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/widgets.dart' show AppLifecycleListener;
 
 import 'editor.dart';
+import 'file_types.dart';
 import 'saved_edits.dart';
 
 class KeptEdits {
@@ -84,12 +85,13 @@ class KeptEdits {
     if (job != null) _save(job.key, job.text);
   }
 
-  /// Erases what is kept for [doc], for a photograph the app is done with.
-  void forget(PhotoDocument doc) {
-    final key = doc.identity;
-    if (key == null) return;
-    _baselines[doc] = null;
-    _last[doc] = null;
+  /// Forgets the edit kept under `key` (its photograph was deleted from the gallery, or the app is
+  /// done with it).
+  void forget(String key) {
+    if (_pending?.key == key) {
+      _timer?.cancel();
+      _pending = null;
+    }
     _save(key, null);
   }
 
@@ -119,9 +121,15 @@ class KeptEdits {
   Future<void> saveFile() async {
     final doc = editor.active;
     if (doc == null) return;
-    final location =
-        await getSaveLocation(suggestedName: fileName(doc.name), acceptedTypeGroups: _types);
-    if (location != null) await writeFile(location.path);
+    final location = await chooseSaveFile(fileName(doc.name),
+        types: _types, mediaType: 'application/json');
+    if (location == null) return;
+    await writeFile(location.path);
+    try {
+      await location.finish();
+    } catch (e) {
+      editor.showError('The edit could not be saved. $e');
+    }
   }
 
   Future<void> writeFile(String path) async {
