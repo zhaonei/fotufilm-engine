@@ -37,10 +37,10 @@ public final class SelfTest {
         check("往返（16 个受控字段）无漂移", mismatch == 0);
 
         // 3) 编码：色调/色彩/锐度/清晰度 ×10
-        r.highlight = 2; r.shadow = -2; r.color = -3; r.sharpness = 4; r.clarity = 5;
+        r.highlight = 20; r.shadow = -20; r.color = -3; r.sharpness = 4; r.clarity = 5;
         D185 e = D185.parse(raw);
         r.applyTo(e);
-        check("高光 +2 → 20", e.get(D185.Idx.HIGHLIGHT) == 20);
+        check("高光 +2.0 → 20（编码值直写）", e.get(D185.Idx.HIGHLIGHT) == 20);
         check("阴影 -2 → -20", e.get(D185.Idx.SHADOW) == -20);
         check("色彩 -3 → -30", e.get(D185.Idx.COLOR) == -30);
         check("锐度 +4 → 40", e.get(D185.Idx.SHARPNESS) == 40);

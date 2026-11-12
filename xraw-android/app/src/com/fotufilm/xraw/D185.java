@@ -94,12 +94,15 @@ public final class D185 {
     };
 
     private final int[] v = new int[PROPS];
+    /** 相机给的原始 629 字节包：所有修改都在它上面**原地**改写，绝不重建 */
+    private final byte[] pack;
     private final int iopCode;
     private final int rawPropCount;
     private final int rawLength;
 
-    private D185(int[] values, int iop, int propCount, int length) {
+    private D185(int[] values, byte[] pack, int iop, int propCount, int length) {
         System.arraycopy(values, 0, v, 0, PROPS);
+        this.pack = pack;
         this.iopCode = iop;
         this.rawPropCount = propCount;
         this.rawLength = length;
@@ -110,20 +113,32 @@ public final class D185 {
         int[] r = FpNative.parse(raw);
         int[] vals = new int[PROPS];
         System.arraycopy(r, 0, vals, 0, PROPS);
-        return new D185(vals, r[PROPS], r[PROPS + 1], raw.length);
+        return new D185(vals, raw.clone(), r[PROPS], r[PROPS + 1], raw.length);
     }
 
-    /** 一次性打包成 629 字节标准包（C 层实现） */
+    /**
+     * 要写回相机的包：**保留相机原始字节**，只把 29 个字段按当前值覆盖。
+     * IOPCode 区、未知字段、尾部数据全部原样保留——这正是 filmkit 的 patchProfile 做法。
+     * （早前用 C 层从 29 个字段重建整包，会把未知区清零，导致相机整体偏色。）
+     */
     public byte[] create() {
-        return FpNative.create(v, iopCode);
+        byte[] out = pack.clone();
+        int base = FpNative.PROPS_OFFSET;
+        if (base + PROPS * 4 > out.length) return FpNative.create(v, iopCode);   // 兜底
+        for (int i = 0; i < PROPS; i++) UsbPtp.put32(out, base + i * 4, v[i]);
+        return out;
     }
 
     public D185 copy() {
-        return new D185(v, iopCode, rawPropCount, rawLength);
+        D185 d = new D185(v, pack.clone(), iopCode, rawPropCount, rawLength);
+        return d;
     }
 
     public int get(int idx) { return (idx >= 0 && idx < PROPS) ? v[idx] : 0; }
     public D185 set(int idx, int value) { if (idx >= 0 && idx < PROPS) v[idx] = value; return this; }
+
+    /** 相机原始包（只读副本） */
+    public byte[] rawPack() { return pack.clone(); }
     public int[] values() { return v; }
     public int iopCode() { return iopCode; }
     public int rawPropCount() { return rawPropCount; }

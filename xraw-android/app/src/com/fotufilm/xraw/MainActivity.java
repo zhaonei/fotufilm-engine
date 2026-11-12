@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "2.0.1";
+    static final String APP_VERSION = "2.0.2";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001;
     private static final int REQ_RAF_BATCH = 1002;
@@ -347,84 +347,89 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         c.addView(Ui.section(this, "输出（相机原生 d185 未确认该组字段，暂不生效）"));
         sizeRow = new Ui.ChoiceRow(this, "图像尺寸", D185.SIM_NAMES.length > 0
                 ? new String[]{"L 3:2", "L 16:9", "L 1:1", "M 3:2", "M 16:9", "M 1:1", "S 3:2", "S 16:9", "S 1:1"}
-                : new String[]{}, recipe.imageSizeIdx, i -> recipe.imageSizeIdx = i);
+                : new String[]{}, recipe.imageSizeIdx, i -> { recipe.imageSizeIdx = i; schedulePreview(); });
         c.addView(sizeRow);
         qualityRow = new Ui.ChoiceRow(this, "图像质量", new String[]{"FINE", "NORMAL"}, recipe.qualityIdx,
-                i -> recipe.qualityIdx = i);
+                i -> { recipe.qualityIdx = i; schedulePreview(); });
         c.addView(qualityRow);
         fileTypeRow = new Ui.ChoiceRow(this, "文件类型", new String[]{"JPEG", "TIFF 8bit", "TIFF 16bit"},
-                recipe.fileTypeIdx, i -> recipe.fileTypeIdx = i);
+                recipe.fileTypeIdx, i -> { recipe.fileTypeIdx = i; schedulePreview(); });
         c.addView(fileTypeRow);
         csRow = new Ui.ChoiceRow(this, "色彩空间", new String[]{"sRGB", "AdobeRGB"}, recipe.colorSpaceIdx,
-                i -> recipe.colorSpaceIdx = i);
+                i -> { recipe.colorSpaceIdx = i; schedulePreview(); });
         c.addView(csRow);
 
         c.addView(Ui.section(this, "胶片模拟"));
         simRow = new Ui.ChoiceRow(this, "胶片模拟", D185.SIM_NAMES,
-                indexOf(D185.SIM_VALUES, recipe.filmSim), i -> recipe.filmSim = D185.SIM_VALUES[i]);
+                indexOf(D185.SIM_VALUES, recipe.filmSim), i -> { recipe.filmSim = D185.SIM_VALUES[i]; schedulePreview(); });
         c.addView(simRow);
 
         c.addView(Ui.section(this, "动态范围"));
         drRow = new Ui.ChoiceRow(this, "动态范围", new String[]{"DR100", "DR200", "DR400"},
                 recipe.dr == 200 ? 1 : recipe.dr == 400 ? 2 : 0,
-                i -> recipe.dr = i == 1 ? 200 : i == 2 ? 400 : 100);
+                i -> { recipe.dr = i == 1 ? 200 : i == 2 ? 400 : 100; schedulePreview(); });
         c.addView(drRow);
         drpRow = new Ui.ChoiceRow(this, "动态范围优先", new String[]{"关闭", "弱", "强"},
-                Math.max(0, recipe.drPriority), i -> recipe.drPriority = i);
+                Math.max(0, recipe.drPriority), i -> { recipe.drPriority = i; schedulePreview(); });
         c.addView(drpRow);
 
         c.addView(Ui.section(this, "色调曲线（机内整数刻度 -4 ~ +4）"));
-        hiRow = new Ui.SeekRow(this, "高光色调", -4, 4, recipe.highlight, "", false,
-                v -> recipe.highlight = v, () -> engine.preview(recipe));
+        c.addView(Ui.section(this, "机内为 0.5 档（-2.0 ~ +4.0）"));
+        hiRow = new Ui.SeekRow(this, "高光色调", -20, 40, recipe.highlight, "", true,
+                v -> { recipe.highlight = v; schedulePreview(); }, this::schedulePreview);
+        hiRow.scale(10);
+        hiRow.setRange(-20, 40, 5, true, recipe.highlight);
         c.addView(hiRow);
-        shRow = new Ui.SeekRow(this, "阴影色调", -4, 4, recipe.shadow, "", false,
-                v -> recipe.shadow = v, () -> engine.preview(recipe));
+        shRow = new Ui.SeekRow(this, "阴影色调", -20, 40, recipe.shadow, "", true,
+                v -> { recipe.shadow = v; schedulePreview(); }, this::schedulePreview);
+        shRow.scale(10);
+        shRow.setRange(-20, 40, 5, true, recipe.shadow);
         c.addView(shRow);
 
         c.addView(Ui.section(this, "色彩"));
         colorRow = new Ui.SeekRow(this, "色彩", -4, 4, recipe.color, "", false,
-                v -> recipe.color = v, () -> engine.preview(recipe));
+                v -> { recipe.color = v; schedulePreview(); }, this::schedulePreview);
         c.addView(colorRow);
         sharpRow = new Ui.SeekRow(this, "锐度", -4, 4, recipe.sharpness, "", false,
-                v -> recipe.sharpness = v, () -> engine.preview(recipe));
+                v -> { recipe.sharpness = v; schedulePreview(); }, this::schedulePreview);
         c.addView(sharpRow);
 
         c.addView(Ui.section(this, "白平衡"));
-        wbRow = new Ui.ChoiceRow(this, "白平衡", D185.WB_NAMES, recipe.wbIndex, i -> recipe.wbIndex = i);
+        wbRow = new Ui.ChoiceRow(this, "白平衡", D185.WB_NAMES, recipe.wbIndex, i -> { recipe.wbIndex = i; schedulePreview(); });
         c.addView(wbRow);
         tempRow = new Ui.SeekRow(this, "色温 (K)", 2500, 10000, recipe.wbTemp, "K", false,
-                v -> recipe.wbTemp = v, () -> engine.preview(recipe));
+                v -> { recipe.wbTemp = v; schedulePreview(); }, this::schedulePreview);
         c.addView(tempRow);
         wbRRow = new Ui.SeekRow(this, "R 偏移", -9, 9, recipe.wbR, "", false,
-                v -> recipe.wbR = v, () -> engine.preview(recipe));
+                v -> { recipe.wbR = v; schedulePreview(); }, this::schedulePreview);
         c.addView(wbRRow);
         wbBRow = new Ui.SeekRow(this, "B 偏移", -9, 9, recipe.wbB, "", false,
-                v -> recipe.wbB = v, () -> engine.preview(recipe));
+                v -> { recipe.wbB = v; schedulePreview(); }, this::schedulePreview);
         c.addView(wbBRow);
 
         c.addView(Ui.section(this, "图像质感"));
         grainRow = new Ui.ChoiceRow(this, "颗粒效果", new String[]{"关闭", "弱", "强"},
-                recipe.grainStrength, i -> recipe.grainStrength = i);
+                recipe.grainStrength, i -> { recipe.grainStrength = i; schedulePreview(); });
         c.addView(grainRow);
         grainSizeRow = new Ui.ChoiceRow(this, "颗粒大小", new String[]{"小", "大"},
-                recipe.grainLarge ? 1 : 0, i -> recipe.grainLarge = i == 1);
+                recipe.grainLarge ? 1 : 0, i -> { recipe.grainLarge = i == 1; schedulePreview(); });
         c.addView(grainSizeRow);
         chromeRow = new Ui.ChoiceRow(this, "彩色铬效应", new String[]{"关闭", "弱", "强"},
-                recipe.chrome, i -> recipe.chrome = i);
+                recipe.chrome, i -> { recipe.chrome = i; schedulePreview(); });
         c.addView(chromeRow);
         fxRow = new Ui.ChoiceRow(this, "彩色 FX 蓝色", new String[]{"关闭", "弱", "强"},
-                recipe.fxBlue, i -> recipe.fxBlue = i);
+                recipe.fxBlue, i -> { recipe.fxBlue = i; schedulePreview(); });
         c.addView(fxRow);
         nrRow = new Ui.SeekRow(this, "降噪", -4, 4, recipe.nr, "", false,
-                v -> recipe.nr = v, () -> engine.preview(recipe));
+                v -> { recipe.nr = v; schedulePreview(); }, this::schedulePreview);
         c.addView(nrRow);
         clarityRow = new Ui.SeekRow(this, "清晰度", -5, 5, recipe.clarity, "", false,
-                v -> recipe.clarity = v, () -> engine.preview(recipe));
+                v -> { recipe.clarity = v; schedulePreview(); }, this::schedulePreview);
         c.addView(clarityRow);
 
         c.addView(Ui.section(this, "曝光"));
         expRow = new Ui.SeekRow(this, "曝光补偿 (1/3 EV)", -9, 9, recipe.expBiasThirds, "", false,
-                v -> recipe.expBiasThirds = v, () -> engine.preview(recipe));
+                v -> { recipe.expBiasThirds = v; schedulePreview(); }, this::schedulePreview);
         c.addView(expRow);
 
         View spacer = new View(this);
@@ -452,8 +457,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (tempRow != null) tempRow.setValue(recipe.wbTemp, 2500);
         if (wbRRow != null) wbRRow.setValue(recipe.wbR, -9);
         if (wbBRow != null) wbBRow.setValue(recipe.wbB, -9);
-        if (hiRow != null) hiRow.setValue(recipe.highlight, -4);
-        if (shRow != null) shRow.setValue(recipe.shadow, -4);
+        if (hiRow != null) hiRow.setValue(recipe.highlight, -20);
+        if (shRow != null) shRow.setValue(recipe.shadow, -20);
         if (colorRow != null) colorRow.setValue(recipe.color, -4);
         if (sharpRow != null) sharpRow.setValue(recipe.sharpness, -4);
         if (nrRow != null) nrRow.setValue(recipe.nr, -4);
@@ -881,6 +886,17 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (imageTag != null) {
             imageTag.setText(show == originalBmp ? "原图（RAF 内嵌 JPEG）" : "当前渲染（机身输出）");
         }
+    }
+
+    private final Runnable previewTick = () -> {
+        if (engine != null && engine.isConnected() && loadedRaf != null) engine.preview(recipe);
+    };
+
+    /** 任何参数改动都自动出预览（350ms 防抖），不再需要手动点「预览」 */
+    private void schedulePreview() {
+        if (suppress) return;
+        ui.removeCallbacks(previewTick);
+        ui.postDelayed(previewTick, 350);
     }
 
     private void status(String msg) {

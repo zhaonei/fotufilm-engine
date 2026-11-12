@@ -36,7 +36,7 @@ public final class Recipe {
     public int wbIndex = D185.WB_VALUES.length - 1;   // 默认「按拍摄时」
     public int wbTemp = 5500;
     public int wbR = 0, wbB = 0;
-    public int highlight = 0, shadow = 0;
+    public int highlight = 0, shadow = 0;        // 编码值：-20..+40（即 -2.0..+4.0，0.5 步进）
     public int color = 0, sharpness = 0;
     public int nr = 0;
     public int clarity = 0;
@@ -77,8 +77,8 @@ public final class Recipe {
         r.wbR = D185.clamp((short) (p.get(D185.Idx.WB_SHIFT_R) & 0xFFFF), -9, 9);
         r.wbB = D185.clamp((short) (p.get(D185.Idx.WB_SHIFT_B) & 0xFFFF), -9, 9);
 
-        r.highlight = D185.clamp(D185.decodeTenths(p.get(D185.Idx.HIGHLIGHT)), -4, 4);
-        r.shadow = D185.clamp(D185.decodeTenths(p.get(D185.Idx.SHADOW)), -4, 4);
+        r.highlight = D185.clamp((short) (p.get(D185.Idx.HIGHLIGHT) & 0xFFFF), -20, 40);
+        r.shadow = D185.clamp((short) (p.get(D185.Idx.SHADOW) & 0xFFFF), -20, 40);
         r.color = D185.clamp(D185.decodeTenths(p.get(D185.Idx.COLOR)), -4, 4);
         r.sharpness = D185.clamp(D185.decodeTenths(p.get(D185.Idx.SHARPNESS)), -4, 4);
         r.nr = D185.clamp(D185.nrDecode(p.get(D185.Idx.NOISE_RED)), -4, 4);
@@ -121,8 +121,8 @@ public final class Recipe {
             }
         }
 
-        want[D185.Idx.HIGHLIGHT] = D185.encodeTenths(highlight);
-        want[D185.Idx.SHADOW] = D185.encodeTenths(shadow);
+        want[D185.Idx.HIGHLIGHT] = D185.clamp(highlight, -20, 40);
+        want[D185.Idx.SHADOW] = D185.clamp(shadow, -20, 40);
         want[D185.Idx.COLOR] = D185.encodeTenths(color);
         want[D185.Idx.SHARPNESS] = D185.encodeTenths(sharpness);
         want[D185.Idx.NOISE_RED] = D185.nrEncode(nr);
@@ -148,7 +148,7 @@ public final class Recipe {
         StringBuilder sb = new StringBuilder(D185.simName(filmSim));
         if (drPriority != D185.DRP_OFF) sb.append(" · DR优先").append(drPriority);
         else sb.append(" · DR").append(dr);
-        sb.append(" · 高光").append(signed(highlight)).append(" 阴影").append(signed(shadow));
+        sb.append(" · 高光").append(tone(highlight)).append(" 阴影").append(tone(shadow));
         sb.append(" · 色彩").append(signed(color)).append(" 锐度").append(signed(sharpness));
         sb.append(" 清晰度").append(signed(clarity));
         sb.append(" · 改动 ").append(changedCount()).append(" 项");
@@ -156,6 +156,12 @@ public final class Recipe {
     }
 
     private static String signed(int v) { return v > 0 ? "+" + v : String.valueOf(v); }
+
+    /** 编码值 → 显示（0.5 档带一位小数） */
+    private static String tone(int enc) {
+        if (enc % 10 == 0) return signed(enc / 10);
+        return String.format(java.util.Locale.US, "%s%.1f", enc > 0 ? "+" : "", enc / 10.0);
+    }
 
     public String exportExtension() { return ".jpg"; }
 
