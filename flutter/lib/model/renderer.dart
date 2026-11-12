@@ -34,7 +34,10 @@ abstract interface class RenderHost {
   ViewState get view;
   Json? stockById(String? id);
   List<Json> get stocks;
-  bool get histogramOpen;
+
+  /// Whether the developed picture's tones are drawn: by the Histogram panel, or behind the
+  /// tone curve.
+  bool get histogramShown;
   bool get formatDetail;
 
   /// The film rows on screen ('' for Normal): only their pictures develop.
@@ -462,22 +465,31 @@ class Renderer {
 
   Future<void> _runBackground() async {
     final doc = host.active;
-    if (doc == null || _running || playing || doc.history.group != null) return;
-    // The hand comes first. A background develop is a quarter of a second the next step of a
-    // drag would spend queued behind it, and it cannot be interrupted.
-    final since = DateTime.now().millisecondsSinceEpoch - _lastForegroundAt;
-    if (since < backgroundQuiet) {
+    if (doc == null || _running || playing) return;
+    // The hand comes first for the small pictures -- a quarter of a second each, and they cannot
+    // be interrupted -- but the tones drawn behind the tone curve are one small picture and are
+    // wanted while a slider is held still.
+    final quiet = DateTime.now().millisecondsSinceEpoch - _lastForegroundAt >= backgroundQuiet;
+    if (!quiet && !host.histogramShown) {
       _background?.cancel();
-      _background = Timer(Duration(milliseconds: backgroundQuiet - since), _runBackground);
+      _background = Timer(const Duration(milliseconds: backgroundQuiet), _runBackground);
       return;
     }
     _running = true;
     _moreShown = false;
     try {
-      if (host.histogramOpen) await _histogram(doc);
-      await _presetThumbnails(doc);
-      await _filmThumbnails(doc);
-      await _formatThumbnails(doc);
+      if (host.histogramShown) {
+        await _histogram(doc);
+      } else {
+        // Nothing draws it: what shows it next waits for the tones of the picture then shown.
+        host.measured(null);
+      }
+      // The small pictures wait for the hand to stop.
+      if (quiet && doc.history.group == null) {
+        await _presetThumbnails(doc);
+        await _filmThumbnails(doc);
+        await _formatThumbnails(doc);
+      }
     } catch (_) {
       // Small pictures are a convenience; the next settle tries again.
     } finally {
