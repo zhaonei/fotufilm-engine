@@ -328,6 +328,28 @@ public final class Fuji {
         return D185.parse(r.data);
     }
 
+    /**
+     * 用相机自己的属性下发「动态范围 / 动态范围优先」。
+     *
+     * 为什么不直接改 d185 的两个字段：DR 在 d185 里有联动字段，
+     * 单独改会造成内部不一致——实测表现为整幅画面偏绿（相机返回 0x2001 但渲染错乱）。
+     * 先写 0xD191（优先）/0xD190（DR%），再回读 0xD185，由相机自己把联动字段填好。
+     */
+    public boolean applyDrViaProps(int drPercent, int priority) {
+        try {
+            t.commandDataOut(Ptp.OC_SET_DEVICE_PROP_VALUE, new int[]{Ptp.DPC_DR_PRIORITY},
+                    new byte[]{(byte) priority, (byte) (priority >> 8)}).requireOk();
+            if (priority == 0) {
+                t.commandDataOut(Ptp.OC_SET_DEVICE_PROP_VALUE, new int[]{Ptp.DPC_DR_PERCENT},
+                        new byte[]{(byte) drPercent, (byte) (drPercent >> 8)}).requireOk();
+            }
+            return true;
+        } catch (IOException e) {
+            Log.w(TAG, "通过属性下发 DR 失败: " + e.getMessage());
+            return false;
+        }
+    }
+
     /** 相机拒绝了参数包（例如 DR 高于原片、DR 优先开启时写 DR/高光/阴影） */
     public static final class ParamRejectedException extends IOException {
         ParamRejectedException(String msg) { super(msg); }

@@ -69,6 +69,7 @@ public final class CameraEngine {
     private volatile android.net.Uri lastLogUri;
     private volatile Fuji.DeviceInfo deviceInfo;
     private volatile String lastNote = "";
+    private volatile boolean sessionDead = false;
 
     public CameraEngine(Context ctx, Listener l) {
         this.ctx = ctx.getApplicationContext();
@@ -190,7 +191,13 @@ public final class CameraEngine {
             } catch (IOException e) {
                 Log.e(TAG, "作业失败: " + job.label, e);
                 captureLog();
-                final String msg = (job.label == null ? "" : job.label + "：") + e.getMessage();
+                // 已经 resync/recover 过仍失败 → 用心跳判定会话是否真的死了，避免无限重试造成"卡死"
+                if (fuji != null && !fuji.heartbeat()) {
+                    sessionDead = true;
+                    if (transport != null) transport.note("会话判定死亡（心跳失败）");
+                }
+                final String msg = (job.label == null ? "" : job.label + "：") + e.getMessage()
+                        + (sessionDead ? "\n（会话已失效，请拔插数据线后重新连接）" : "");
                 main.post(() -> listener.onError(msg));
                 if (job.kind != J_PREVIEW) {   // 预览失败不打断会话
                     // 会话可能已死：保留 fuji，但清掉易失状态
@@ -220,6 +227,7 @@ public final class CameraEngine {
                 status("握手 / 校验 USB RAW CONV. 模式…");
                 final Fuji.Session s = fuji.handshake();
                 session = s;
+                sessionDead = false;
                 deviceInfo = fuji.info();
                 // 注意：这里绝不能再读任何"可选属性"。
                 // 实测日志：读 0xD20E/0xD242 得到两次 0x200A(DevicePropNotSupported) 之后，
@@ -275,7 +283,12 @@ public final class CameraEngine {
             }
             case J_PREVIEW: {
                 requireLoaded();
+                if (sessionDead) {
+                    main.post(() -> listener.onError("相机会话已失效：请拔插数据线后重新「连接相机」（当前不会再自动重试以免卡死）"));
+                    break;
+                }
                 D185 p = baseProfile.copy();
+                applyDrIfChanged(job.recipe);
                 job.recipe.applyTo(p);
                 lastNote = job.recipe.note;
                 writeProfileSafely(p);
@@ -624,6 +637,7 @@ public final class CameraEngine {
      */
     private void writeProfileSafely(D185 p) throws IOException {
         try {
+            if (transport != null) transport.note("写入差异 " + diffOf(p));
             fuji.writeProfile(p);
             verifyWriteBack(p);
             String n = lastNote;
@@ -635,6 +649,47 @@ public final class CameraEngine {
             final String msg = e.getMessage() + "（已自动恢复原参数，会话仍可用）";
             main.post(() -> listener.onError(msg));
         }
+    }
+
+    /**
+     * DR / DR优先：优先用相机自己的属性(0xD191/0xD190)下发，再回读 profile，
+     * 让相机把联动字段填好——直接把两个字段塞进 d185 会导致整幅偏绿。
+     */
+    private void applyDrIfChanged(Recipe r) {
+        if (baseProfile == null) return;
+        r.skipDrInProfile = false;
+        boolean changed = r.dr != baseProfile.dr() || r.drPriority != baseProfile.drPriority();
+        if (!changed) return;
+        int prio = r.drPriority;
+        int baseDr = baseProfile.dr();
+        int dr = (baseDr == 100 || baseDr == 200 || baseDr == 400) ? Math.min(r.dr, baseDr) : r.dr;
+        try {
+            if (fuji.applyDrViaProps(dr, prio)) {
+                baseProfile = fuji.readProfile();          // 相机填好的新基线
+                r.skipDrInProfile = true;
+                r.dr = dr;
+                r.drPriority = prio;
+                final String msg = "DR 已由相机属性下发：优先=" + prio + " DR=" + dr
+                        + "（回读 profile: DR=" + baseProfile.dr() + " 优先=" + baseProfile.drPriority() + "）";
+                status(msg);
+                if (transport != null) transport.note(msg);
+            }
+        } catch (IOException e) {
+            Log.w(TAG, "DR 属性下发失败，退回 profile 写入: " + e.getMessage());
+        }
+    }
+
+    private String diffOf(D185 p) {
+        if (baseProfile == null) return "-";
+        StringBuilder sb = new StringBuilder();
+        int n = 0;
+        for (int i = 0; i < D185.PROPS; i++) {
+            if (p.get(i) != baseProfile.get(i)) {
+                if (n++ < 12) sb.append("idx").append(i).append(':')
+                        .append(baseProfile.get(i)).append("→").append(p.get(i)).append(' ');
+            }
+        }
+        return n == 0 ? "无" : (n + " 项: " + sb);
     }
 
     /** 写档后回读校验：把"写入的字段"与"相机回读的字段"比对，不一致立刻告警 */

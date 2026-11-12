@@ -48,6 +48,8 @@ public interface Ptp {
     // DevicePropValue
     int DPC_FILM_SIMULATION = 0xD001;
     int DPC_USB_MODE = 0xD16E;
+    int DPC_DR_PERCENT = 0xD190;
+    int DPC_DR_PRIORITY = 0xD191;
     int DPC_START_RAW_CONV = 0xD183;
     int DPC_IOP_CODE = 0xD184;
     int DPC_RAW_CONV_PROFILE = 0xD185;

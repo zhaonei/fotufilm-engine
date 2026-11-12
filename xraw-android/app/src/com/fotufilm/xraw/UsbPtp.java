@@ -38,12 +38,12 @@ public final class UsbPtp implements Closeable {
     public static final int CHUNK_DEFAULT = 128 * 1024;
     public static final int CHUNK_MAX = 512 * 1024;
     public static final int CHUNK_MIN = 4 * 1024;
-    private static final int CMD_TIMEOUT = 8000;
-    private static final int DATA_TIMEOUT = 30000;
+    private static final int CMD_TIMEOUT = 3000;
+    private static final int DATA_TIMEOUT = 8000;
     private static final int LARGE_TIMEOUT = 180000;
     private static final int USB_BULK_MAX = 512;
     private static final int UPLOAD_CHUNK = 512 * 1024;
-    private static final int OUT_RETRIES = 4;
+    private static final int OUT_RETRIES = 3;
 
     public interface Progress {
         void onProgress(long sent, long total);
@@ -101,6 +101,9 @@ public final class UsbPtp implements Closeable {
             txLog.append(s).append('\n');
         }
     }
+
+    /** 供上层往事务日志里写备注（会出现在导出的 probe_dump 里） */
+    public void note(String msg) { log("[note] " + msg); }
 
     public String dumpLog() {
         synchronized (txLog) { return txLog.toString(); }
@@ -200,6 +203,7 @@ public final class UsbPtp implements Closeable {
     // ------------------------------------------------------------ 事务
 
     public synchronized Resp command(int opcode, int... params) throws IOException {
+        drainEvents();
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         Resp r = waitResponse(tid, opcode);
@@ -208,6 +212,7 @@ public final class UsbPtp implements Closeable {
     }
 
     public synchronized DataIn commandDataIn(int opcode, int... params) throws IOException {
+        drainEvents();
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         byte[] data = new byte[0];
@@ -223,6 +228,7 @@ public final class UsbPtp implements Closeable {
     }
 
     public synchronized Resp commandDataOut(int opcode, int[] params, byte[] data) throws IOException {
+        drainEvents();
         int tid = ++txId;
         sendCommandAndData(opcode, tid, params, data);
         Resp r = waitResponse(tid, opcode);
@@ -304,6 +310,31 @@ public final class UsbPtp implements Closeable {
     }
 
     /**
+     * 排空 PTP 事件（interrupt IN）。
+     *
+     * 这是"用久了突然全卡死"的根因：富士会把 ObjectAdded/PreviewAvailable 等事件
+     * 塞进 interrupt IN 端点，主机不取的话队列填满后相机就**停止响应任何命令**
+     * （表现：连 12 字节命令容器都写不出去）。
+     *
+     * 必须**在锁内同步做**：早期用 UsbRequest + 独立线程会和同步 bulkTransfer
+     * 抢同一个 UsbDeviceConnection，抛 IllegalArgumentException（已复现过）。
+     */
+    private void drainEvents() {
+        if (conn == null || epEvt == null) return;
+        byte[] tmp = new byte[64];
+        for (int i = 0; i < 8; i++) {
+            int n;
+            try {
+                n = conn.bulkTransfer(epEvt, tmp, 0, tmp.length, 10);
+            } catch (Exception e) {
+                return;
+            }
+            if (n <= 0) return;
+            if (n >= 6) log(String.format("event 0x%04X len=%d", le16(tmp, 4), n));
+        }
+    }
+
+    /**
      * 管道重新对齐：清 halt + 把 IN 端点上残留的垃圾读干净。
      * 相机拒绝某个参数包时会 STALL 端点，若不清理，后续读到的就是残包
      * （典型症状：把 JPEG 里的 0x20202020 当成容器长度）。
@@ -311,10 +342,10 @@ public final class UsbPtp implements Closeable {
     public synchronized void resync() {
         clearHalts();
         byte[] tmp = new byte[USB_BULK_MAX];
-        for (int i = 0; i < 256; i++) {
+        for (int i = 0; i < 16; i++) {
             int n;
             try {
-                n = conn == null || epIn == null ? -1 : conn.bulkTransfer(epIn, tmp, 0, tmp.length, 30);
+                n = conn == null || epIn == null ? -1 : conn.bulkTransfer(epIn, tmp, 0, tmp.length, 20);
             } catch (Exception e) {
                 return;
             }

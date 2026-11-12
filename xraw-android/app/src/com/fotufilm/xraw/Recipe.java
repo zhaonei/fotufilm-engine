@@ -27,6 +27,8 @@ public final class Recipe {
     private int[] base = new int[D185.PROPS];
     /** 本次打包发生的"降级/受限"说明，UI 会显示出来 */
     public transient String note = "";
+    /** DR 已通过相机属性下发时置 true：profile 里就不再动 DR/优先两个字段 */
+    public transient boolean skipDrInProfile = false;
 
     public int filmSim = 17;
     public int dr = D185.DR_100;
@@ -96,8 +98,15 @@ public final class Recipe {
 
         want[D185.Idx.FILM_SIM] = filmSim;
         want[D185.Idx.EXPOSURE_BIAS] = Math.round(expBiasThirds * 1000f / 3f);
-        want[D185.Idx.WIDE_DRANGE] = drPriority;
         note = "";
+        if (skipDrInProfile) {
+            want[D185.Idx.WIDE_DRANGE] = base[D185.Idx.WIDE_DRANGE];
+            want[D185.Idx.DYNAMIC_RANGE] = base[D185.Idx.DYNAMIC_RANGE];
+            drPriority = base[D185.Idx.WIDE_DRANGE];
+            dr = base[D185.Idx.DYNAMIC_RANGE];
+            note = "DR 已由相机属性下发（profile 不重复写）";
+        }
+        want[D185.Idx.WIDE_DRANGE] = drPriority;
         if (drPriority == D185.DRP_OFF) {
             // 相机硬约束：DR 不得高于原 RAF 拍摄时的 DR
             int baseDr = base[D185.Idx.DYNAMIC_RANGE];
