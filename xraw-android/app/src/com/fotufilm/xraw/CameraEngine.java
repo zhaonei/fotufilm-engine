@@ -241,8 +241,18 @@ public final class CameraEngine {
                     listener.onCaps(c);
                     if (deviceInfo != null && deviceInfo.operations.length > 0
                             && !deviceInfo.supportsOperation(Ptp.OC_FUJI_SEND_OBJECT_INFO)) {
+                        if (s.model != null && s.model.contains("X-M5")) {
                         listener.onStatus("已连接 " + s.title()
+                                + " · 提示：X-M5 的胶片模拟拨盘若不在 C 档，会覆盖软件选择的模拟");
+                        return;
+                    }
+                    listener.onStatus("已连接 " + s.title()
                                 + " · ⚠ 相机未声明支持 0x900C（上传通道可能不同，见自检⑥）");
+                        return;
+                    }
+                    if (s.model != null && s.model.contains("X-M5")) {
+                        listener.onStatus("已连接 " + s.title()
+                                + " · 提示：X-M5 的胶片模拟拨盘若不在 C 档，会覆盖软件选择的模拟");
                         return;
                     }
                     listener.onStatus("已连接 " + s.title()

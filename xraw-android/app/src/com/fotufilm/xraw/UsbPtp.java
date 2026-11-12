@@ -38,8 +38,14 @@ public final class UsbPtp implements Closeable {
     public static final int CHUNK_DEFAULT = 128 * 1024;
     public static final int CHUNK_MAX = 512 * 1024;
     public static final int CHUNK_MIN = 4 * 1024;
-    private static final int CMD_TIMEOUT = 3000;
-    private static final int DATA_TIMEOUT = 8000;
+    private static final int CMD_TIMEOUT = 5000;
+    private static final int DATA_TIMEOUT = 30000;
+    /**
+     * 数据 IN 的首包超时：GetObject 返回的是 2~3MB 的 JPEG，
+     * 相机准备/开始推送可能远超过命令超时。给不足就会读超时 → 中止传输 →
+     * 端点被 STALL → 整场会话失效（"换几个胶片模拟就没反应"就是这么来的）。
+     */
+    private static final int IN_FIRST_TIMEOUT = 25000;
     private static final int LARGE_TIMEOUT = 180000;
     private static final int USB_BULK_MAX = 512;
     private static final int UPLOAD_CHUNK = 512 * 1024;
@@ -217,7 +223,7 @@ public final class UsbPtp implements Closeable {
         sendCommand(opcode, tid, params);
         byte[] data = new byte[0];
         while (true) {
-            Container c = readContainer(null, CMD_TIMEOUT);
+            Container c = readContainer(null, IN_FIRST_TIMEOUT);
             if (c.type == Ptp.CT_DATA) data = c.payload;
             else if (c.type == Ptp.CT_RESPONSE) {
                 Resp r = new Resp(c.code, opcode, c.params);

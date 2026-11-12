@@ -61,9 +61,16 @@ public final class Recipe {
         int dr = p.dr();
         r.dr = (dr == D185.DR_200 || dr == D185.DR_400) ? dr : D185.DR_100;
 
+        // 文档(zgrimz/X-M5 实测)：Grain 写入用 1..5；Off 会回读成 6(小) 或 7(大)
         int g = p.get(D185.Idx.GRAIN);
-        r.grainLarge = g > D185.GRAIN_STRONG;
-        r.grainStrength = Math.max(0, (r.grainLarge ? g - D185.GRAIN_SIZE_LARGE : g) - 1);
+        if (g >= 6) {                       // 6 = Off(小) / 7 = Off(大)
+            r.grainStrength = 0;
+            r.grainLarge = (g == 7);
+        } else {
+            r.grainLarge = g > D185.GRAIN_STRONG;
+            r.grainStrength = Math.max(0, Math.min(2,
+                    (r.grainLarge ? g - D185.GRAIN_SIZE_LARGE : g) - 1));
+        }
 
         r.chrome = Math.max(0, Math.min(2, p.get(D185.Idx.CHROME) - 1));
         r.fxBlue = Math.max(0, Math.min(2, p.get(D185.Idx.FX_BLUE) - 1));
