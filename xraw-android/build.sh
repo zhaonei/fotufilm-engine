@@ -77,7 +77,7 @@ if [ -n "$AAPT2" ]; then
   echo "== 3/5 aapt2 link（官方工具链，生成 binary manifest + resources.arsc）"
   "$AAPT2" link -o "$OUT/base.apk" -I "$PLATFORM" \
       --manifest app/AndroidManifest.xml \
-      app/res \
+      --dir app/res \
       --no-resource-deduping --no-static-lib-packages
   echo "== 4/5 加入 classes.dex"
   cp "$OUT/base.apk" "$OUT/$APK_NAME-unsigned.apk"
