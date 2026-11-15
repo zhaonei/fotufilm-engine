@@ -541,6 +541,16 @@ public final class Fuji {
     public byte[] render(boolean full, long timeoutMs) throws IOException {
         try {
             return renderOnce(full, timeoutMs);
+        } catch (UsbPtp.DesyncException e) {
+            throw e;                                  // 失步交给上层整条 USB 重开
+        } catch (IOException first) {
+            // 取图失败时对象可能已被相机丢弃 → 不能只重发 GetObject，
+            // 正确做法：排空残留 → 重新触发一次转换（renderOnce 内部会先清对象）
+            Log.w(TAG, "渲染失败，排空后重新触发一次: " + first.getMessage());
+            int dropped = t.drainInPipe(800);
+            Log.i(TAG, "已排空 " + dropped + "B");
+            sleepMs(300);
+            return renderOnce(full, timeoutMs);
         } finally {
             // 无论成败都清理残留对象：相机 SDRAM 被转换结果灌满后会直接停止响应，
             // 这是"越用越容易挂"的另一个来源。

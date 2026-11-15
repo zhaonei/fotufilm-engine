@@ -494,8 +494,16 @@ public final class UsbPtp implements Closeable {
 
     private Container readContainer(OutputStream sink, int headerTimeout) throws IOException {
         byte[] first = new byte[USB_BULK_MAX];
-        int have = bulkIn(first, 0, USB_BULK_MAX, headerTimeout);
-        if (have < 0) {
+        int have = -1;
+        long hdrDeadline = android.os.SystemClock.elapsedRealtime() + Math.max(headerTimeout, 30000);
+        // 相机可能在忙（重算中）：0 字节/-1 都要退避重试，不能判死
+        while (have < 0 || have == 0) {
+            have = bulkIn(first, 0, USB_BULK_MAX, Math.min(headerTimeout, 15000));
+            if (have > 0) break;
+            if (android.os.SystemClock.elapsedRealtime() > hdrDeadline) break;
+            try { Thread.sleep(30); } catch (InterruptedException ignored) { }
+        }
+        if (have <= 0) {
             // 关键：-1 是超时/错误，绝不能拿它当偏移继续读（曾导致 off=-1 len=513 的内部越界）
             throw new IOException("相机没有回应（bulk IN 超时 " + (CMD_TIMEOUT / 1000) + "s）。\n"
                     + "如果刚才有过一次上传失败，相机固件很可能已卡死——这是富士的已知行为：\n"
@@ -532,12 +540,27 @@ public final class UsbPtp implements Closeable {
         if (done > 0) {
             if (sink != null) sink.write(first, 12, done); else bos.write(first, 12, done);
         }
+        // 数据阶段：相机是"边算边发"的，单次读拿到 0 字节或超时(-1)都非常常见。
+        // 以前一遇到 n<=0 就中止，导致 2MB 图只收到 500 字节就整场失步。
+        // 现在按"总时间预算 + 连续空读上限"退避重试，只有真正超预算才认为失败。
+        long payloadDeadline = android.os.SystemClock.elapsedRealtime()
+                + Math.max(LARGE_TIMEOUT, 120_000);
+        int emptyReads = 0;
         while (done < remain) {
             int want = Math.min(rxBuf.length, remain - done);
-            int n = bulkIn(rxBuf, 0, want, LARGE_TIMEOUT);
-            if (n <= 0) throw new IOException("数据阶段中断 " + done + "/" + remain);
-            if (sink != null) sink.write(rxBuf, 0, n); else bos.write(rxBuf, 0, n);
-            done += n;
+            int n = bulkIn(rxBuf, 0, want, 15_000);
+            if (n > 0) {
+                if (sink != null) sink.write(rxBuf, 0, n); else bos.write(rxBuf, 0, n);
+                done += n;
+                emptyReads = 0;
+                continue;
+            }
+            emptyReads++;
+            if (android.os.SystemClock.elapsedRealtime() > payloadDeadline || emptyReads > 400) {
+                throw new IOException("数据阶段中断 " + done + "/" + remain
+                        + "（连续空读 " + emptyReads + " 次）");
+            }
+            try { Thread.sleep(20); } catch (InterruptedException ignored) { }
         }
         if (bos != null) c.payload = bos.toByteArray();
         return c;
