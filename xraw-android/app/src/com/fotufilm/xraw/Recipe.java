@@ -44,6 +44,8 @@ public final class Recipe {
     public int color = 0, sharpness = 0;
     public int nr = 0;
     public int clarity = 0;
+    /** 镜头调制优化器：D185.LMO_ON(1) / LMO_OFF(2)；实测 X-M5 基线为 2=关 */
+    public int lmo = D185.LMO_OFF;
     public int expBiasThirds = 0;
 
     // 输出相关（相机原生 d185 中未确认，暂不下发）
@@ -169,6 +171,7 @@ public final class Recipe {
         want[D185.Idx.SHARPNESS] = D185.encodeTenths(sharpness);
         want[D185.Idx.NOISE_RED] = D185.nrEncode(nr);
         want[D185.Idx.CLARITY] = D185.encodeTenths(clarity);
+        want[D185.Idx.LMO] = lmo;
 
         for (int i = 0; i < D185.PROPS; i++) {
             if (want[i] != base[i]) p.set(i, want[i]);
@@ -230,6 +233,7 @@ public final class Recipe {
             o.put("sharpness", sharpness);
             o.put("nr", nr);
             o.put("clarity", clarity);
+            o.put("lmo", lmo);
             o.put("expBiasThirds", expBiasThirds);
         } catch (Exception ignored) { }
         return o;
@@ -255,6 +259,7 @@ public final class Recipe {
         r.sharpness = o.optInt("sharpness", r.sharpness);
         r.nr = o.optInt("nr", r.nr);
         r.clarity = o.optInt("clarity", r.clarity);
+        r.lmo = o.optInt("lmo", r.lmo);
         r.expBiasThirds = o.optInt("expBiasThirds", r.expBiasThirds);
         return r;
     }

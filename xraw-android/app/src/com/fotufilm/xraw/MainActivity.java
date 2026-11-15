@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "2.1.3";
+    static final String APP_VERSION = "2.2.0";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001;
     private static final int REQ_RAF_BATCH = 1002;
@@ -72,9 +72,17 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     private boolean compareOriginal = false;
     private boolean histVisible = true;
 
-    private Ui.ChoiceRow simRow, wbRow, drRow, drpRow, grainRow, grainSizeRow, chromeRow, fxRow;
+    private Ui.ChoiceRow simRow, wbRow, drRow, drpRow, grainRow, grainSizeRow, chromeRow, fxRow, lmoRow;
     private Ui.ChoiceRow sizeRow, qualityRow, fileTypeRow, csRow;
     private Ui.SeekRow tempRow, wbRRow, wbBRow, hiRow, shRow, colorRow, sharpRow, nrRow, clarityRow, expRow;
+    private WbColorPadView colorPad;
+    private LinearLayout drawer, root;
+    private View drawerContent;
+    private TextView wbReadout;
+    private final LinearLayout[] tabViews = new LinearLayout[6];
+    private final TextView[] tabLabels = new TextView[6];
+    private int activeTab = -1;
+    private static final String[] TAB_NAMES = {"曝光","胶片","影调","白平衡","细节","画质"};
 
     // ---------------------------------------------------------------- 生命周期
 
@@ -150,7 +158,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         boolean wide = getResources().getConfiguration().screenWidthDp >= 640
                 || getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
 
-        LinearLayout root = Ui.column(this);
+        root = Ui.column(this);
         root.setBackgroundColor(Ui.BG);
 
         root.addView(buildTopBar());
@@ -254,7 +262,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
         root.addView(body);
         root.addView(Ui.divider(this));
-        root.addView(buildBottomBar());
+        root.addView(buildDrawer());
+        root.addView(buildTabBar());
         return root;
     }
 
@@ -281,6 +290,79 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         batch.setOnClickListener(v -> pickFile(REQ_RAF_BATCH));
         bar.addView(batch);
         return bar;
+    }
+
+    // ---------------------------------------------------------------- 抽屉 + Tab 栏
+
+    private int drawerHeightPx() {
+        return (int) (getResources().getDisplayMetrics().heightPixels * 0.35f);
+    }
+
+    /** 底部抽屉：默认收合（高度 0），点 Tab 展开到屏幕 35%，内部滚动 */
+    private View buildDrawer() {
+        drawer = Ui.column(this);
+        drawer.setBackgroundColor(Ui.PANEL2);
+        drawer.setVisibility(View.GONE);
+        drawer.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0));
+
+        LinearLayout info = Ui.row(this);
+        info.setPadding(Ui.dp(this, 12), Ui.dp(this, 4), Ui.dp(this, 12), Ui.dp(this, 2));
+        queueText = Ui.text(this, "队列空闲", Ui.TEXT_DIM, 11f, false);
+        info.addView(queueText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progress.setMax(1000);
+        progress.setVisibility(View.GONE);
+        info.addView(progress, new LinearLayout.LayoutParams(Ui.dp(this, 110), Ui.dp(this, 16)));
+        drawer.addView(info);
+
+        LinearLayout panel = Ui.column(this);
+        panel.setBackgroundColor(Ui.PANEL);
+        buildParams(panel);
+        drawerContent = Ui.scroller(this, panel, Ui.PANEL);
+        drawer.addView(drawerContent, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        return drawer;
+    }
+
+    /** 底部 Tab 栏（6 个模块）：点一下展开对应模块，再点同一 Tab 收合 */
+    private View buildTabBar() {
+        LinearLayout bar = Ui.row(this);
+        bar.setBackgroundColor(0xFF1B1B1B);
+        bar.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 48)));
+        for (int i = 0; i < TAB_NAMES.length; i++) {
+            final int idx = i;
+            TextView t = Ui.text(this, TAB_NAMES[i], Ui.TEXT_DIM, 11f, false);
+            t.setGravity(Gravity.CENTER);
+            t.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+            t.setOnClickListener(v -> toggleDrawer(idx));
+            tabLabels[i] = t;
+            bar.addView(t);
+        }
+        return bar;
+    }
+
+    private void toggleDrawer(int idx) {
+        boolean collapse = (drawer.getVisibility() == View.VISIBLE && activeTab == idx);
+        if (collapse) {
+            drawer.setVisibility(View.GONE);
+            drawer.getLayoutParams().height = 0;
+            activeTab = -1;
+        } else {
+            drawer.setVisibility(View.VISIBLE);
+            drawer.getLayoutParams().height = drawerHeightPx();
+            activeTab = idx;
+        }
+        drawer.requestLayout();
+        if (root != null) root.requestLayout();
+        for (int i = 0; i < tabLabels.length; i++) {
+            if (tabLabels[i] == null) continue;
+            boolean on = (i == activeTab);
+            tabLabels[i].setTextColor(on ? 0xFFFFFFFF : Ui.TEXT_DIM);
+            tabLabels[i].setTypeface(null, on ? android.graphics.Typeface.BOLD
+                    : android.graphics.Typeface.NORMAL);
+        }
     }
 
     private View buildBottomBar() {
@@ -400,12 +482,23 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         tempRow = new Ui.SeekRow(this, "色温 (K)", 2500, 10000, recipe.wbTemp, "K", false,
                 v -> { recipe.wbTemp = v; schedulePreview(); }, this::schedulePreview);
         c.addView(tempRow);
-        wbRRow = new Ui.SeekRow(this, "R 偏移", -9, 9, recipe.wbR, "", false,
-                v -> { recipe.wbR = v; schedulePreview(); }, this::schedulePreview);
-        c.addView(wbRRow);
-        wbBRow = new Ui.SeekRow(this, "B 偏移", -9, 9, recipe.wbB, "", false,
-                v -> { recipe.wbB = v; schedulePreview(); }, this::schedulePreview);
-        c.addView(wbBRow);
+        // 2D 色偏盘（对齐机内）：横=R、纵=B，拖动吸附整数格
+        wbReadout = Ui.text(this, "", Ui.ACCENT, 12.5f, true);
+        wbReadout.setPadding(Ui.dp(this, 12), Ui.dp(this, 4), Ui.dp(this, 12), 0);
+        c.addView(wbReadout);
+        colorPad = new WbColorPadView(this);
+        int padSize = (int) (getResources().getDisplayMetrics().widthPixels * 0.52f);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(padSize, padSize);
+        plp.gravity = Gravity.CENTER_HORIZONTAL;
+        colorPad.setLayoutParams(plp);
+        colorPad.setValue(recipe.wbR, recipe.wbB);
+        colorPad.setListener((r, b, committed) -> {
+            recipe.wbR = r; recipe.wbB = b;
+            updateWbReadout();
+            if (committed) schedulePreview();
+        });
+        c.addView(colorPad);
+        updateWbReadout();
 
         c.addView(Ui.section(this, "图像质感"));
         grainRow = new Ui.ChoiceRow(this, "颗粒效果", new String[]{"关闭", "弱", "强"},
@@ -426,6 +519,10 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         clarityRow = new Ui.SeekRow(this, "清晰度", -5, 5, recipe.clarity, "", false,
                 v -> { recipe.clarity = v; schedulePreview(); }, this::schedulePreview);
         c.addView(clarityRow);
+        lmoRow = new Ui.ChoiceRow(this, "镜头调制优化器 (LMO)", new String[]{"开", "关"},
+                recipe.lmo == D185.LMO_OFF ? 1 : 0,
+                i -> { recipe.lmo = i == 0 ? D185.LMO_ON : D185.LMO_OFF; schedulePreview(); });
+        c.addView(lmoRow);
 
         c.addView(Ui.section(this, "曝光"));
         expRow = new Ui.SeekRow(this, "曝光补偿 (1/3 EV)", -9, 9, recipe.expBiasThirds, "", false,
@@ -449,6 +546,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (chromeRow != null) chromeRow.setIndex(Math.max(0, Math.min(2, recipe.chrome)));
         if (fxRow != null) fxRow.setIndex(Math.max(0, Math.min(2, recipe.fxBlue)));
         if (wbRow != null) wbRow.setIndex(Math.max(0, recipe.wbIndex));
+        if (colorPad != null) { colorPad.setValue(recipe.wbR, recipe.wbB); updateWbReadout(); }
+        if (lmoRow != null) lmoRow.setIndex(recipe.lmo == D185.LMO_OFF ? 1 : 0);
         if (sizeRow != null) sizeRow.setIndex(recipe.imageSizeIdx);
         if (qualityRow != null) qualityRow.setIndex(recipe.qualityIdx);
         if (fileTypeRow != null) fileTypeRow.setIndex(recipe.fileTypeIdx);
@@ -901,6 +1000,19 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (suppress) return;
         ui.removeCallbacks(previewTick);
         ui.postDelayed(previewTick, 350);
+    }
+
+    /** 白平衡读数 + 色偏语义提示（随拖动变化） */
+    private void updateWbReadout() {
+        if (wbReadout == null) return;
+        int r = recipe.wbR, b = recipe.wbB;
+        String hint;
+        if (r == 0 && b == 0) hint = "中性";
+        else if (r > 0 && b > 0) hint = "偏洋红（M）· 暖";
+        else if (r > 0 && b < 0) hint = "偏红 · 暖";
+        else if (r < 0 && b > 0) hint = "偏青 · 冷";
+        else hint = "偏绿（G）· 冷";
+        wbReadout.setText(String.format(java.util.Locale.US, "R %+d   B %+d    %s", r, b, hint));
     }
 
     private void status(String msg) {

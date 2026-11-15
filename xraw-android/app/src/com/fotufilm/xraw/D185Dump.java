@@ -147,7 +147,7 @@ public final class D185Dump {
             case D185.Idx.LMO:
                 return v == 1 ? "开" : v == 2 ? "关" : "?";
             case D185.Idx.COLOR_SPACE:
-                return v == 1 ? "sRGB" : v == 3 ? "AdobeRGB" : "?";
+                return v == 2 ? "sRGB" : v == 1 ? "AdobeRGB(待验证)" : "?";
             default:
                 return "";
         }

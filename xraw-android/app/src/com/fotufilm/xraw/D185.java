@@ -63,6 +63,12 @@ public final class D185 {
     public static final int[] NR_ENCODE = {0x8000, 0x7000, 0x4000, 0x3000, 0x2000, 0x1000, 0x0000, 0x6000, 0x5000};
 
     public static final int WB_SHOOT_ON = 1, WB_SHOOT_OFF = 2;
+    /** ColorSpace：实测基线为 2（sRGB）；1 疑为 AdobeRGB（待二次验证） */
+    public static final int CS_SRGB = 2, CS_ADOBE = 1;
+
+    /** LMO：1=开 2=关（实测基线为 2，即出厂/多数场景 LMO 是关闭的） */
+    public static final int LMO_ON = 1, LMO_OFF = 2;
+
     public static final int WB_AS_SHOT = 0, WB_AUTO = 0x2, WB_AUTO_WHITE = 0x8020,
             WB_AUTO_AMBIENCE = 0x8021, WB_DAYLIGHT = 0x4, WB_INCANDESCENT = 0x6,
             WB_UNDERWATER = 0x8, WB_FL1 = 0x8001, WB_FL2 = 0x8002, WB_FL3 = 0x8003,
