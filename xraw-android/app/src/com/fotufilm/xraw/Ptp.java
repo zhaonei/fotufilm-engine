@@ -41,7 +41,8 @@ public interface Ptp {
     int RC_SESSION_NOT_OPEN = 0x2003;
     int RC_OPERATION_NOT_SUPPORTED = 0x2005;
     int RC_INVALID_TRANSACTION_ID = 0x2009;
-    int RC_DEVICE_PROP_NOT_SUPPORTED = 0x2019;
+    int RC_DEVICE_BUSY = 0x2019;              // 设备忙：相机正在处理，需轮询重试
+    int RC_DEVICE_PROP_NOT_SUPPORTED = 0x200A; // 属性不支持
     int RC_INVALID_DEVICE_PROP_VALUE = 0x201C;
     int RC_SESSION_ALREADY_OPEN = 0x201E;
 
@@ -68,7 +69,8 @@ public interface Ptp {
             case RC_GENERAL_ERROR: return "相机拒绝（0x2002）：最常见原因——这张 RAF 不是本机（或同型号）拍摄";
             case RC_SESSION_NOT_OPEN: return "会话已失效（0x2003），请重新连接";
             case RC_OPERATION_NOT_SUPPORTED: return "该机型不支持此操作（0x2005）";
-            case RC_DEVICE_PROP_NOT_SUPPORTED: return "该机型不支持此参数（0x2019）";
+            case RC_DEVICE_BUSY: return "相机忙（0x2019），正在等待…";
+            case RC_DEVICE_PROP_NOT_SUPPORTED: return "该机型不支持此参数（0x200A）";
             case RC_INVALID_DEVICE_PROP_VALUE: return "参数值被拒绝（0x201C）：常见于「动态范围优先」开启时写 DR";
             case RC_SESSION_ALREADY_OPEN: return "会话已打开（0x201E）";
             default: return String.format("PTP 错误 0x%04X", rc);

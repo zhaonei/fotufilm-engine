@@ -200,6 +200,25 @@ public final class CameraEngine {
         } catch (IOException e) {
             Log.e(TAG, "作业失败: " + job.label, e);
             captureLog();
+            // 容器失步：必须整条 USB 重开（只重建 PTP 会话救不回来）
+            if (e instanceof UsbPtp.DesyncException) {
+                Log.w(TAG, "检测到容器失步，整条 USB 重开");
+                main.post(() -> listener.onError("通信失步（多因相机重算中被打断）\n正在自动重开 USB 并重试…"));
+                if (recoverSession()) {
+                    try {
+                        handle(job);
+                        status("已自动恢复并重试成功");
+                        return;
+                    } catch (IOException e2) {
+                        sessionDead = true;
+                        final String m2 = "重试仍失败：" + e2.getMessage()
+                                + "\n（请拔插数据线后点「连接相机」，其余功能不受影响）";
+                        main.post(() -> listener.onError(m2));
+                        return;
+                    }
+                }
+                sessionDead = true;
+            }
             boolean retryable = job.kind == J_PREVIEW || job.kind == J_EXPORT || job.kind == J_CALIB;
             if (retryable) {
                 main.post(() -> listener.onError("出错：" + e.getMessage() + "\n正在自动重连相机并重试…"));

@@ -67,6 +67,11 @@ public final class UsbPtp implements Closeable {
         @Override public String toString() { return String.format("0x%04X", code); }
     }
 
+    /** 容器失步：说明 IN 管道里残留了上一次未读完的负载（典型症状：把 JPEG 里的空格当成容器长度） */
+    public static final class DesyncException extends IOException {
+        DesyncException(String m) { super(m); }
+    }
+
     public static final class DataIn {
         public final Resp resp;
         public final byte[] data;
@@ -100,6 +105,19 @@ public final class UsbPtp implements Closeable {
     public boolean hasPermission() { return usbManager.hasPermission(device); }
 
     public int chunkSize() { return chunk; }
+
+    private long lastOpAt = 0;
+    /** 两条事务之间留最小间隔：相机需要时间消化上一条（尤其切胶片模拟后要重算） */
+    private static final long MIN_GAP_MS = 60;
+
+    private void pace() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        long wait = MIN_GAP_MS - (now - lastOpAt);
+        if (wait > 0) {
+            try { Thread.sleep(wait); } catch (InterruptedException ignored) { }
+        }
+        lastOpAt = android.os.SystemClock.elapsedRealtime();
+    }
 
     private void log(String s) {
         synchronized (txLog) {
@@ -210,6 +228,7 @@ public final class UsbPtp implements Closeable {
 
     public synchronized Resp command(int opcode, int... params) throws IOException {
         drainEvents();
+        pace();
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         Resp r = waitResponse(tid, opcode);
@@ -219,22 +238,33 @@ public final class UsbPtp implements Closeable {
 
     public synchronized DataIn commandDataIn(int opcode, int... params) throws IOException {
         drainEvents();
+        pace();
         int tid = ++txId;
         sendCommand(opcode, tid, params);
         byte[] data = new byte[0];
-        while (true) {
-            Container c = readContainer(null, IN_FIRST_TIMEOUT);
-            if (c.type == Ptp.CT_DATA) data = c.payload;
-            else if (c.type == Ptp.CT_RESPONSE) {
-                Resp r = new Resp(c.code, opcode, c.params);
-                log(String.format("cmd 0x%04X %s -> %s dataLen=%d", opcode, ints(params), r, data.length));
-                return new DataIn(r, data);
+        try {
+            while (true) {
+                Container c = readContainer(null, IN_FIRST_TIMEOUT);
+                if (c.type == Ptp.CT_DATA) data = c.payload;
+                else if (c.type == Ptp.CT_RESPONSE) {
+                    Resp r = new Resp(c.code, opcode, c.params);
+                    log(String.format("cmd 0x%04X %s -> %s dataLen=%d", opcode, ints(params), r, data.length));
+                    return new DataIn(r, data);
+                }
             }
+        } catch (DesyncException e) {
+            throw e;                                  // 交给上层：排空 + 重建会话
+        } catch (IOException e) {
+            // 数据阶段被打断：立刻排空残留，避免下一次读到半个容器
+            int dropped = drainInPipe(600);
+            log("数据 IN 失败，已排空 " + dropped + "B：" + e.getMessage());
+            throw new DesyncException(e.getMessage() + "（已排空 " + dropped + "B）");
         }
     }
 
     public synchronized Resp commandDataOut(int opcode, int[] params, byte[] data) throws IOException {
         drainEvents();
+        pace();
         int tid = ++txId;
         sendCommandAndData(opcode, tid, params, data);
         Resp r = waitResponse(tid, opcode);
@@ -360,6 +390,36 @@ public final class UsbPtp implements Closeable {
         }
     }
 
+    /**
+     * 把 IN 端点上残留的字节读干净。
+     *
+     * 这是"一次失败就把整场会话搞死"的根治手段：数据阶段被打断后，
+     * 管道里一定残留着上次没读完的负载；不清干净就发新命令，
+     * 下一次读到的就是 JPEG 中间的字节（0x20202020 = 四个空格）。
+     *
+     * @param budgetMs 总时间预算，超出即返回（避免"卡死感"）
+     * @return 丢弃的字节数
+     */
+    public synchronized int drainInPipe(int budgetMs) {
+        if (conn == null || epIn == null) return 0;
+        byte[] tmp = new byte[USB_BULK_MAX];
+        int total = 0;
+        long end = android.os.SystemClock.elapsedRealtime() + budgetMs;
+        while (android.os.SystemClock.elapsedRealtime() < end) {
+            int n;
+            try {
+                n = conn.bulkTransfer(epIn, tmp, 0, tmp.length, 40);
+            } catch (Exception e) {
+                break;
+            }
+            if (n <= 0) break;
+            total += n;
+            log("drain IN " + n + "B (累计 " + total + ")");
+            if (total > 8 * 1024 * 1024) break;      // 防呆上限
+        }
+        return total;
+    }
+
     /** 上传前一次性清两个端点的 halt：相机 STALL 之后不清 halt，后续所有写都会 -1 */
     public synchronized void clearHalts() {
         if (epOut != null) clearHalt(epOut.getAddress());
@@ -453,8 +513,11 @@ public final class UsbPtp implements Closeable {
         c.type = le16(first, 4);
         c.code = le16(first, 6);
         c.tid = le32(first, 8);
-        if (total < 12 || total > 512 * 1024 * 1024)
-            throw new IOException("非法容器长度 " + total + "，会话状态错乱需重连");
+        if (total < 12 || total > 512 * 1024 * 1024) {
+            // 读到 0x20202020 这类值 = IN 管道里残留着上一张 JPEG 的负载
+            throw new DesyncException(String.format(
+                    "容器失步：非法长度 %d (0x%08X)。IN 管道残留未读完的数据。", total, total));
+        }
 
         if (c.type == Ptp.CT_RESPONSE) {
             int counted = Math.min((have - 12) / 4, 5);

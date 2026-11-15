@@ -19,6 +19,10 @@ import java.io.OutputStream;
 public final class Fuji {
     private static final String TAG = "Fuji";
     private static final int POLL_MS = 200;
+
+    private static void sleepMs(long ms) {
+        try { Thread.sleep(ms); } catch (InterruptedException ignored) { }
+    }
     private static final int OBJ_FORMAT_RAF = 0xF802;
     private static final String UPLOAD_NAME = "FUP_FILE.dat";
 
@@ -459,6 +463,35 @@ public final class Fuji {
         }
     }
 
+    /**
+     * 带 DeviceBusy 轮询的属性写入：
+     * 切换胶片模拟后相机要重新计算，可能短暂返回 0x2019(忙)，
+     * 这时必须等它算完再继续，而不是当成错误。
+     */
+    private UsbPtp.Resp putU16Wait(int code, int value, int maxTries) throws IOException {
+        byte[] d = {(byte) value, (byte) (value >>> 8)};
+        IOException last = null;
+        for (int i = 0; i < maxTries; i++) {
+            try {
+                UsbPtp.Resp r = t.commandDataOut(Ptp.OC_SET_DEVICE_PROP_VALUE, new int[]{code}, d);
+                if (r.ok()) return r;
+                if (r.code == Ptp.RC_DEVICE_BUSY || r.code == Ptp.RC_GENERAL_ERROR) {
+                    Log.i(TAG, "相机忙(0x" + Integer.toHexString(r.code) + ")，等待后重试 " + (i + 1));
+                    sleepMs(120 + 80L * i);
+                    continue;
+                }
+                return r;                       // 其它错误码交给上层判定
+            } catch (UsbPtp.DesyncException e) {
+                throw e;
+            } catch (IOException e) {
+                last = e;
+                sleepMs(120);
+            }
+        }
+        if (last != null) throw last;
+        throw new IOException("相机持续忙，写入 0x" + Integer.toHexString(code) + " 未完成");
+    }
+
     /** 相机拒绝了参数包（例如 DR 高于原片、DR 优先开启时写 DR/高光/阴影） */
     public static final class ParamRejectedException extends IOException {
         ParamRejectedException(String msg) { super(msg); }
@@ -471,15 +504,22 @@ public final class Fuji {
     public void writeProfile(D185 p) throws IOException {
         byte[] pack = p.create();
         IOException last = null;
-        for (int attempt = 0; attempt < 3; attempt++) {
+        for (int attempt = 0; attempt < 4; attempt++) {
             try {
                 UsbPtp.Resp r = t.commandDataOut(Ptp.OC_SET_DEVICE_PROP_VALUE,
                         new int[]{Ptp.DPC_RAW_CONV_PROFILE}, pack);
+                if (r.code == Ptp.RC_DEVICE_BUSY) {
+                    // 相机正在重算（切换胶片模拟后常见），等它算完再写，绝不能当错误
+                    Log.i(TAG, "写档返回 0x2019(忙)，等待 " + (150 + 100 * attempt) + "ms 后重试");
+                    sleepMs(150 + 100L * attempt);
+                    continue;
+                }
                 if (!r.ok()) {
                     throw new ParamRejectedException("相机拒绝这组参数（" + r + "）。"
                             + "常见原因：动态范围高于原 RAW、或「动态范围优先」开启时又去改 DR/高光/阴影。");
                 }
                 if (attempt > 0) Log.i(TAG, "写档第 " + (attempt + 1) + " 次成功");
+                sleepMs(120);            // 参数包落盘后给相机一点消化时间
                 return;
             } catch (ParamRejectedException e) {
                 throw e;                      // 相机明确拒绝：不必重试，交给上层提示
@@ -510,9 +550,9 @@ public final class Fuji {
 
     private byte[] renderOnce(boolean full, long timeoutMs) throws IOException {
         drainObjects();
-        // filmkit 的做法：触发转换写 0，然后用 GetObject 取回真正的转换结果。
-        // 早前用 GetThumb 取预览，拿到的往往是原 RAF 的缩略图 → 改参数"看不出变化"。
-        setU16(Ptp.DPC_START_RAW_CONV, full ? 1 : 0);
+        // 触发转换：写 0xD183（1=全分辨率）。写前已有 MIN_GAP，写后还要再等相机起算
+        putU16Wait(Ptp.DPC_START_RAW_CONV, full ? 1 : 0, 4);
+        sleepMs(180);                    // 给机身引擎起算时间，避免紧接着的轮询打到忙碌状态
 
         int handle = waitForObject(timeoutMs);
         try {
@@ -561,6 +601,7 @@ public final class Fuji {
 
     public int[] getObjectHandles() throws IOException {
         UsbPtp.DataIn r = t.commandDataIn(Ptp.OC_GET_OBJECT_HANDLES, 0xFFFFFFFF, 0, 0);
+        if (r.resp.code == Ptp.RC_DEVICE_BUSY) return new int[0];   // 忙=还没好，继续轮询
         r.resp.requireOk();
         if (r.data.length < 4) return new int[0];
         int n = UsbPtp.le32(r.data, 0);
@@ -595,20 +636,31 @@ public final class Fuji {
      * 取回对象。**失败时绝不 resync/重开会话**：对象还在相机里，
      * 重新发一次 GetObject 即可（中止传输才是把端点搞死的原因）。
      */
+    /**
+     * 取回对象。失败时**先把 IN 管道排空**再重试——这是关键：
+     * 管道里残留着上半张 JPEG 时直接重发命令，下一次读就会把 JPEG 里的
+     * 0x20202020 当成容器长度，进而整场会话失步。
+     */
     private byte[] getObject(int handle) throws IOException {
-        IOException last = null;
-        for (int attempt = 0; attempt < 3; attempt++) {
-            try {
-                UsbPtp.DataIn r = t.commandDataIn(Ptp.OC_GET_OBJECT, handle);
-                if (r.resp.ok() && r.data.length > 0) return r.data;
-                last = new IOException("GetObject 返回 " + r.resp + " len=" + r.data.length);
-            } catch (IOException e) {
-                last = e;
+        try {
+            UsbPtp.DataIn r = t.commandDataIn(Ptp.OC_GET_OBJECT, handle);
+            if (r.resp.code == Ptp.RC_DEVICE_BUSY) {
+                sleepMs(200);
+                r = t.commandDataIn(Ptp.OC_GET_OBJECT, handle);
             }
-            Log.w(TAG, "GetObject 第 " + (attempt + 1) + " 次失败: " + last.getMessage());
-            try { Thread.sleep(400L * (attempt + 1)); } catch (InterruptedException ignored) { }
+            if (r.resp.ok() && r.data.length > 0) return r.data;
+            throw new IOException("GetObject 返回 " + r.resp + " len=" + r.data.length);
+        } catch (UsbPtp.DesyncException e) {
+            throw e;                                   // 交给上层重建会话
+        } catch (IOException first) {
+            Log.w(TAG, "GetObject 失败，排空管道后重试一次: " + first.getMessage());
+            int dropped = t.drainInPipe(800);
+            sleepMs(250);
+            Log.i(TAG, "已排空 " + dropped + "B，重试 GetObject");
+            UsbPtp.DataIn r = t.commandDataIn(Ptp.OC_GET_OBJECT, handle);
+            if (r.resp.ok() && r.data.length > 0) return r.data;
+            throw new IOException("GetObject 重试仍失败：" + r.resp);
         }
-        throw last == null ? new IOException("GetObject 失败") : last;
     }
 
     private byte[] getThumbOrObject(int handle) throws IOException {
