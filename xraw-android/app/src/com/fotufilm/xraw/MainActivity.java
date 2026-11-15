@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Typeface;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.net.Uri;
@@ -16,8 +17,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.OpenableColumns;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -38,65 +39,64 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Fotofilm X RAW —— Android 版「X RAW Studio」（针对 Fujifilm X-M5 / X-Processor 5 调校）
+ * Fotofilm X RAW v4.0 —— vivo X100 Pro 专用布局（445×989dp / 20:9）
  *
- * 单 Activity，全部 UI 由代码构建（本工程不使用 gradle / AndroidX / 资源）。
- * 三个区域：左/上 = 参数面板（与机内菜单 + X RAW Studio 左栏 1:1 对齐），
- * 中 = 预览舞台，下 = 队列与进度。
+ * 结构（自上而下）：
+ *   ① 顶部会话区：状态芯片(连接) + 导入 + ⋯ ；可折叠的文件卡（名称/尺寸/删除）
+ *   ② 预览舞台（最大化）：右上浮层 EXIF+直方图（可开关）、右下对比圆钮、底部配方摘要
+ *   ③ 底部抽屉（默认收合，展开＝屏高 35% 上限，内部滚动）
+ *   ④ 底部 6 Tab：曝光 / 胶片 / 影调 / 白平衡 / 细节 / 画质
+ *
+ * 交互：点 Tab 展开对应模块，再点同一 Tab 收合；改动任意参数即自动渲染（350ms 防抖）。
  */
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
-    /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "3.2.1";
-    private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
-    private static final int REQ_TREE = 1003;
-    private static final int REQ_RAF = 1001;
-    private static final int REQ_RAF_BATCH = 1002;
+    static final String APP_VERSION = "4.0.0";
 
-    // ---- 跨重建保留的状态 ----
+    private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
+    private static final int REQ_RAF = 1001, REQ_RAF_BATCH = 1002, REQ_TREE = 1003;
+
+    private static final String[] TAB_NAMES = {"曝光", "胶片", "影调", "白平衡", "细节", "画质"};
+
+    // ---- 跨重建保留 ----
     private static CameraEngine engine;
     private static MainActivity instance;
     private static final Recipe recipe = new Recipe();
     private static byte[] lastPreview;
     private static File loadedRaf;
 
-    private final Handler ui = new Handler(Looper.getMainLooper());
-    private boolean suppress = false;
-
-    private TextView statusText, queueText, previewHint, summaryText, imageTag;
-    private ImageView preview;
-    private ProgressBar progress;
+    // ---- 视图 ----
+    private LinearLayout root, sessionBar, fileRow, drawer;
+    private LinearLayout[] pages = new LinearLayout[6];
+    private TextView[] tabLabels = new TextView[6];
+    private TextView statusText, fileName, fileMeta, summaryText, exifText, wbReadout, queueText, imageTag;
+    private ZoomImageView preview;
+    private TextView previewHint;
     private HistogramView histogram;
-    private TextView toneInfo;
-    private java.util.Map<Integer, PropDesc> caps = java.util.Collections.emptyMap();
-    private Bitmap renderedBmp, originalBmp;
-    private boolean compareOriginal = false;
-    private boolean histVisible = true;
+    private LinearLayout exifPanel;
+    private ProgressBar progress;
 
+    private boolean exifVisible = true, compareOriginal = false, suppress = false;
+    private int activeTab = -1;
+    private Bitmap renderedBmp, originalBmp;
+    private final Handler ui = new Handler(Looper.getMainLooper());
+
+    // ---- 参数行 ----
     private Ui.ChoiceRow simRow, wbRow, drRow, drpRow, grainRow, grainSizeRow, chromeRow, fxRow, lmoRow;
     private Ui.ChoiceRow sizeRow, qualityRow, fileTypeRow, csRow;
-    private Ui.SeekRow tempRow, wbRRow, wbBRow, hiRow, shRow, colorRow, sharpRow, nrRow, clarityRow, expRow;
+    private Ui.SeekRow tempRow, hiRow, shRow, colorRow, sharpRow, nrRow, clarityRow, expRow;
     private WbColorPadView colorPad;
-    private LinearLayout drawer, root;
-    private View drawerContent;
-    private TextView wbReadout;
-    private final LinearLayout[] tabViews = new LinearLayout[6];
-    private final TextView[] tabLabels = new TextView[6];
-    private int activeTab = -1;
-    private static final String[] TAB_NAMES = {"曝光","胶片","影调","白平衡","细节","画质"};
+    private TextView folderText;
 
-    // ---------------------------------------------------------------- 生命周期
+    // ================================================================ 生命周期
 
-    @Override
-    protected void onCreate(Bundle b) {
+    @Override protected void onCreate(Bundle b) {
         setTheme(android.R.style.Theme_Material_NoActionBar);
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         instance = this;
 
-        Fuji.UPLOAD_CHANNEL = getSharedPreferences("xraw", MODE_PRIVATE)
-                .getInt("uploadChannel", 2);
-
+        Fuji.UPLOAD_CHANNEL = getSharedPreferences("xraw", MODE_PRIVATE).getInt("uploadChannel", 2);
         if (engine == null) {
             engine = new CameraEngine(getApplicationContext(), forwarder);
             engine.start();
@@ -104,27 +104,23 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
         setContentView(buildRoot());
         refreshUiFromRecipe();
-        if (lastPreview != null) showRendered(lastPreview);
         registerUsbReceivers();
+        if (lastPreview != null) showRendered(lastPreview);
 
-        if (engine.isConnected() && engine.session() != null) {
-            onSession(engine.session());
-            status("已连接（旋转/重建后自动恢复）");
-        } else {
-            status("请用 USB-OTG 线连接相机，并把相机设为 USB RAW CONV./BACKUP RESTORE");
+        if (engine.isConnected() && engine.session() != null) onSession(engine.session());
+        else {
+            status("请用 USB-OTG 连接相机，并把相机设为 USB RAW CONV./BACKUP RESTORE");
             tryAutoConnect();
         }
     }
 
-    @Override
-    protected void onDestroy() {
+    @Override protected void onDestroy() {
         instance = null;
         try { unregisterReceiver(usbReceiver); } catch (Exception ignored) { }
         super.onDestroy();
     }
 
-    @Override
-    protected void onActivityResult(int req, int res, Intent data) {
+    @Override protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
         if (res != RESULT_OK || data == null) return;
         if (req == REQ_TREE) {
@@ -136,205 +132,254 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                 } catch (Exception ignored) { }
                 getSharedPreferences("xraw", MODE_PRIVATE).edit()
                         .putString("exportTree", tree.toString()).apply();
-                status("导出目录已设置");
+                if (folderText != null) folderText.setText(exportFolderLabel());
                 toast("导出目录已设置");
             }
             return;
         }
         if (req == REQ_RAF) {
-            Uri u = data.getData();
-            if (u != null) importOne(u);
-        } else if (req == REQ_RAF_BATCH) {
-            final List<File> files = new ArrayList<>();
-            List<Uri> uris = new ArrayList<>();
+            if (data.getData() != null) importOne(data.getData());
+            return;
+        }
+        if (req == REQ_RAF_BATCH) {
+            final List<Uri> uris = new ArrayList<>();
             if (data.getClipData() != null) {
                 for (int i = 0; i < data.getClipData().getItemCount(); i++)
                     uris.add(data.getClipData().getItemAt(i).getUri());
-            } else if (data.getData() != null) {
-                uris.add(data.getData());
-            }
+            } else uris.add(data.getData());
             status("正在导入 " + uris.size() + " 个文件…");
             new Thread(() -> {
-                for (Uri u : uris) {
-                    try { files.add(copyToCache(u)); } catch (IOException ignored) { }
-                }
+                final List<File> files = new ArrayList<>();
+                for (Uri u : uris) { try { files.add(copyToCache(u)); } catch (IOException ignored) { } }
                 ui.post(() -> {
-                    if (files.isEmpty()) { status("批量导入失败：没有可读文件"); return; }
-                    status("开始批量处理 " + files.size() + " 张（机内渲染，约 3~6 秒/张）");
+                    if (files.isEmpty()) { status("批量导入失败"); return; }
+                    status("批量处理 " + files.size() + " 张…");
                     engine.batch(files, recipe);
                 });
             }, "import-batch").start();
         }
     }
 
-    // ---------------------------------------------------------------- UI 构建
+    // ================================================================ 根布局
 
     private View buildRoot() {
-        boolean wide = getResources().getConfiguration().screenWidthDp >= 640
-                || getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
-
         root = Ui.column(this);
         root.setBackgroundColor(Ui.BG);
 
-        root.addView(buildTopBar());
-        root.addView(Ui.divider(this));
+        root.addView(buildSessionBar());
 
-        LinearLayout body = wide ? Ui.row(this) : Ui.column(this);
-        body.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-
-        // 预览舞台
+        // 预览舞台（最大化）
         FrameLayout stage = new FrameLayout(this);
-        stage.setBackgroundColor(0xFF0C0C0D);
-        preview = new ImageView(this);
-        preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        preview.setAdjustViewBounds(true);
+        stage.setBackgroundColor(0xFF0F0F0F);
+
+        preview = new ZoomImageView(this);
+        preview.setScaleType(ImageView.ScaleType.MATRIX);
+        preview.setOnCompareHold(holding -> {
+            if (holding && originalBmp != null && !compareOriginal) {
+                preview.setImageBitmap(originalBmp);
+                if (imageTag != null) imageTag.setText("原图（RAF 内嵌 JPEG）");
+            } else if (!holding) {
+                applyDisplay();
+            }
+        });
         stage.addView(preview, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        previewHint = Ui.text(this, "尚无预览\n\n① 连接相机 → ② 导入一张本机拍的 RAF → ③ 调整参数", Ui.TEXT_DIM, 13f, false);
+
+        previewHint = Ui.text(this, "尚无预览\n\n① 连接相机 → ② 导入一张本机拍的 RAW → ③ 调整参数",
+                Ui.TEXT_DIM, 13f, false);
         previewHint.setGravity(Gravity.CENTER);
         stage.addView(previewHint, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        summaryText = Ui.text(this, "", Ui.TEXT_DIM, 12f, false);
-        summaryText.setPadding(Ui.dp(this, 12), Ui.dp(this, 6), Ui.dp(this, 12), Ui.dp(this, 6));
-        FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        slp.gravity = Gravity.BOTTOM;
-        stage.addView(summaryText, slp);
-
-        // ---- 直方图叠层（右上） ----
+        // 右上：EXIF + 直方图 融合浮层
+        exifPanel = Ui.column(this);
+        exifPanel.setBackground(Ui.bg(0xDC0C0C0D, 7, Ui.LINE, this));
+        exifPanel.setPadding(Ui.dp(this, 9), Ui.dp(this, 7), Ui.dp(this, 9), Ui.dp(this, 6));
+        exifText = Ui.text(this, "—", 0xFFDCDCDC, 10.5f, false);
+        exifText.setLineSpacing(Ui.dp(this, 2), 1f);
+        exifPanel.addView(exifText);
+        View sep = new View(this);
+        sep.setBackgroundColor(Ui.LINE);
+        exifPanel.addView(sep, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, Ui.dp(this, 0.7f))));
         histogram = new HistogramView(this);
-        FrameLayout.LayoutParams hlp = new FrameLayout.LayoutParams(
-                Ui.dp(this, 148), Ui.dp(this, 86));
-        hlp.gravity = Gravity.TOP | Gravity.END;
-        hlp.setMargins(0, Ui.dp(this, 8), Ui.dp(this, 8), 0);
-        stage.addView(histogram, hlp);
-
-        // ---- 左上：直方图/对比 开关 + 当前图像标识 ----
-        LinearLayout stageTools = Ui.row(this);
-        stageTools.setPadding(Ui.dp(this, 8), Ui.dp(this, 8), 0, 0);
-
-        android.widget.Button histBtn = Ui.button(this, "直方图", false);
-        histBtn.setOnClickListener(v -> {
-            histVisible = !histVisible;
-            histogram.setVisibility(histVisible ? View.VISIBLE : View.GONE);
+        exifPanel.addView(histogram, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 46)));
+        FrameLayout.LayoutParams elp = new FrameLayout.LayoutParams(
+                Ui.dp(this, 172), ViewGroup.LayoutParams.WRAP_CONTENT);
+        elp.gravity = Gravity.TOP | Gravity.END;
+        elp.setMargins(0, Ui.dp(this, 10), Ui.dp(this, 10), 0);
+        exifPanel.setOnClickListener(v -> {
+            exifVisible = false;
+            exifPanel.setVisibility(View.GONE);
+            toast("信息面板已隐藏，点顶栏 ▥ 可恢复");
         });
-        stageTools.addView(histBtn);
+        stage.addView(exifPanel, elp);
 
-        android.widget.Button cmpBtn = Ui.button(this, "对比原图", false);
-        cmpBtn.setOnClickListener(v -> {
+        // 右下：对比圆钮
+        TextView cmp = Ui.text(this, "◐", Ui.TEXT, 15f, true);
+        cmp.setGravity(Gravity.CENTER);
+        cmp.setBackground(Ui.bg(0xCC121212, 19, 0xFF4A4A4A, this));
+        cmp.setOnClickListener(v -> {
             if (originalBmp == null) { toast("还没有原图：请先导入一张 RAF"); return; }
             compareOriginal = !compareOriginal;
             applyDisplay();
         });
-        stageTools.addView(cmpBtn);
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(Ui.dp(this, 38), Ui.dp(this, 38));
+        clp.gravity = Gravity.BOTTOM | Gravity.END;
+        clp.setMargins(0, 0, Ui.dp(this, 12), Ui.dp(this, 12));
+        stage.addView(cmp, clp);
 
-        imageTag = Ui.text(this, "", Ui.TEXT_DIM, 11.5f, false);
-        imageTag.setPadding(Ui.dp(this, 8), 0, 0, 0);
-        stageTools.addView(imageTag);
-
-        FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(
+        // 底部：配方摘要 + 图像标识
+        summaryText = Ui.text(this, "", 0xFFC9C9C9, 11f, false);
+        summaryText.setBackground(Ui.bg(0x6B000000, 4, this));
+        summaryText.setPadding(Ui.dp(this, 8), Ui.dp(this, 3), Ui.dp(this, 8), Ui.dp(this, 3));
+        FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        tlp.gravity = Gravity.TOP | Gravity.START;
-        stage.addView(stageTools, tlp);
+        slp.gravity = Gravity.BOTTOM | Gravity.START;
+        slp.setMargins(Ui.dp(this, 12), 0, Ui.dp(this, 60), Ui.dp(this, 14));
+        stage.addView(summaryText, slp);
 
-        // ---- 长按预览 = 临时看原图（松手回到当前渲染） ----
-        preview.setOnTouchListener((v, ev) -> {
-            switch (ev.getActionMasked()) {
-                case android.view.MotionEvent.ACTION_DOWN:
-                    if (originalBmp != null && !compareOriginal) {
-                        preview.setImageBitmap(originalBmp);
-                        if (imageTag != null) imageTag.setText("原图（RAF 内嵌 JPEG）");
-                    }
-                    return true;
-                case android.view.MotionEvent.ACTION_UP:
-                case android.view.MotionEvent.ACTION_CANCEL:
-                    applyDisplay();
-                    return true;
-                default:
-                    return true;
-            }
-        });
+        imageTag = Ui.text(this, "", Ui.TEXT_DIM, 9.5f, false);
+        FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ilp.gravity = Gravity.BOTTOM | Gravity.END;
+        ilp.setMargins(0, 0, Ui.dp(this, 60), Ui.dp(this, 4));
+        stage.addView(imageTag, ilp);
 
-        LinearLayout stageCol = Ui.column(this);
-        stageCol.addView(stage, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        if (!wide) stageCol.setLayoutParams(new LinearLayout.LayoutParams(
+        root.addView(stage, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        else stageCol.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
-        body.addView(stageCol);
 
-        root.addView(body);
-        root.addView(Ui.divider(this));
         root.addView(buildDrawer());
         root.addView(buildTabBar());
         return root;
     }
 
-    private View buildTopBar() {
-        LinearLayout bar = Ui.row(this);
-        bar.setBackgroundColor(Ui.PANEL2);
-        bar.setPadding(Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 10), Ui.dp(this, 8));
+    // ---------------------------------------------------------------- 顶部会话区
 
-        LinearLayout left = Ui.column(this);
-        left.addView(Ui.text(this, "Fotofilm X RAW  v" + APP_VERSION, Ui.TEXT, 15f, true));
-        statusText = Ui.text(this, "未连接", Ui.TEXT_DIM, 11.5f, false);
-        left.addView(statusText);
-        bar.addView(left, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+    private View buildSessionBar() {
+        sessionBar = Ui.column(this);
+        sessionBar.setBackgroundColor(0xFF1B1B1B);
 
-        android.widget.Button connect = Ui.button(this, "连接相机", true);
+        LinearLayout row = Ui.row(this);
+        row.setPadding(Ui.dp(this, 10), Ui.dp(this, 7), Ui.dp(this, 8), Ui.dp(this, 7));
+
+        LinearLayout titleCol = Ui.column(this);
+        titleCol.addView(Ui.text(this, "Fotofilm X RAW  v" + APP_VERSION, Ui.TEXT, 13f, true));
+        statusText = Ui.text(this, "未连接", Ui.TEXT_DIM, 10.5f, false);
+        statusText.setMaxLines(2);
+        titleCol.addView(statusText);
+        row.addView(titleCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        android.widget.Button connect = Ui.button(this, "连接", true);
         connect.setOnClickListener(v -> tryAutoConnect());
-        bar.addView(connect);
+        row.addView(connect);
 
-        android.widget.Button imp = Ui.button(this, "导入 RAF", false);
+        android.widget.Button imp = Ui.button(this, "导入", false);
         imp.setOnClickListener(v -> pickFile(REQ_RAF));
-        bar.addView(imp);
+        row.addView(imp);
+
+        android.widget.Button panelBtn = Ui.button(this, "▥", false);
+        panelBtn.setOnClickListener(v -> {
+            exifVisible = !exifVisible;
+            if (exifPanel != null) exifPanel.setVisibility(exifVisible ? View.VISIBLE : View.GONE);
+        });
+        row.addView(panelBtn);
 
         android.widget.Button more = Ui.button(this, "⋯", false);
         more.setOnClickListener(v -> showMoreMenu());
-        bar.addView(more);
-        return bar;
+        row.addView(more);
+
+        TextView fold = Ui.text(this, "▾", Ui.TEXT_DIM, 13f, false);
+        fold.setPadding(Ui.dp(this, 6), Ui.dp(this, 6), Ui.dp(this, 4), Ui.dp(this, 6));
+        row.addView(fold);
+        sessionBar.addView(row);
+
+        // 文件卡（可折叠）
+        fileRow = Ui.row(this);
+        fileRow.setPadding(Ui.dp(this, 10), 0, Ui.dp(this, 10), Ui.dp(this, 8));
+        LinearLayout meta = Ui.column(this);
+        fileName = Ui.text(this, "未导入 RAF", 0xFFE0E0E0, 12f, false);
+        fileMeta = Ui.text(this, "连接相机后点「导入」", Ui.TEXT_DIM, 10f, false);
+        meta.addView(fileName);
+        meta.addView(fileMeta);
+        fileRow.addView(meta, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView del = Ui.text(this, "✕", 0xFFC0726B, 13f, false);
+        del.setPadding(Ui.dp(this, 10), Ui.dp(this, 6), Ui.dp(this, 6), Ui.dp(this, 6));
+        del.setOnClickListener(v -> clearRaf());
+        fileRow.addView(del);
+        sessionBar.addView(fileRow);
+
+        fold.setOnClickListener(v -> {
+            boolean show = fileRow.getVisibility() != View.VISIBLE;
+            fileRow.setVisibility(show ? View.VISIBLE : View.GONE);
+            fold.setText(show ? "▾" : "▸");
+        });
+        return sessionBar;
     }
 
-    // ---------------------------------------------------------------- 抽屉 + Tab 栏
+    private void clearRaf() {
+        loadedRaf = null;
+        fileName.setText("未导入 RAF");
+        fileMeta.setText("连接相机后点「导入」");
+        originalBmp = null;
+        renderedBmp = null;
+        lastPreview = null;
+        preview.setImageDrawable(null);
+        previewHint.setVisibility(View.VISIBLE);
+        summaryText.setText("");
+        if (engine != null) engine.disconnect();
+        status("已清除当前 RAF");
+    }
+
+    // ---------------------------------------------------------------- 抽屉 + Tab
 
     private int drawerHeightPx() {
         return (int) (getResources().getDisplayMetrics().heightPixels * 0.35f);
     }
 
-    /** 底部抽屉：默认收合（高度 0），点 Tab 展开到屏幕 35%，内部滚动 */
     private View buildDrawer() {
         drawer = Ui.column(this);
         drawer.setBackgroundColor(Ui.PANEL2);
         drawer.setVisibility(View.GONE);
-        drawer.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0));
+        drawer.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0));
 
         LinearLayout info = Ui.row(this);
-        info.setPadding(Ui.dp(this, 12), Ui.dp(this, 4), Ui.dp(this, 12), Ui.dp(this, 2));
-        queueText = Ui.text(this, "队列空闲", Ui.TEXT_DIM, 11f, false);
+        info.setPadding(Ui.dp(this, 12), Ui.dp(this, 3), Ui.dp(this, 12), Ui.dp(this, 2));
+        queueText = Ui.text(this, "队列空闲", Ui.TEXT_DIM, 10.5f, false);
         info.addView(queueText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(1000);
         progress.setVisibility(View.GONE);
-        info.addView(progress, new LinearLayout.LayoutParams(Ui.dp(this, 110), Ui.dp(this, 16)));
+        info.addView(progress, new LinearLayout.LayoutParams(Ui.dp(this, 100), Ui.dp(this, 14)));
         drawer.addView(info);
 
-        LinearLayout panel = Ui.column(this);
-        panel.setBackgroundColor(Ui.PANEL);
-        buildParams(panel);
-        drawerContent = Ui.scroller(this, panel, Ui.PANEL);
-        drawer.addView(drawerContent, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        FrameLayout holder = new FrameLayout(this);
+        for (int i = 0; i < 6; i++) {
+            LinearLayout page = Ui.column(this);
+            page.setBackgroundColor(Ui.PANEL);
+            page.setVisibility(View.GONE);
+            ScrollView sv = Ui.scroller(this, page, Ui.PANEL);
+            sv.setVisibility(View.GONE);
+            pages[i] = page;
+            holder.addView(sv, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            holder.getChildAt(i).setTag("page" + i);
+        }
+        drawer.addView(holder, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        drawer.setTag(holder);
+
+        buildPages();
         return drawer;
     }
 
-    /** 底部 Tab 栏（6 个模块）：点一下展开对应模块，再点同一 Tab 收合 */
     private View buildTabBar() {
         LinearLayout bar = Ui.row(this);
         bar.setBackgroundColor(0xFF1B1B1B);
         bar.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 48)));
-        for (int i = 0; i < TAB_NAMES.length; i++) {
+        for (int i = 0; i < 6; i++) {
             final int idx = i;
             TextView t = Ui.text(this, TAB_NAMES[i], Ui.TEXT_DIM, 11f, false);
             t.setGravity(Gravity.CENTER);
@@ -357,137 +402,92 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
             drawer.getLayoutParams().height = drawerHeightPx();
             activeTab = idx;
         }
+        ViewGroup holder = (ViewGroup) drawer.getTag();
+        if (holder != null) {
+            for (int i = 0; i < holder.getChildCount(); i++) {
+                holder.getChildAt(i).setVisibility(i == activeTab ? View.VISIBLE : View.GONE);
+            }
+        }
         drawer.requestLayout();
         if (root != null) root.requestLayout();
-        for (int i = 0; i < tabLabels.length; i++) {
+        for (int i = 0; i < 6; i++) {
             if (tabLabels[i] == null) continue;
             boolean on = (i == activeTab);
             tabLabels[i].setTextColor(on ? 0xFFFFFFFF : Ui.TEXT_DIM);
-            tabLabels[i].setTypeface(null, on ? android.graphics.Typeface.BOLD
-                    : android.graphics.Typeface.NORMAL);
+            tabLabels[i].setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
         }
     }
 
-    /** 顶栏 ⋯：批量 / 配方工坊 / 配方库 / 自检 / 导出日志 */
-    private void showMoreMenu() {
-        final String[] items = {
-                "批量导入 RAF",
-                "配方工坊（读取 C1–C4）",
-                "配方库（本地）",
-                "自检与日志",
-                "导出诊断日志",
-        };
-        new AlertDialog.Builder(this)
-                .setTitle("更多")
-                .setItems(items, (d, which) -> {
-                    switch (which) {
-                        case 0: pickFile(REQ_RAF_BATCH); break;
-                        case 1:
-                            if (!engine.isConnected()) { toast("请先连接相机"); return; }
-                            status("读取相机槽位 C1–C4 …");
-                            engine.readSlots();
-                            break;
-                        case 2: loadRecipeDialog(); break;
-                        case 3: probeDialog(); break;
-                        case 4: engine.probeDump(); break;
-                    }
-                })
-                .setNegativeButton("取消", null)
-                .show();
+    // ================================================================ 6 个页面
+
+    private void buildPages() {
+        pageExposure(pages[0]);
+        pageFilm(pages[1]);
+        pageTone(pages[2]);
+        pageWb(pages[3]);
+        pageDetail(pages[4]);
+        pageOutput(pages[5]);
     }
 
-    private View buildBottomBar() {
-        LinearLayout bar = Ui.column(this);
-        bar.setBackgroundColor(Ui.PANEL2);
-        bar.setPadding(Ui.dp(this, 10), Ui.dp(this, 6), Ui.dp(this, 10), Ui.dp(this, 6));
-
-        LinearLayout info = Ui.row(this);
-        queueText = Ui.text(this, "队列空闲", Ui.TEXT_DIM, 11.5f, false);
-        info.addView(queueText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        progress.setMax(1000);
-        progress.setVisibility(View.GONE);
-        info.addView(progress, new LinearLayout.LayoutParams(Ui.dp(this, 120), Ui.dp(this, 18)));
-        bar.addView(info);
-
-        // 按钮行必须可横向滚动：之前「自检」被挤出屏幕，导致无法导出日志
-        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        LinearLayout btns = Ui.row(this);
-
-        android.widget.Button prev = Ui.button(this, "预览", true);
-        prev.setOnClickListener(v -> {
-            if (!engine.isConnected()) { toast("请先连接相机"); return; }
-            if (loadedRaf == null) { toast("请先导入并上传一张 RAF"); return; }
-            engine.preview(recipe);
-        });
-        btns.addView(prev);
-
-        android.widget.Button exp = Ui.button(this, "导出全图", true);
-        exp.setOnClickListener(v -> {
-            if (!engine.isConnected()) { toast("请先连接相机"); return; }
-            if (loadedRaf == null) { toast("请先导入并上传一张 RAF"); return; }
-            status("导出中：机身正在按 " + recipe.summaryText() + " 渲染");
-            engine.export(recipe);
-        });
-        btns.addView(exp);
-
-        android.widget.Button save = Ui.button(this, "存配方", false);
-        save.setOnClickListener(v -> saveRecipeDialog());
-        btns.addView(save);
-
-        android.widget.Button load = Ui.button(this, "配方库", false);
-        load.setOnClickListener(v -> loadRecipeDialog());
-        btns.addView(load);
-
-        android.widget.Button probe = Ui.button(this, "自检", false);
-        probe.setOnClickListener(v -> probeDialog());
-        btns.addView(probe);
-
-        android.widget.Button logBtn = Ui.button(this, "导出日志", true);
-        logBtn.setOnClickListener(v -> {
-            status("正在导出诊断日志…");
-            engine.probeDump();
-        });
-        btns.addView(logBtn);
-
-        hs.addView(btns);
-        bar.addView(hs);
-        return bar;
-    }
-
-    private void buildParams(LinearLayout c) {
-        c.addView(Ui.section(this, "输出"));
-        sizeRow = new Ui.ChoiceRow(this, "图像尺寸", D185.SIM_NAMES.length > 0
-                ? new String[]{"L 3:2", "L 16:9", "L 1:1", "M 3:2", "M 16:9", "M 1:1", "S 3:2", "S 16:9", "S 1:1"}
-                : new String[]{}, recipe.imageSizeIdx, i -> { recipe.imageSizeIdx = i; schedulePreview(); });
-        c.addView(sizeRow);
-        qualityRow = new Ui.ChoiceRow(this, "图像质量", new String[]{"FINE", "NORMAL"}, recipe.qualityIdx,
-                i -> { recipe.qualityIdx = i; schedulePreview(); });
-        c.addView(qualityRow);
-        fileTypeRow = new Ui.ChoiceRow(this, "文件类型", new String[]{"JPEG", "TIFF 8bit", "TIFF 16bit"},
-                recipe.fileTypeIdx, i -> { recipe.fileTypeIdx = i; schedulePreview(); });
-        c.addView(fileTypeRow);
-        csRow = new Ui.ChoiceRow(this, "色彩空间", new String[]{"sRGB", "AdobeRGB"}, recipe.colorSpaceIdx,
-                i -> { recipe.colorSpaceIdx = i; schedulePreview(); });
-        c.addView(csRow);
-
-        c.addView(Ui.section(this, "胶片模拟"));
-        simRow = new Ui.ChoiceRow(this, "胶片模拟", D185.SIM_NAMES,
-                indexOf(D185.SIM_VALUES, recipe.filmSim), i -> { recipe.filmSim = D185.SIM_VALUES[i]; schedulePreview(); });
-        c.addView(simRow);
+    private void pageExposure(LinearLayout c) {
+        c.addView(Ui.section(this, "曝光补偿"));
+        expRow = new Ui.SeekRow(this, "曝光补偿 (1/3 EV)", -9, 9, recipe.expBiasThirds, "", false,
+                v -> { recipe.expBiasThirds = v; schedulePreview(); }, this::schedulePreview);
+        c.addView(expRow);
 
         c.addView(Ui.section(this, "动态范围"));
         drRow = new Ui.ChoiceRow(this, "动态范围", new String[]{"DR100", "DR200", "DR400"},
-                recipe.dr == 200 ? 1 : recipe.dr == 400 ? 2 : 0,
-                i -> { recipe.dr = i == 1 ? 200 : i == 2 ? 400 : 100; schedulePreview(); });
+                recipe.dr == 200 ? 1 : recipe.dr == 400 ? 2 : 0, i -> {
+                    recipe.dr = i == 1 ? 200 : i == 2 ? 400 : 100;
+                    schedulePreview();
+                });
         c.addView(drRow);
         drpRow = new Ui.ChoiceRow(this, "动态范围优先", new String[]{"关闭", "弱", "强"},
-                Math.max(0, recipe.drPriority), i -> { recipe.drPriority = i; schedulePreview(); });
+                Math.max(0, Math.min(2, recipe.drPriority)), i -> {
+                    recipe.drPriority = i;
+                    schedulePreview();
+                });
         c.addView(drpRow);
+        TextView hint = Ui.text(this, "注：「动态范围优先」需在相机内设置；DR 不能高于原片",
 
-        c.addView(Ui.section(this, "色调曲线（机内整数刻度 -4 ~ +4）"));
-        c.addView(Ui.section(this, "机内为 0.5 档（-2.0 ~ +4.0）"));
+                Ui.TEXT_DIM, 10f, false);
+        hint.setPadding(Ui.dp(this, 12), Ui.dp(this, 2), Ui.dp(this, 12), Ui.dp(this, 8));
+        c.addView(hint);
+        c.addView(new View(this), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 16)));
+    }
+
+    private void pageFilm(LinearLayout c) {
+        c.addView(Ui.section(this, "胶片模拟"));
+        simRow = new Ui.ChoiceRow(this, "胶片模拟", D185.SIM_NAMES,
+                indexOf(D185.SIM_VALUES, recipe.filmSim), i -> {
+                    recipe.filmSim = D185.SIM_VALUES[i];
+                    schedulePreview();
+                });
+        c.addView(simRow);
+
+        c.addView(Ui.section(this, "颗粒"));
+        grainRow = new Ui.ChoiceRow(this, "颗粒效果", new String[]{"关闭", "弱", "强"},
+                Math.max(0, Math.min(2, recipe.grainStrength)), i -> {
+                    recipe.grainStrength = i;
+                    schedulePreview();
+                });
+        c.addView(grainRow);
+        grainSizeRow = new Ui.ChoiceRow(this, "颗粒大小", new String[]{"小", "大"},
+                recipe.grainLarge ? 1 : 0, i -> { recipe.grainLarge = i == 1; schedulePreview(); });
+        c.addView(grainSizeRow);
+
+        c.addView(Ui.section(this, "色彩效果"));
+        chromeRow = new Ui.ChoiceRow(this, "彩色铬效应", new String[]{"关闭", "弱", "强"},
+                Math.max(0, Math.min(2, recipe.chrome)), i -> { recipe.chrome = i; schedulePreview(); });
+        c.addView(chromeRow);
+        fxRow = new Ui.ChoiceRow(this, "彩色 FX 蓝色", new String[]{"关闭", "弱", "强"},
+                Math.max(0, Math.min(2, recipe.fxBlue)), i -> { recipe.fxBlue = i; schedulePreview(); });
+        c.addView(fxRow);
+        c.addView(new View(this), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 16)));
+    }
+
+    private void pageTone(LinearLayout c) {
+        c.addView(Ui.section(this, "色调曲线（0.5 档：-2.0 ~ +4.0）"));
         hiRow = new Ui.SeekRow(this, "高光色调", -20, 40, recipe.highlight, "", true,
                 v -> { recipe.highlight = v; schedulePreview(); }, this::schedulePreview);
         hiRow.scale(10);
@@ -499,74 +499,154 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         shRow.setRange(-20, 40, 5, true, recipe.shadow);
         c.addView(shRow);
 
-        c.addView(Ui.section(this, "色彩（细微变化在预览尺寸下可能不明显，导出后可见）"));
+        c.addView(Ui.section(this, "色彩与清晰度"));
         colorRow = new Ui.SeekRow(this, "色彩", -4, 4, recipe.color, "", false,
                 v -> { recipe.color = v; schedulePreview(); }, this::schedulePreview);
         c.addView(colorRow);
-        sharpRow = new Ui.SeekRow(this, "锐度", -4, 4, recipe.sharpness, "", false,
-                v -> { recipe.sharpness = v; schedulePreview(); }, this::schedulePreview);
-        c.addView(sharpRow);
+        clarityRow = new Ui.SeekRow(this, "清晰度", -5, 5, recipe.clarity, "", false,
+                v -> { recipe.clarity = v; schedulePreview(); }, this::schedulePreview);
+        c.addView(clarityRow);
+        c.addView(new View(this), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 16)));
+    }
 
+    private void pageWb(LinearLayout c) {
         c.addView(Ui.section(this, "白平衡"));
-        wbRow = new Ui.ChoiceRow(this, "白平衡", D185.WB_NAMES, recipe.wbIndex, i -> { recipe.wbIndex = i; schedulePreview(); });
+        wbRow = new Ui.ChoiceRow(this, "白平衡模式", D185.WB_NAMES, recipe.wbIndex, i -> {
+            recipe.wbIndex = i;
+            updateWbReadout();
+            schedulePreview();
+        });
         c.addView(wbRow);
+
         tempRow = new Ui.SeekRow(this, "色温 (K)", 2500, 10000, Math.max(2500, recipe.wbTemp), "K", false,
                 v -> { recipe.wbTemp = v; recipe.wbTempTouched = true; schedulePreview(); },
                 this::schedulePreview);
         c.addView(tempRow);
-        // 2D 色偏盘（对齐机内）：横=R、纵=B，拖动吸附整数格
+
         wbReadout = Ui.text(this, "", Ui.ACCENT, 12.5f, true);
-        wbReadout.setPadding(Ui.dp(this, 12), Ui.dp(this, 4), Ui.dp(this, 12), 0);
+        wbReadout.setPadding(Ui.dp(this, 12), Ui.dp(this, 6), Ui.dp(this, 12), 0);
         c.addView(wbReadout);
+
         colorPad = new WbColorPadView(this);
-        int padSize = (int) (getResources().getDisplayMetrics().widthPixels * 0.52f);
-        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(padSize, padSize);
+        int size = (int) (getResources().getDisplayMetrics().widthPixels * 0.52f);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(size, size);
         plp.gravity = Gravity.CENTER_HORIZONTAL;
+        plp.topMargin = Ui.dp(this, 4);
         colorPad.setLayoutParams(plp);
         colorPad.setValue(recipe.wbR, recipe.wbB);
-        colorPad.setListener((r, b, committed) -> {
-            recipe.wbR = r; recipe.wbB = b;
+        colorPad.setListener((r, bb, committed) -> {
+            recipe.wbR = r; recipe.wbB = bb;
             updateWbReadout();
             if (committed) schedulePreview();
         });
         c.addView(colorPad);
         updateWbReadout();
+        c.addView(new View(this), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 16)));
+    }
 
-        c.addView(Ui.section(this, "图像质感"));
-        grainRow = new Ui.ChoiceRow(this, "颗粒效果", new String[]{"关闭", "弱", "强"},
-                recipe.grainStrength, i -> { recipe.grainStrength = i; schedulePreview(); });
-        c.addView(grainRow);
-        grainSizeRow = new Ui.ChoiceRow(this, "颗粒大小", new String[]{"小", "大"},
-                recipe.grainLarge ? 1 : 0, i -> { recipe.grainLarge = i == 1; schedulePreview(); });
-        c.addView(grainSizeRow);
-        chromeRow = new Ui.ChoiceRow(this, "彩色铬效应", new String[]{"关闭", "弱", "强"},
-                recipe.chrome, i -> { recipe.chrome = i; schedulePreview(); });
-        c.addView(chromeRow);
-        fxRow = new Ui.ChoiceRow(this, "彩色 FX 蓝色", new String[]{"关闭", "弱", "强"},
-                recipe.fxBlue, i -> { recipe.fxBlue = i; schedulePreview(); });
-        c.addView(fxRow);
+    private void pageDetail(LinearLayout c) {
+        c.addView(Ui.section(this, "细节"));
+        sharpRow = new Ui.SeekRow(this, "锐度", -4, 4, recipe.sharpness, "", false,
+                v -> { recipe.sharpness = v; schedulePreview(); }, this::schedulePreview);
+        c.addView(sharpRow);
         nrRow = new Ui.SeekRow(this, "降噪", -4, 4, recipe.nr, "", false,
                 v -> { recipe.nr = v; schedulePreview(); }, this::schedulePreview);
         c.addView(nrRow);
-        clarityRow = new Ui.SeekRow(this, "清晰度", -5, 5, recipe.clarity, "", false,
-                v -> { recipe.clarity = v; schedulePreview(); }, this::schedulePreview);
-        c.addView(clarityRow);
+        clarityRowLite(c);
+
+        c.addView(Ui.section(this, "镜头"));
         lmoRow = new Ui.ChoiceRow(this, "镜头调制优化器 (LMO)", new String[]{"开", "关"},
-                recipe.lmo == D185.LMO_OFF ? 1 : 0,
-                i -> { recipe.lmo = i == 0 ? D185.LMO_ON : D185.LMO_OFF; schedulePreview(); });
+                recipe.lmo == D185.LMO_OFF ? 1 : 0, i -> {
+                    recipe.lmo = i == 0 ? D185.LMO_ON : D185.LMO_OFF;
+                    schedulePreview();
+                });
         c.addView(lmoRow);
-
-        c.addView(Ui.section(this, "曝光"));
-        expRow = new Ui.SeekRow(this, "曝光补偿 (1/3 EV)", -9, 9, recipe.expBiasThirds, "", false,
-                v -> { recipe.expBiasThirds = v; schedulePreview(); }, this::schedulePreview);
-        c.addView(expRow);
-
-        View spacer = new View(this);
-        spacer.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 24)));
-        c.addView(spacer);
+        TextView hint = Ui.text(this, "镜头畸变/暗角/色差由机身自动校正；LMO 补偿衍射与镜头模糊",
+                Ui.TEXT_DIM, 10f, false);
+        hint.setPadding(Ui.dp(this, 12), Ui.dp(this, 2), Ui.dp(this, 12), Ui.dp(this, 8));
+        c.addView(hint);
+        c.addView(new View(this), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 16)));
     }
 
-    // ---------------------------------------------------------------- 参数 <-> UI
+    /** 细节页也放一个清晰度（与影调页联动同一份 recipe 值） */
+    private void clarityRowLite(LinearLayout c) {
+        Ui.SeekRow row = new Ui.SeekRow(this, "清晰度", -5, 5, recipe.clarity, "", false,
+                v -> { recipe.clarity = v; schedulePreview(); }, this::schedulePreview);
+        c.addView(row);
+    }
+
+    private void pageOutput(LinearLayout c) {
+        c.addView(Ui.section(this, "输出（机身原生）"));
+        fileTypeRow = new Ui.ChoiceRow(this, "文件类型", Recipe.FILETYPE_NAMES, recipe.fileTypeIdx, i -> {
+            recipe.fileTypeIdx = i;
+            schedulePreview();
+        });
+        c.addView(fileTypeRow);
+        sizeRow = new Ui.ChoiceRow(this, "图像尺寸", Recipe.SIZE_NAMES, recipe.imageSizeIdx, i -> {
+            recipe.imageSizeIdx = i;
+            schedulePreview();
+        });
+        c.addView(sizeRow);
+        qualityRow = new Ui.ChoiceRow(this, "图像质量", Recipe.QUALITY_NAMES, recipe.qualityIdx, i -> {
+            recipe.qualityIdx = i;
+            schedulePreview();
+        });
+        c.addView(qualityRow);
+        csRow = new Ui.ChoiceRow(this, "色彩空间", Recipe.CSPACE_NAMES, recipe.colorSpaceIdx, i -> {
+            recipe.colorSpaceIdx = i;
+            schedulePreview();
+        });
+        c.addView(csRow);
+
+        c.addView(Ui.section(this, "导出"));
+        folderText = Ui.text(this, exportFolderLabel(), Ui.TEXT_DIM, 10.5f, false);
+        folderText.setPadding(Ui.dp(this, 12), Ui.dp(this, 4), Ui.dp(this, 12), Ui.dp(this, 2));
+        c.addView(folderText);
+
+        LinearLayout btnRow = Ui.row(this);
+        btnRow.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 8), Ui.dp(this, 4));
+        android.widget.Button pick = Ui.button(this, "选择文件夹", false);
+        pick.setOnClickListener(v -> pickExportFolder());
+        btnRow.addView(pick);
+        android.widget.Button saveR = Ui.button(this, "存为配方", false);
+        saveR.setOnClickListener(v -> saveRecipeDialog());
+        btnRow.addView(saveR);
+        android.widget.Button loadR = Ui.button(this, "配方库", false);
+        loadR.setOnClickListener(v -> loadRecipeDialog());
+        btnRow.addView(loadR);
+        c.addView(btnRow);
+
+        c.addView(Ui.section(this, "相机槽位（配方工坊）"));
+        LinearLayout slotRow = Ui.row(this);
+        slotRow.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 8), Ui.dp(this, 10));
+        android.widget.Button read = Ui.button(this, "读取 C1–C4", false);
+        read.setOnClickListener(v -> {
+            if (!engine.isConnected()) { toast("请先连接相机"); return; }
+            status("读取相机槽位…");
+            engine.readSlots();
+        });
+        slotRow.addView(read);
+        android.widget.Button write = Ui.button(this, "写入 C1", true);
+        write.setOnClickListener(v -> {
+            if (!engine.isConnected()) { toast("请先连接相机"); return; }
+            engine.pushSlot(1, recipe, recipe.name);
+        });
+        slotRow.addView(write);
+        c.addView(slotRow);
+
+        c.addView(Ui.section(this, "导出全图"));
+        android.widget.Button exp = Ui.button(this, "开始导出", true);
+        exp.setOnClickListener(v -> {
+            if (!engine.isConnected()) { toast("请先连接相机"); return; }
+            if (loadedRaf == null) { toast("请先导入并上传一张 RAF"); return; }
+            status("导出中：" + recipe.summaryText());
+            engine.export(recipe);
+        });
+        c.addView(exp);
+        c.addView(new View(this), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 20)));
+    }
+
+    // ================================================================ 参数 → UI 同步
 
     private void refreshUiFromRecipe() {
         suppress = true;
@@ -578,16 +658,13 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (chromeRow != null) chromeRow.setIndex(Math.max(0, Math.min(2, recipe.chrome)));
         if (fxRow != null) fxRow.setIndex(Math.max(0, Math.min(2, recipe.fxBlue)));
         if (wbRow != null) wbRow.setIndex(Math.max(0, recipe.wbIndex));
-        if (colorPad != null) { colorPad.setValue(recipe.wbR, recipe.wbB); updateWbReadout(); }
         if (lmoRow != null) lmoRow.setIndex(recipe.lmo == D185.LMO_OFF ? 1 : 0);
+        if (fileTypeRow != null) fileTypeRow.setIndex(recipe.fileTypeIdx);
         if (sizeRow != null) sizeRow.setIndex(recipe.imageSizeIdx);
         if (qualityRow != null) qualityRow.setIndex(recipe.qualityIdx);
-        if (fileTypeRow != null) fileTypeRow.setIndex(recipe.fileTypeIdx);
         if (csRow != null) csRow.setIndex(recipe.colorSpaceIdx);
 
-        if (tempRow != null) tempRow.setValue(recipe.wbTemp, 2500);
-        if (wbRRow != null) wbRRow.setValue(recipe.wbR, -9);
-        if (wbBRow != null) wbBRow.setValue(recipe.wbB, -9);
+        if (tempRow != null) tempRow.setValue(Math.max(2500, recipe.wbTemp), 2500);
         if (hiRow != null) hiRow.setValue(recipe.highlight, -20);
         if (shRow != null) shRow.setValue(recipe.shadow, -20);
         if (colorRow != null) colorRow.setValue(recipe.color, -4);
@@ -595,7 +672,22 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (nrRow != null) nrRow.setValue(recipe.nr, -4);
         if (clarityRow != null) clarityRow.setValue(recipe.clarity, -5);
         if (expRow != null) expRow.setValue(recipe.expBiasThirds, -9);
+        if (colorPad != null) { colorPad.setValue(recipe.wbR, recipe.wbB); updateWbReadout(); }
         suppress = false;
+    }
+
+    private void updateWbReadout() {
+        if (wbReadout == null) return;
+        int r = recipe.wbR, b = recipe.wbB;
+        String hint;
+        if (r == 0 && b == 0) hint = "中性";
+        else if (r > 0 && b > 0) hint = "偏洋红（M）· 暖";
+        else if (r > 0 && b < 0) hint = "偏红 · 暖";
+        else if (r < 0 && b > 0) hint = "偏青 · 冷";
+        else hint = "偏绿（G）· 冷";
+        boolean asShot = recipe.wbIndex == D185.WB_VALUES.length - 1;
+        wbReadout.setText(String.format(java.util.Locale.US, "%s   R %+d  B %+d   %s",
+                asShot ? "按拍摄时" : "自定义", r, b, hint));
     }
 
     private static int indexOf(int[] arr, int v) {
@@ -603,7 +695,80 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         return 0;
     }
 
-    // ---------------------------------------------------------------- USB
+    // ================================================================ 渲染调度
+
+    private final Runnable previewTick = () -> {
+        if (engine != null && engine.isConnected() && loadedRaf != null) engine.preview(recipe);
+    };
+
+    private void schedulePreview() {
+        if (suppress) return;
+        ui.removeCallbacks(previewTick);
+        ui.postDelayed(previewTick, 350);
+    }
+
+    // ================================================================ 显示
+
+    private void showRendered(byte[] jpeg) {
+        Bitmap bm = decodeOriented(jpeg);
+        if (bm == null) return;
+        renderedBmp = bm;
+        applyDisplay();
+        if (exifText != null) exifText.setText(exifLine(jpeg));
+    }
+
+    private void setOriginal(byte[] jpeg) {
+        Bitmap bm = decodeOriented(jpeg);
+        if (bm == null) return;
+        originalBmp = bm;
+        if (renderedBmp == null) applyDisplay();
+    }
+
+    private void applyDisplay() {
+        Bitmap show = (compareOriginal && originalBmp != null) ? originalBmp : renderedBmp;
+        if (show == null) show = originalBmp;
+        if (show == null) return;
+        preview.setImageBitmap(show);
+        previewHint.setVisibility(View.GONE);
+        if (histogram != null && exifVisible) histogram.setBitmap(show);
+        if (imageTag != null) imageTag.setText(show == originalBmp ? "原图" : "机身渲染");
+    }
+
+    private Bitmap decodeOriented(byte[] data) {
+        Bitmap bm = BitmapFactory.decodeByteArray(data, 0, data.length);
+        if (bm == null) return null;
+        int deg = 0;
+        try (java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(data)) {
+            android.media.ExifInterface ex = new android.media.ExifInterface(bis);
+            int o = ex.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION,
+                    android.media.ExifInterface.ORIENTATION_NORMAL);
+            if (o == android.media.ExifInterface.ORIENTATION_ROTATE_90) deg = 90;
+            else if (o == android.media.ExifInterface.ORIENTATION_ROTATE_180) deg = 180;
+            else if (o == android.media.ExifInterface.ORIENTATION_ROTATE_270) deg = 270;
+        } catch (Exception ignored) { }
+        if (deg == 0) return bm;
+        android.graphics.Matrix m = new android.graphics.Matrix();
+        m.postRotate(deg);
+        return Bitmap.createBitmap(bm, 0, 0, bm.getWidth(), bm.getHeight(), m, true);
+    }
+
+    private String exifLine(byte[] jpeg) {
+        try {
+            android.media.ExifInterface ex = new android.media.ExifInterface(
+                    new java.io.ByteArrayInputStream(jpeg));
+            String f = ex.getAttribute(android.media.ExifInterface.TAG_F_NUMBER);
+            String t = ex.getAttribute(android.media.ExifInterface.TAG_EXPOSURE_TIME);
+            String iso = ex.getAttribute(android.media.ExifInterface.TAG_ISO_SPEED_RATINGS);
+            StringBuilder sb = new StringBuilder();
+            sb.append(f != null ? "f/" + f : "f/—").append("  ");
+            sb.append(t != null ? t + "s" : "—").append("  ISO ").append(iso != null ? iso : "—");
+            return sb.toString();
+        } catch (Exception e) {
+            return "EXIF 读取失败";
+        }
+    }
+
+    // ================================================================ USB
 
     private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -611,17 +776,11 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
             if (ACTION_USB_PERMISSION.equals(a)) {
                 boolean granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
                 UsbDevice dev = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-                if (granted && dev != null) {
-                    status("已授权，正在连接 " + dev.getDeviceName() + " …");
-                    engine.connect(dev);
-                } else {
-                    status("USB 权限被拒绝");
-                }
+                if (granted && dev != null) engine.connect(dev);
+                else status("USB 权限被拒绝");
             } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(a)) {
-                status("检测到断线，正在清理会话…");
                 engine.disconnect();
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(a)) {
-                status("检测到 USB 设备，尝试连接…");
                 tryAutoConnect();
             }
         }
@@ -653,66 +812,42 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (usb == null) return;
         UsbDevice dev = findCamera();
         if (dev == null) {
-            UsbDevice any = null;
-            for (UsbDevice d : usb.getDeviceList().values())
-                if (d.getVendorId() == Ptp.VID_FUJIFILM) any = d;
-            if (any == null) {
-                status("未发现富士相机。请检查：线是数据线 / 相机已开机 / CONNECTION MODE = USB RAW CONV.");
-                return;
-            }
-            status("检测到富士设备，但未暴露 PTP 接口 —— 相机 CONNECTION MODE 可能不是 USB RAW CONV./BACKUP RESTORE");
+            status("未发现相机：请确认①数据线②相机已开机③CONNECTION MODE = USB RAW CONV./BACKUP RESTORE");
             return;
         }
-        if (usb.hasPermission(dev)) {
-            status("已授权，连接中…");
-            engine.connect(dev);
-            return;
-        }
+        if (usb.hasPermission(dev)) { engine.connect(dev); return; }
         int flags = Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0;
         PendingIntent pi = PendingIntent.getBroadcast(this, 0,
                 new Intent(ACTION_USB_PERMISSION).setPackage(getPackageName()), flags);
-        status("请求 USB 权限…");
         usb.requestPermission(dev, pi);
     }
 
-    // ---------------------------------------------------------------- 文件
+    // ================================================================ 导入 / 文件
 
     private void pickFile(int req) {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("*/*");
-        i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/octet-stream", "image/x-fuji-raf", "*/*"});
         if (req == REQ_RAF_BATCH) i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        try {
-            startActivityForResult(i, req);
-        } catch (Exception e) {
-            toast("没有可用的文件选择器");
-        }
+        try { startActivityForResult(i, req); } catch (Exception e) { toast("没有可用的文件选择器"); }
     }
 
     private void importOne(Uri uri) {
         status("导入中…");
         new Thread(() -> {
             try {
-                File f = copyToCache(uri);
+                final File f = copyToCache(uri);
                 ui.post(() -> {
                     loadedRaf = f;
+                    fileName.setText(f.getName());
+                    fileMeta.setText((f.length() / 1048576) + " MB · 上传中…");
                     try {
                         Raf raf = Raf.inspect(f);
-                        String model = engine.session() != null ? engine.session().model : null;
-                        status("已导入 " + f.getName() + "（机身 " + raf.model + "，"
-                                + f.length() / 1048576 + "MB）");
-                        if (model != null && !model.isEmpty() && !raf.model.isEmpty()
-                                && !model.startsWith(raf.model) && !raf.model.startsWith(model)) {
-                            toast("注意：这张 RAF 由 " + raf.model + " 拍摄，而当前相机是 " + model
-                                    + "。相机通常只接受本机拍摄的 RAW。");
-                        }
                         byte[] thumb = raf.embeddedJpeg(f);
                         if (thumb != null) setOriginal(thumb);
-                        engine.upload(f);
-                    } catch (IOException e) {
-                        status("导入失败：" + e.getMessage());
-                    }
+                        fileMeta.setText(raf.model + " · " + (f.length() / 1048576) + " MB");
+                    } catch (IOException ignored) { }
+                    engine.upload(f);
                 });
             } catch (IOException e) {
                 ui.post(() -> status("复制文件失败：" + e.getMessage()));
@@ -724,7 +859,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         String name = "import.raf";
         try (android.database.Cursor c = getContentResolver().query(uri, null, null, null, null)) {
             if (c != null && c.moveToFirst()) {
-                int idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                int idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
                 if (idx >= 0 && c.getString(idx) != null) name = c.getString(idx);
             }
         }
@@ -743,45 +878,106 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         return out;
     }
 
-    // ---------------------------------------------------------------- 配方
+    private String exportFolderLabel() {
+        String t = getSharedPreferences("xraw", MODE_PRIVATE).getString("exportTree", "");
+        return (t == null || t.isEmpty()) ? "导出到：默认（相册 / 下载 FotofilmXRAW）" : "导出到：已选文件夹";
+    }
+
+    private void pickExportFolder() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try { startActivityForResult(i, REQ_TREE); } catch (Exception e) { toast("系统无文件夹选择器"); }
+    }
+
+    // ================================================================ 菜单 / 对话框
+
+    private void showMoreMenu() {
+        final String[] items = {
+                "批量导入 RAF", "读取相机槽位（C1–C4）", "配方库（本地）",
+                "自检与日志", "导出诊断日志"
+        };
+        new AlertDialog.Builder(this).setTitle("更多").setItems(items, (d, w) -> {
+            switch (w) {
+                case 0: pickFile(REQ_RAF_BATCH); break;
+                case 1:
+                    if (!engine.isConnected()) { toast("请先连接相机"); return; }
+                    engine.readSlots();
+                    break;
+                case 2: loadRecipeDialog(); break;
+                case 3: probeDialog(); break;
+                case 4: engine.probeDump(); break;
+            }
+        }).setNegativeButton("取消", null).show();
+    }
 
     private void saveRecipeDialog() {
         EditText et = new EditText(this);
         et.setText(recipe.name);
         et.setTextColor(Ui.TEXT);
-        new AlertDialog.Builder(this)
-                .setTitle("保存配方")
-                .setView(et)
+        new AlertDialog.Builder(this).setTitle("保存配方").setView(et)
                 .setPositiveButton("保存", (d, w) -> {
                     recipe.name = et.getText().toString().trim();
                     if (recipe.name.isEmpty()) recipe.name = "未命名";
                     try {
                         Recipe.save(this, recipe);
-                        status("配方已保存：" + recipe.name + "（" + recipe.summaryText() + "）");
-                    } catch (IOException e) {
-                        status("保存失败：" + e.getMessage());
-                    }
-                })
-                .setNegativeButton("取消", null)
-                .show();
+                        status("配方已保存：" + recipe.name);
+                    } catch (IOException e) { status("保存失败：" + e.getMessage()); }
+                }).setNegativeButton("取消", null).show();
     }
 
     private void loadRecipeDialog() {
         final List<Recipe> list = Recipe.list(this);
-        if (list.isEmpty()) { toast("配方库是空的，先调好参数点「存配方」"); return; }
+        if (list.isEmpty()) { toast("配方库是空的，先调好参数点「存为配方」"); return; }
         String[] names = new String[list.size()];
-        for (int i = 0; i < list.size(); i++) names[i] = list.get(i).name + "  —  " + list.get(i).summaryText();
-        new AlertDialog.Builder(this)
-                .setTitle("配方库")
-                .setItems(names, (d, which) -> {
-                    Recipe r = list.get(which);
-                    copyInto(recipe, r);
-                    refreshUiFromRecipe();
-                    status("已载入配方：" + r.name);
-                    if (engine.isConnected() && loadedRaf != null) engine.preview(recipe);
-                })
-                .setNegativeButton("关闭", null)
-                .show();
+        for (int i = 0; i < list.size(); i++) names[i] = list.get(i).name + " — " + list.get(i).summaryText();
+        new AlertDialog.Builder(this).setTitle("配方库").setItems(names, (d, which) -> {
+            Recipe r = list.get(which);
+            copyInto(recipe, r);
+            refreshUiFromRecipe();
+            status("已载入配方：" + r.name);
+            if (engine.isConnected() && loadedRaf != null) engine.preview(recipe);
+        }).setNegativeButton("关闭", null).show();
+    }
+
+    private void probeDialog() {
+        new AlertDialog.Builder(this).setTitle("自检 / 调试").setItems(new String[]{
+                "① 导出诊断日志（probe_dump.txt）",
+                "② 读取相机能力（GetDevicePropDesc）",
+                "③ 胶片模拟扫描",
+                "④ 从相机读回当前参数",
+                "⑦ 字段绑定自校准",
+                "⑧ d185 参数快照",
+                "⑨ 参数生效自检（A/B 双渲染对比）"
+        }, (d, which) -> {
+            if (which == 0) { engine.probeDump(); return; }
+            if (!engine.isConnected()) { toast("请先连接相机"); return; }
+            switch (which) {
+                case 1: engine.probeCaps(); break;
+                case 2:
+                    if (loadedRaf == null) { toast("请先导入 RAF"); return; }
+                    engine.probeSims(recipe);
+                    break;
+                case 3:
+                    if (loadedRaf == null) { toast("请先导入 RAF"); return; }
+                    engine.upload(loadedRaf);
+                    break;
+                case 4:
+                    if (loadedRaf == null) { toast("请先导入 RAF"); return; }
+                    engine.calibrate();
+                    break;
+                case 5:
+                    if (loadedRaf == null) { toast("请先导入 RAF"); return; }
+                    engine.dumpD185();
+                    break;
+                default:
+                    if (loadedRaf == null) { toast("请先导入 RAF"); return; }
+                    toast("开始自检，约 40 秒");
+                    engine.selfTest();
+                    break;
+            }
+        }).setNegativeButton("关闭", null).show();
     }
 
     private static void copyInto(Recipe dst, Recipe src) {
@@ -792,125 +988,48 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         dst.wbIndex = src.wbIndex; dst.wbTemp = src.wbTemp; dst.wbR = src.wbR; dst.wbB = src.wbB;
         dst.highlight = src.highlight; dst.shadow = src.shadow;
         dst.color = src.color; dst.sharpness = src.sharpness;
-        dst.nr = src.nr; dst.clarity = src.clarity;
+        dst.nr = src.nr; dst.clarity = src.clarity; dst.lmo = src.lmo;
         dst.imageSizeIdx = src.imageSizeIdx; dst.qualityIdx = src.qualityIdx;
         dst.fileTypeIdx = src.fileTypeIdx; dst.colorSpaceIdx = src.colorSpaceIdx;
         dst.expBiasThirds = src.expBiasThirds;
     }
 
-    private void probeDialog() {
-        new AlertDialog.Builder(this)
-                .setTitle("自检 / 机型探测（连不上时用 ① 或 ⑤）")
-                .setItems(new String[]{
-                        "① 导出诊断日志（设备信息 + d185 + USB 事务日志 → 下载/FotofilmXRAW）",
-                        "② 读取相机能力（高光/阴影等参数的真实 min/max/步进）",
-                        "③ 胶片模拟扫描：逐值渲染缩略图，确认 BB/怀旧负片/REALA ACE 的枚举值",
-                        "④ 从相机读回当前 RAF 的机内参数到面板",
-                        "⑤ 测试当前上传通道（先拔插数据线，再跑本项）",
-                        "⑥ 选择上传通道形态（0-6；默认 2 = libpict 风格，改完必须拔插数据线）",
-                        "⑦ 字段绑定自校准（逐个参数写读对比，定位真实字段索引）",
-                        "⑧ d185 参数快照（导出当前 RAW 的全部参数默认值，调试用）",
-                        "⑨ 参数生效自检（A/B 双渲染对比，客观判定每个参数是否真的生效）"
-                }, (d, which) -> {
-                    if (which == 0) { engine.probeDump(); return; }   // 连不上时也要能导出
-                    if (!engine.isConnected()) { toast("请先连接相机"); return; }
-                    if (which == 1) {
-                        engine.probeCaps();
-                    } else if (which == 2) {
-                        if (loadedRaf == null) { toast("请先导入一张 RAF"); return; }
-                        toast("开始扫描，约 1~2 分钟");
-                        engine.probeSims(recipe);
-                    } else if (which == 3) {
-                        if (loadedRaf == null) { toast("请先导入一张 RAF"); return; }
-                        engine.upload(loadedRaf);     // 已装载则不重传，只重新读回 0xD185
-                        toast("正在从相机回读机内参数…");
-                    } else if (which == 4) {
-                        toast("测试当前通道（请确保刚拔插过数据线）");
-                        engine.diagUploadVariants();
-                    } else if (which == 5) {
-                        chooseUploadChannel();
-                    } else if (which == 6) {
-                        if (loadedRaf == null) { toast("请先导入一张 RAF"); return; }
-                        toast("开始自校准（约 20 秒）");
-                        engine.calibrate();
-                    } else if (which == 7) {
-                        if (loadedRaf == null) { toast("请先导入一张 RAF 并等它上传完成"); return; }
-                        engine.dumpD185();
-                    } else {
-                        if (loadedRaf == null) { toast("请先导入一张 RAF 并等它上传完成"); return; }
-                        toast("开始自检，约 40 秒（每个参数渲染两次）");
-                        engine.selfTest();
-                    }
-                })
-                .setNegativeButton("关闭", null)
-                .show();
-    }
+    // ================================================================ 引擎回调
 
-    // ---------------------------------------------------------------- Listener 回调
-
-    @Override public void onStatus(String msg) {
-        status(msg);
-    }
+    @Override public void onStatus(String msg) { status(msg); }
 
     @Override public void onSession(Fuji.Session s) {
-        status("已连接 " + s.title()
-                + (s.freeSdram >= 0 ? " · 可缓存 " + s.freeSdram + " 张" : "")
-                + (s.battery >= 0 ? " · 电量 " + s.battery + "%" : ""));
+        status("已连接 " + s.title());
     }
 
-    /**
-     * 用相机回报的属性描述改写量程/步进——不再由我猜「0.5 还是 1」。
-     * 优先取当前拍摄态属性（0xD320 高光 / 0xD321 阴影），退而取配方槽域（0xD19D / 0xD19E）。
-     */
     @Override public void onCaps(java.util.Map<Integer, PropDesc> c) {
-        caps = c;
-        PropDesc hi = pick(c, 0xD320, 0xD19D);
-        StringBuilder info = new StringBuilder();
-        if (hi != null && hi.isRange() && hi.step > 0) {
-            // 相机回报可能是刻度值(-4..4, step1)或编码值(-40..40, step10)
-            int lo = hi.min, up = hi.max;
-            if (Math.abs(up) > 10 || Math.abs(lo) > 10) { lo /= 10; up /= 10; }
-            if (hiRow != null) hiRow.setRange(lo, up, 1, false, recipe.highlight);
-            if (shRow != null) shRow.setRange(lo, up, 1, false, recipe.shadow);
-            info.append("高光/阴影：").append(lo).append(" ~ ").append(up).append("（相机回报）");
-        } else {
-            info.append("高光/阴影：-4 ~ +4（默认；相机未回报）");
-        }
-        if (toneInfo != null) toneInfo.setText(info.toString());
-        status("已连接 · " + info);
+        toast("已读取 " + c.size() + " 条相机能力");
     }
 
-    private static PropDesc pick(java.util.Map<Integer, PropDesc> c, int a, int b) {
-        PropDesc p = c.get(a);
-        if (p == null || (p.isRange() && p.step <= 0)) p = c.get(b);
-        return p;
-    }
-
-    @Override public void onBaseProfile(D185 base, Recipe fromCamera) {
-        copyInto(recipe, fromCamera);
+    @Override public void onBaseProfile(D185 base, Recipe fromCam) {
+        copyInto(recipe, fromCam);
         refreshUiFromRecipe();
-        status("已读取机内原始参数：" + fromCamera.summaryText() + "（可在此基础上调整）");
-        summaryText.setText("机内原始：" + fromCamera.summaryText());
+        status("机内原始：" + fromCam.summaryText());
+        summaryText.setText(fromCam.summaryText());
         engine.preview(recipe);
     }
 
     @Override public void onPreview(byte[] jpeg, String summary) {
         lastPreview = jpeg;
         showRendered(jpeg);
-        if (summaryText != null) summaryText.setText(summary + " · " + jpeg.length / 1024 + "KB 预览");
+        summaryText.setText(summary + " · " + jpeg.length / 1024 + "KB");
     }
 
     @Override public void onExport(File file, String summary) {
         progress.setVisibility(View.GONE);
-        status("已保存 " + file.getName() + "  →  " + file.getParent());
-        toast("出图完成：" + file.getName());
-        if (summaryText != null) summaryText.setText(summary + " · " + file.getName());
+        status("已保存 " + file.getName());
+        toast("导出完成：" + file.getName());
     }
 
     @Override public void onProgress(String what, long done, long total) {
         progress.setVisibility(View.VISIBLE);
         progress.setProgress(total <= 0 ? 0 : (int) (done * 1000 / total));
-        queueText.setText(what + "  " + (done / 1048576) + " / " + (total / 1048576) + " MB");
+        queueText.setText(what + "  " + (done / 1048576) + "/" + (total / 1048576) + " MB");
     }
 
     @Override public void onError(String msg) {
@@ -921,34 +1040,33 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
     @Override public void onQueueChanged(List<String> items, int active) {
         if (queueText == null) return;
-        if (items.isEmpty()) {
-            queueText.setText("队列空闲" + (loadedRaf != null ? " · 已装载 " + loadedRaf.getName() : ""));
-        } else {
-            StringBuilder sb = new StringBuilder("待处理 " + items.size() + " 项：");
-            for (int i = 0; i < Math.min(3, items.size()); i++) sb.append(items.get(i)).append(i < 2 ? " · " : "");
-            queueText.setText(sb.toString());
-        }
+        queueText.setText(items.isEmpty()
+                ? ("队列空闲" + (loadedRaf != null ? " · 已装载 " + loadedRaf.getName() : ""))
+                : ("待处理 " + items.size() + " 项"));
     }
 
-    @Override public void onDisconnected() {
-        status("已断开，可重新连接");
+    @Override public void onDisconnected() { status("已断开"); }
+
+    @Override public void onProbeDone(String path) {
+        new AlertDialog.Builder(this).setTitle("已导出")
+                .setMessage("位置：" + path)
+                .setPositiveButton("分享", (d, w) -> shareLastLog())
+                .setNegativeButton("知道了", null).show();
     }
 
-    @Override public void onSlots(java.util.List<SlotData> slots) {
+    @Override public void onSlots(List<SlotData> slots) {
         StringBuilder sb = new StringBuilder();
         for (SlotData d : slots) {
             sb.append("C").append(d.slot).append("  ");
-            if (d.missing.containsKey(-1)) sb.append("读取失败：").append(d.missing.get(-1));
+            if (d.missing.containsKey(-1)) sb.append("读取失败");
             else sb.append(d.summary());
             sb.append('\n');
         }
-        new AlertDialog.Builder(this)
-                .setTitle("相机槽位（C1–C4，已回读）")
+        new AlertDialog.Builder(this).setTitle("相机槽位（已回读）")
                 .setMessage(sb.toString())
                 .setPositiveButton("把当前配方写入 C1", (x, w) -> engine.pushSlot(1, recipe, recipe.name))
                 .setNeutralButton("写入 C2", (x, w) -> engine.pushSlot(2, recipe, recipe.name))
-                .setNegativeButton("关闭", null)
-                .show();
+                .setNegativeButton("关闭", null).show();
     }
 
     @Override public void onSlotWritten(String summary) {
@@ -956,167 +1074,14 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         toast(summary);
     }
 
-    @Override public void onProbeDone(String path) {
-        status("诊断日志已导出：" + path);
-        new AlertDialog.Builder(this)
-                .setTitle("诊断日志已导出")
-                .setMessage("位置：" + path
-                        + "\n\n点「分享」可直接发给我（微信/邮件均可），"
-                        + "里面有设备信息、d185 全字段、USB 端点与每一步 PTP 事务的响应码。")
-                .setPositiveButton("分享", (d, w) -> shareLog())
-                .setNegativeButton("知道了", null)
-                .show();
-    }
-
-    /** 选择上传通道形态：0-6，持久化后需要拔插数据线才生效（相机会记住失败状态） */
-    private void chooseUploadChannel() {
-        final String[] items = {
-                "0 · 0x900C + 3 参数，空串写 0x00",
-                "1 · 标准 0x100C + 2 参数",
-                "2 · 0x900C + 3 参数，空串按规范（长度1+终止符，libfuji 同款）【默认】",
-                "3 · 0x900C + 3 参数，用真实 StorageID",
-                "4 · 0x900C + 4 参数",
-                "5 · ObjectFormat = 0x3000",
-                "6 · 不带数据阶段（只验 opcode）"
-        };
-        new AlertDialog.Builder(this)
-                .setTitle("上传通道形态（当前 " + Fuji.UPLOAD_CHANNEL + "）")
-                .setSingleChoiceItems(items, Fuji.UPLOAD_CHANNEL, (d, which) -> {
-                    Fuji.UPLOAD_CHANNEL = which;
-                    getSharedPreferences("xraw", MODE_PRIVATE).edit()
-                            .putInt("uploadChannel", which).apply();
-                    d.dismiss();
-                    new AlertDialog.Builder(this)
-                            .setTitle("已选择通道 " + which)
-                            .setMessage("请现在**拔掉数据线、等 3 秒再插上**（相机会记住上一次失败状态，不拔插必然继续失败），"
-                                    + "然后点「连接相机」→「导入 RAF」。")
-                            .setPositiveButton("知道了", null)
-                            .show();
-                })
-                .setNegativeButton("取消", null)
-                .show();
-    }
-
-    private void shareLog() {
-        android.net.Uri u = engine != null ? engine.lastLogUri() : null;
-        if (u == null) {
-            toast("日志在：" + (engine != null ? engine.lastLogPath() : "未知"));
-            return;
-        }
+    private void shareLastLog() {
+        Uri u = engine != null ? engine.lastLogUri() : null;
+        if (u == null) { toast("日志在：" + (engine != null ? engine.lastLogPath() : "?")); return; }
         Intent i = new Intent(Intent.ACTION_SEND);
         i.setType("text/plain");
         i.putExtra(Intent.EXTRA_STREAM, u);
-        i.putExtra(Intent.EXTRA_SUBJECT, "Fotofilm X RAW 诊断日志");
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        try {
-            startActivity(Intent.createChooser(i, "分享诊断日志"));
-        } catch (Exception e) {
-            toast("没有可用的分享目标：" + e.getMessage());
-        }
-    }
-
-    // ---------------------------------------------------------------- 小工具
-
-    /** 相机渲染结果（预览或出图） */
-    private void showRendered(byte[] jpeg) {
-        Bitmap bm = decodeOriented(jpeg);
-        if (bm == null) return;
-        renderedBmp = bm;
-        applyDisplay();
-    }
-
-    /** RAF 内嵌 JPEG = 「原图」基准（无需相机即可显示） */
-    private void setOriginal(byte[] jpeg) {
-        Bitmap bm = decodeOriented(jpeg);
-        if (bm == null) return;
-        originalBmp = bm;
-        if (renderedBmp == null) {
-            applyDisplay();
-        } else if (imageTag != null) {
-            imageTag.setText("");
-        }
-    }
-
-    /** 统一出口：决定画哪张、刷新直方图与角标 */
-    private void applyDisplay() {
-        Bitmap show = (compareOriginal && originalBmp != null) ? originalBmp : renderedBmp;
-        if (show == null) show = originalBmp;
-        if (show == null) return;
-        preview.setImageBitmap(show);
-        previewHint.setVisibility(View.GONE);
-        if (histogram != null && histVisible) histogram.setBitmap(show);
-        if (imageTag != null) {
-            imageTag.setText(show == originalBmp ? "原图（RAF 内嵌 JPEG）" : "当前渲染（机身输出）");
-        }
-    }
-
-    private final Runnable previewTick = () -> {
-        if (engine != null && engine.isConnected() && loadedRaf != null) engine.preview(recipe);
-    };
-
-    /** 任何参数改动都自动出预览（350ms 防抖），不再需要手动点「预览」 */
-    private void schedulePreview() {
-        if (suppress) return;
-        ui.removeCallbacks(previewTick);
-        ui.postDelayed(previewTick, 350);
-    }
-
-    /**
-     * 按 EXIF 朝向解码。竖拍照片常被相机存成"横向像素 + Orientation=6/8"，
-     * 直接 decode 会显示成横的——这就是"导入竖图变横图"的原因。
-     */
-    private Bitmap decodeOriented(byte[] data) {
-        Bitmap bm = BitmapFactory.decodeByteArray(data, 0, data.length);
-        if (bm == null) return null;
-        int deg = 0;
-        try (java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(data)) {
-            android.media.ExifInterface ex = new android.media.ExifInterface(bis);
-            int o = ex.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION,
-                    android.media.ExifInterface.ORIENTATION_NORMAL);
-            switch (o) {
-                case android.media.ExifInterface.ORIENTATION_ROTATE_90: deg = 90; break;
-                case android.media.ExifInterface.ORIENTATION_ROTATE_180: deg = 180; break;
-                case android.media.ExifInterface.ORIENTATION_ROTATE_270: deg = 270; break;
-                default: deg = 0;
-            }
-        } catch (Exception ignored) { }
-        if (deg == 0) return bm;
-        android.graphics.Matrix m = new android.graphics.Matrix();
-        m.postRotate(deg);
-        return Bitmap.createBitmap(bm, 0, 0, bm.getWidth(), bm.getHeight(), m, true);
-    }
-
-    /** 白平衡读数 + 色偏语义提示（随拖动变化） */
-    private void updateWbReadout() {
-        if (wbReadout == null) return;
-        int r = recipe.wbR, b = recipe.wbB;
-        String hint;
-        if (r == 0 && b == 0) hint = "中性";
-        else if (r > 0 && b > 0) hint = "偏洋红（M）· 暖";
-        else if (r > 0 && b < 0) hint = "偏红 · 暖";
-        else if (r < 0 && b > 0) hint = "偏青 · 冷";
-        else hint = "偏绿（G）· 冷";
-        wbReadout.setText(String.format(java.util.Locale.US, "R %+d   B %+d    %s", r, b, hint));
-    }
-
-    // ---------------------------------------------------------------- 导出目录（SAF）
-
-    private String exportFolderLabel() {
-        String t = getSharedPreferences("xraw", MODE_PRIVATE).getString("exportTree", "");
-        if (t == null || t.isEmpty()) return "导出到：默认（相册 / 下载 FotofilmXRAW）";
-        return "导出到：已选文件夹（可再次点下方按钮更改）";
-    }
-
-    private void pickExportFolder(TextView label) {
-        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
-                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        try {
-            startActivityForResult(i, REQ_TREE);
-        } catch (Exception e) {
-            toast("系统没有可用的文件夹选择器");
-        }
+        try { startActivity(Intent.createChooser(i, "分享日志")); } catch (Exception e) { toast("无分享目标"); }
     }
 
     private void status(String msg) {
@@ -1124,25 +1089,23 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     }
 
     private void toast(String msg) {
-        ui.post(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show());
+        ui.post(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
     }
 
-    /** 供引擎回调转发（Activity 重建时不会丢任务） */
     private static final CameraEngine.Listener forwarder = new CameraEngine.Listener() {
         private MainActivity cur() { return instance; }
-
-        @Override public void onStatus(String msg) { MainActivity a = cur(); if (a != null) a.onStatus(msg); }
+        @Override public void onStatus(String m) { MainActivity a = cur(); if (a != null) a.onStatus(m); }
         @Override public void onSession(Fuji.Session s) { MainActivity a = cur(); if (a != null) a.onSession(s); }
         @Override public void onCaps(java.util.Map<Integer, PropDesc> c) { MainActivity a = cur(); if (a != null) a.onCaps(c); }
-        @Override public void onBaseProfile(D185 base, Recipe r) { MainActivity a = cur(); if (a != null) a.onBaseProfile(base, r); }
-        @Override public void onPreview(byte[] jpeg, String summary) { MainActivity a = cur(); if (a != null) a.onPreview(jpeg, summary); }
-        @Override public void onExport(File f, String summary) { MainActivity a = cur(); if (a != null) a.onExport(f, summary); }
-        @Override public void onProgress(String what, long done, long total) { MainActivity a = cur(); if (a != null) a.onProgress(what, done, total); }
-        @Override public void onError(String msg) { MainActivity a = cur(); if (a != null) a.onError(msg); }
-        @Override public void onQueueChanged(List<String> items, int active) { MainActivity a = cur(); if (a != null) a.onQueueChanged(items, active); }
+        @Override public void onBaseProfile(D185 b, Recipe r) { MainActivity a = cur(); if (a != null) a.onBaseProfile(b, r); }
+        @Override public void onPreview(byte[] j, String s) { MainActivity a = cur(); if (a != null) a.onPreview(j, s); }
+        @Override public void onExport(File f, String s) { MainActivity a = cur(); if (a != null) a.onExport(f, s); }
+        @Override public void onProgress(String w, long d, long t) { MainActivity a = cur(); if (a != null) a.onProgress(w, d, t); }
+        @Override public void onError(String m) { MainActivity a = cur(); if (a != null) a.onError(m); }
+        @Override public void onQueueChanged(List<String> i, int act) { MainActivity a = cur(); if (a != null) a.onQueueChanged(i, act); }
         @Override public void onDisconnected() { MainActivity a = cur(); if (a != null) a.onDisconnected(); }
-        @Override public void onSlots(java.util.List<SlotData> slots) { MainActivity a = cur(); if (a != null) a.onSlots(slots); }
-        @Override public void onSlotWritten(String summary) { MainActivity a = cur(); if (a != null) a.onSlotWritten(summary); }
-        @Override public void onProbeDone(String path) { MainActivity a = cur(); if (a != null) a.onProbeDone(path); }
+        @Override public void onProbeDone(String p) { MainActivity a = cur(); if (a != null) a.onProbeDone(p); }
+        @Override public void onSlots(List<SlotData> s) { MainActivity a = cur(); if (a != null) a.onSlots(s); }
+        @Override public void onSlotWritten(String s) { MainActivity a = cur(); if (a != null) a.onSlotWritten(s); }
     };
 }
