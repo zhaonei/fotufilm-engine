@@ -40,7 +40,7 @@ public final class CameraEngine {
     private static final int J_CONNECT = 1, J_UPLOAD = 2, J_PREVIEW = 3, J_EXPORT = 4,
             J_BATCH = 5, J_PROBE_DUMP = 6, J_PROBE_SIMS = 7, J_DISCONNECT = 8, J_CLOSE = 9,
             J_PROBE_CAPS = 10, J_DIAG_UPLOAD = 11, J_CALIB = 12, J_DUMP_D185 = 13,
-            J_SLOT_READ = 14, J_SLOT_WRITE = 15, J_SELFTEST = 16;
+            J_SLOT_READ = 14, J_SLOT_WRITE = 15, J_SELFTEST = 16, J_SKIN_PROBE = 17;
 
     private static final class Job {
         final int kind;
@@ -497,6 +497,60 @@ public final class CameraEngine {
                 caps = c;
                 main.post(() -> listener.onCaps(c));
                 status("已读取 " + c.size() + " 条属性约束");
+                break;
+            }
+            case J_SKIN_PROBE: {
+                requireLoaded();
+                StringBuilder sb = new StringBuilder();
+                sb.append("== 肤色优化（平滑皮肤）字段探测 ==\n");
+                sb.append("做法：先渲染一张基准，再把候选索引逐个写成「强」重新渲染，比较字节。\n\n");
+                int saved = Recipe.SMOOTH_SKIN_IDX;
+                byte[] base = null;
+                try {
+                    Recipe.SMOOTH_SKIN_IDX = 0;              // 关闭，取基准
+                    D185 p0 = baseProfile.copy();
+                    Recipe r0 = Recipe.fromD185(baseProfile);
+                    r0.applyTo(p0);
+                    fuji.writeProfile(p0);
+                    base = fuji.render(false, 60000);
+                    sb.append(String.format("基准: %d 字节%n", base.length));
+                } catch (IOException e) {
+                    sb.append("基准渲染失败：").append(e.getMessage()).append('\n');
+                }
+                int best = -1;
+                for (int idx : new int[]{23, 27, 28, 22, 25}) {
+                    try {
+                        Recipe.SMOOTH_SKIN_IDX = 0;
+                        D185 p = baseProfile.copy();
+                        Recipe r = Recipe.fromD185(baseProfile);
+                        r.smoothSkin = 0;
+                        r.applyTo(p);
+                        p.set(idx, 3);                        // 强
+                        fuji.writeProfile(p);
+                        byte[] img = fuji.render(false, 60000);
+                        boolean diff = base != null && (img.length != base.length
+                                || !java.util.Arrays.equals(img, base));
+                        sb.append(String.format(java.util.Locale.US,
+                                "idx%-2d 写3 → %d 字节  %s%n", idx, img.length,
+                                diff ? "✔ 有差异（可能就是它）" : "✗ 无差异"));
+                        if (diff && best < 0) best = idx;
+                    } catch (IOException e) {
+                        sb.append("idx" + idx + " 失败：" + e.getMessage() + '\n');
+                    }
+                }
+                Recipe.SMOOTH_SKIN_IDX = best > 0 ? best : saved;
+                sb.append("\n探测结果：").append(best > 0 ? ("使用 idx" + best) : "未发现可用索引")
+                        .append("\n");
+                try { fuji.writeProfile(baseProfile); } catch (IOException ignored) { }
+                try {
+                    MediaSaver.Exported ex = MediaSaver.exportText(ctx, "skin_probe.txt", sb.toString());
+                    lastLogPath = ex.displayPath();
+                    lastLogUri = ex.uri;
+                } catch (IOException e) {
+                    lastLogPath = "写入失败: " + e.getMessage();
+                }
+                final String path = lastLogPath;
+                main.post(() -> listener.onProbeDone(path));
                 break;
             }
             case J_SELFTEST: {
@@ -971,6 +1025,13 @@ public final class CameraEngine {
         final Fuji.Session s2 = fuji.handshake();
         session = s2;
         main.post(() -> listener.onSession(s2));
+    }
+
+    /** 肤色优化字段探测：逐个候选索引写入「强」，看哪个真的改变渲染结果 */
+    public void probeSkinTone() {
+        Job j = new Job(J_SKIN_PROBE);
+        j.label = "肤色优化字段探测";
+        post(j);
     }
 
     /** 参数生效自检：对每个参数取两个极值各渲染一次，比较字节差异 */

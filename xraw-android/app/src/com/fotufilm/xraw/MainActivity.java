@@ -51,7 +51,7 @@ import java.util.List;
  */
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
-    static final String APP_VERSION = "4.1.0";
+    static final String APP_VERSION = "4.2.0";
 
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001, REQ_RAF_BATCH = 1002, REQ_TREE = 1003;
@@ -77,12 +77,16 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     private ProgressBar progress;
 
     private boolean exifVisible = true, compareOriginal = false, suppress = false;
+    private boolean compareDirty = false;
     private int activeTab = -1;
     private Bitmap renderedBmp, originalBmp;
+    /** 操作前的基准图：导入后**第一次机身渲染**的结果 */
+    private static Bitmap beforeBmp;
+    private boolean beforeCaptured = false;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     // ---- 参数行 ----
-    private Ui.ChoiceRow simRow, wbRow, drRow, drpRow, grainRow, grainSizeRow, chromeRow, fxRow, lmoRow;
+    private Ui.ChoiceRow simRow, wbRow, drRow, drpRow, grainRow, grainSizeRow, chromeRow, fxRow, lmoRow, smoothRow;
     private Ui.ChoiceRow sizeRow, qualityRow, fileTypeRow, csRow;
     private Ui.SeekRow tempRow, hiRow, shRow, colorRow, sharpRow, nrRow, clarityRow, expRow;
     private WbColorPadView colorPad;
@@ -206,9 +210,10 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         preview = new ZoomImageView(this);
         preview.setScaleType(ImageView.ScaleType.MATRIX);
         preview.setOnCompareHold(holding -> {
-            if (holding && originalBmp != null && !compareOriginal) {
-                preview.setImageBitmap(originalBmp);
-                if (imageTag != null) imageTag.setText("原图（RAF 内嵌 JPEG）");
+            Bitmap b4 = beforeImage();
+            if (holding && b4 != null && !compareOriginal) {
+                preview.setImageBitmap(b4);
+                if (imageTag != null) imageTag.setText("操作前");
             } else if (!holding) {
                 applyDisplay();
             }
@@ -262,7 +267,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         cmp.setGravity(Gravity.CENTER);
         cmp.setBackground(Ui.bg(0xCC121212, 19, 0xFF4A4A4A, this));
         cmp.setOnClickListener(v -> {
-            if (originalBmp == null) { toast("这张 RAF 没有可用内嵌预览，无法对比"); return; }
+            if (beforeImage() == null) { toast("还没有基准图：等第一张预览出来后再对比"); return; }
             compareOriginal = !compareOriginal;
             applyDisplay();
         });
@@ -367,6 +372,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         fileMeta.setText("连接相机后点「导入」");
         originalBmp = null;
         renderedBmp = null;
+        beforeBmp = null;
+        beforeCaptured = false;
         lastPreview = null;
         preview.setImageDrawable(null);
         previewHint.setVisibility(View.VISIBLE);
@@ -528,6 +535,14 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         fxRow = new Ui.ChoiceRow(this, "彩色 FX 蓝色", new String[]{"关闭", "弱", "强"},
                 Math.max(0, Math.min(2, recipe.fxBlue)), i -> { recipe.fxBlue = i; schedulePreview(); });
         c.addView(fxRow);
+
+        c.addView(Ui.section(this, "肤色优化（平滑皮肤）"));
+        smoothRow = new Ui.ChoiceRow(this, "肤色优化", new String[]{"关闭", "弱", "强"},
+                Math.max(0, Math.min(2, recipe.smoothSkin)), i -> {
+                    recipe.smoothSkin = i;
+                    schedulePreview();
+                });
+        c.addView(smoothRow);
         c.addView(new View(this), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 16)));
     }
 
@@ -702,6 +717,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (grainSizeRow != null) grainSizeRow.setIndex(recipe.grainLarge ? 1 : 0);
         if (chromeRow != null) chromeRow.setIndex(Math.max(0, Math.min(2, recipe.chrome)));
         if (fxRow != null) fxRow.setIndex(Math.max(0, Math.min(2, recipe.fxBlue)));
+        if (smoothRow != null) smoothRow.setIndex(Math.max(0, Math.min(2, recipe.smoothSkin)));
         if (wbRow != null) wbRow.setIndex(Math.max(0, recipe.wbIndex));
         if (lmoRow != null) lmoRow.setIndex(recipe.lmo == D185.LMO_OFF ? 1 : 0);
         if (fileTypeRow != null) fileTypeRow.setIndex(recipe.fileTypeIdx);
@@ -755,6 +771,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
     private void schedulePreview() {
         if (suppress) return;
+        compareDirty = true;
         ui.removeCallbacks(previewTick);
         ui.postDelayed(previewTick, 350);
         status("… 参数已改，等待渲染");
@@ -786,14 +803,21 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (renderedBmp == null) applyDisplay();
     }
 
+    /** 取「操作前」基准：优先用导入后第一张渲染，其次才是内嵌 JPEG */
+    private Bitmap beforeImage() {
+        if (beforeBmp != null) return beforeBmp;
+        return originalBmp;
+    }
+
     private void applyDisplay() {
-        Bitmap show = (compareOriginal && originalBmp != null) ? originalBmp : renderedBmp;
-        if (show == null) show = originalBmp;
+        Bitmap b4 = beforeImage();
+        Bitmap show = (compareOriginal && b4 != null) ? b4 : renderedBmp;
+        if (show == null) show = b4;
         if (show == null) return;
         preview.setImageBitmap(show);
         previewHint.setVisibility(View.GONE);
         if (histogram != null && exifVisible) histogram.setBitmap(show);
-        if (imageTag != null) imageTag.setText(show == originalBmp ? "原图" : "机身渲染");
+        if (imageTag != null) imageTag.setText(show == b4 && b4 != null ? "操作前" : "机身渲染");
     }
 
     private Bitmap decodeOriented(byte[] data) {
@@ -903,6 +927,9 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                     loadedRaf = f;
                     fileName.setText(f.getName());
                     fileMeta.setText((f.length() / 1048576) + " MB · 上传中…");
+                    beforeBmp = null;
+                    beforeCaptured = false;
+                    compareDirty = false;
                     try {
                         Raf raf = Raf.inspect(f);
                         byte[] thumb = raf.embeddedJpeg(f);
@@ -1019,7 +1046,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                 "④ 从相机读回当前参数",
                 "⑦ 字段绑定自校准",
                 "⑧ d185 参数快照",
-                "⑨ 参数生效自检（A/B 双渲染对比）"
+                "⑨ 参数生效自检（A/B 双渲染对比）",
+                "⑩ 肤色优化字段探测（找出该机型真正生效的索引）"
         }, (d, which) -> {
             if (which == 0) { engine.probeDump(); return; }
             if (!engine.isConnected()) { toast("请先连接相机"); return; }
@@ -1041,10 +1069,15 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                     if (loadedRaf == null) { toast("请先导入 RAF"); return; }
                     engine.dumpD185();
                     break;
-                default:
+                case 6:
                     if (loadedRaf == null) { toast("请先导入 RAF"); return; }
                     toast("开始自检，约 40 秒");
                     engine.selfTest();
+                    break;
+                default:
+                    if (loadedRaf == null) { toast("请先导入 RAF"); return; }
+                    toast("探测中，约 20 秒");
+                    engine.probeSkinTone();
                     break;
             }
         }).setNegativeButton("关闭", null).show();
@@ -1062,6 +1095,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         dst.imageSizeIdx = src.imageSizeIdx; dst.qualityIdx = src.qualityIdx;
         dst.fileTypeIdx = src.fileTypeIdx; dst.colorSpaceIdx = src.colorSpaceIdx;
         dst.expBiasThirds = src.expBiasThirds;
+        dst.smoothSkin = src.smoothSkin;
     }
 
     // ================================================================ 引擎回调
@@ -1087,6 +1121,12 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     @Override public void onPreview(byte[] jpeg, String summary) {
         lastPreview = jpeg;
         showRendered(jpeg);
+        // 第一次渲染结果 = 「操作前」基准（用户随后改参数都算「操作后」）
+        if (!beforeCaptured && !compareDirty) {
+            beforeBmp = renderedBmp;
+            beforeCaptured = true;
+            if (imageTag != null) imageTag.setText("基准已记录");
+        }
         long ms = renderStartAt > 0 ? (android.os.SystemClock.elapsedRealtime() - renderStartAt) : 0;
         renderStartAt = 0;
         String tail = " · " + jpeg.length / 1024 + "KB" + (ms > 0 ? " · " + ms + "ms" : "");

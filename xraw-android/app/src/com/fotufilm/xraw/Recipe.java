@@ -51,6 +51,10 @@ public final class Recipe {
     public int clarity = 0;
     /** 镜头调制优化器：D185.LMO_ON(1) / LMO_OFF(2)；实测 X-M5 基线为 2=关 */
     public int lmo = D185.LMO_OFF;
+    /** 肤色优化（平滑皮肤）0=关 1=弱 2=强；d185 里 1-indexed 写入 */
+    public int smoothSkin = 0;
+    /** 该机型上「肤色优化」实际对应的 d185 索引（由自检⑩探测得出，默认 23） */
+    public static int SMOOTH_SKIN_IDX = 23;
     public int expBiasThirds = 0;
 
     // 输出相关（字段表已锁定：idx1 FileType / idx2 ImageSize / idx3 ImageQuality / idx21 ColorSpace）
@@ -200,6 +204,7 @@ public final class Recipe {
         want[D185.Idx.NOISE_RED] = D185.nrEncode(nr);
         want[D185.Idx.CLARITY] = D185.encodeTenths(clarity);
         want[D185.Idx.LMO] = lmo;
+        if (SMOOTH_SKIN_IDX > 0) want[SMOOTH_SKIN_IDX] = smoothSkin + 1;
         want[D185.Idx.FILE_TYPE] = FILETYPE_VALUES[clampIdx(fileTypeIdx, FILETYPE_VALUES.length)];
         want[D185.Idx.IMAGE_SIZE] = SIZE_VALUES[clampIdx(imageSizeIdx, SIZE_VALUES.length)];
         want[D185.Idx.IMAGE_QUALITY] = QUALITY_VALUES[clampIdx(qualityIdx, QUALITY_VALUES.length)];
@@ -284,6 +289,7 @@ public final class Recipe {
             o.put("nr", nr);
             o.put("clarity", clarity);
             o.put("lmo", lmo);
+            o.put("smoothSkin", smoothSkin);
             o.put("imageSizeIdx", imageSizeIdx);
             o.put("qualityIdx", qualityIdx);
             o.put("fileTypeIdx", fileTypeIdx);
@@ -314,6 +320,7 @@ public final class Recipe {
         r.nr = o.optInt("nr", r.nr);
         r.clarity = o.optInt("clarity", r.clarity);
         r.lmo = o.optInt("lmo", r.lmo);
+        r.smoothSkin = o.optInt("smoothSkin", r.smoothSkin);
         r.imageSizeIdx = o.optInt("imageSizeIdx", r.imageSizeIdx);
         r.qualityIdx = o.optInt("qualityIdx", r.qualityIdx);
         r.fileTypeIdx = o.optInt("fileTypeIdx", r.fileTypeIdx);
