@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "3.0.1";
+    static final String APP_VERSION = "3.1.0";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_TREE = 1003;
     private static final int REQ_RAF = 1001;
@@ -1013,7 +1013,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 相机渲染结果（预览或出图） */
     private void showRendered(byte[] jpeg) {
-        Bitmap bm = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
+        Bitmap bm = decodeOriented(jpeg);
         if (bm == null) return;
         renderedBmp = bm;
         applyDisplay();
@@ -1021,7 +1021,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** RAF 内嵌 JPEG = 「原图」基准（无需相机即可显示） */
     private void setOriginal(byte[] jpeg) {
-        Bitmap bm = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length);
+        Bitmap bm = decodeOriented(jpeg);
         if (bm == null) return;
         originalBmp = bm;
         if (renderedBmp == null) {
@@ -1053,6 +1053,31 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (suppress) return;
         ui.removeCallbacks(previewTick);
         ui.postDelayed(previewTick, 350);
+    }
+
+    /**
+     * 按 EXIF 朝向解码。竖拍照片常被相机存成"横向像素 + Orientation=6/8"，
+     * 直接 decode 会显示成横的——这就是"导入竖图变横图"的原因。
+     */
+    private Bitmap decodeOriented(byte[] data) {
+        Bitmap bm = BitmapFactory.decodeByteArray(data, 0, data.length);
+        if (bm == null) return null;
+        int deg = 0;
+        try (java.io.ByteArrayInputStream bis = new java.io.ByteArrayInputStream(data)) {
+            android.media.ExifInterface ex = new android.media.ExifInterface(bis);
+            int o = ex.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION,
+                    android.media.ExifInterface.ORIENTATION_NORMAL);
+            switch (o) {
+                case android.media.ExifInterface.ORIENTATION_ROTATE_90: deg = 90; break;
+                case android.media.ExifInterface.ORIENTATION_ROTATE_180: deg = 180; break;
+                case android.media.ExifInterface.ORIENTATION_ROTATE_270: deg = 270; break;
+                default: deg = 0;
+            }
+        } catch (Exception ignored) { }
+        if (deg == 0) return bm;
+        android.graphics.Matrix m = new android.graphics.Matrix();
+        m.postRotate(deg);
+        return Bitmap.createBitmap(bm, 0, 0, bm.getWidth(), bm.getHeight(), m, true);
     }
 
     /** 白平衡读数 + 色偏语义提示（随拖动变化） */

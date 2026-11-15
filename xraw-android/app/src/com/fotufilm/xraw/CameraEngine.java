@@ -779,6 +779,14 @@ public final class CameraEngine {
      * 这样即使相机不认属性，也仍然退回原来的 profile 通道，不会丢功能。
      */
     private void applyParams(Recipe r) {
+        // 只用 d185 单一通路：实测 X-M5 的属性通道会拒一半参数(0x201C)，
+        // 双通道同时写既产生噪音，也让"到底哪条生效"无法判断。
+        // d185 包才是真正驱动 RAW 转换的东西（快照 diff 已证明）。
+        r.skipDrInProfile = false;
+        return;
+    }
+
+    private void applyParamsLegacy(Recipe r) {
         try {
             Fuji.PropResult pr = fuji.applyParamsViaProps(r, baseProfile);
             status(pr.summarize());

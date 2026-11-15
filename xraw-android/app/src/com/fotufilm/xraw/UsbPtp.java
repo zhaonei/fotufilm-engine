@@ -548,7 +548,7 @@ public final class UsbPtp implements Closeable {
         int emptyReads = 0;
         while (done < remain) {
             int want = Math.min(rxBuf.length, remain - done);
-            int n = bulkIn(rxBuf, 0, want, 15_000);
+            int n = bulkIn(rxBuf, 0, want, 5_000);
             if (n > 0) {
                 if (sink != null) sink.write(rxBuf, 0, n); else bos.write(rxBuf, 0, n);
                 done += n;
@@ -556,6 +556,18 @@ public final class UsbPtp implements Closeable {
                 continue;
             }
             emptyReads++;
+            // 图像数据容错：已经拿到 JPEG 结尾(FFD9) 或已收到 >99%，
+            // 相机只是不肯再发包（常见于尾部 10~20KB），直接接受，别把整场会话拖死
+            if (emptyReads >= 6 && bos != null && done > 1024) {
+                byte[] got = bos.toByteArray();
+                boolean hasSoi = (got[0] & 0xFF) == 0xFF && (got[1] & 0xFF) == 0xD8;
+                boolean hasEoi = got.length > 4
+                        && (got[got.length - 2] & 0xFF) == 0xFF && (got[got.length - 1] & 0xFF) == 0xD9;
+                if (hasSoi && (hasEoi || done >= remain - 32768)) {
+                    log("数据阶段容错收尾：已收 " + done + "/" + remain + "（尾部缺失，按 JPEG 接受）");
+                    break;
+                }
+            }
             if (android.os.SystemClock.elapsedRealtime() > payloadDeadline || emptyReads > 400) {
                 throw new IOException("数据阶段中断 " + done + "/" + remain
                         + "（连续空读 " + emptyReads + " 次）");
