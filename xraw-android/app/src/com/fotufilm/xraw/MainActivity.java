@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "3.0.0";
+    static final String APP_VERSION = "3.0.1";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_TREE = 1003;
     private static final int REQ_RAF = 1001;
@@ -259,21 +259,9 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         LinearLayout stageCol = Ui.column(this);
         stageCol.addView(stage, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         if (!wide) stageCol.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.5f));
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         else stageCol.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
         body.addView(stageCol);
-
-        // 参数面板
-        LinearLayout panel = Ui.column(this);
-        panel.setBackgroundColor(Ui.PANEL);
-        buildParams(panel);
-        ScrollView ps = Ui.scroller(this, panel, Ui.PANEL);
-        if (wide) {
-            ps.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 380), ViewGroup.LayoutParams.MATCH_PARENT));
-        } else {
-            ps.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.5f));
-        }
-        body.addView(ps);
 
         root.addView(body);
         root.addView(Ui.divider(this));
@@ -301,17 +289,9 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         imp.setOnClickListener(v -> pickFile(REQ_RAF));
         bar.addView(imp);
 
-        android.widget.Button slots = Ui.button(this, "配方", false);
-        slots.setOnClickListener(v -> {
-            if (!engine.isConnected()) { toast("请先连接相机"); return; }
-            status("读取相机槽位 C1–C4 …");
-            engine.readSlots();
-        });
-        bar.addView(slots);
-
-        android.widget.Button batch = Ui.button(this, "批量", false);
-        batch.setOnClickListener(v -> pickFile(REQ_RAF_BATCH));
-        bar.addView(batch);
+        android.widget.Button more = Ui.button(this, "⋯", false);
+        more.setOnClickListener(v -> showMoreMenu());
+        bar.addView(more);
         return bar;
     }
 
@@ -386,6 +366,34 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
             tabLabels[i].setTypeface(null, on ? android.graphics.Typeface.BOLD
                     : android.graphics.Typeface.NORMAL);
         }
+    }
+
+    /** 顶栏 ⋯：批量 / 配方工坊 / 配方库 / 自检 / 导出日志 */
+    private void showMoreMenu() {
+        final String[] items = {
+                "批量导入 RAF",
+                "配方工坊（读取 C1–C4）",
+                "配方库（本地）",
+                "自检与日志",
+                "导出诊断日志",
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("更多")
+                .setItems(items, (d, which) -> {
+                    switch (which) {
+                        case 0: pickFile(REQ_RAF_BATCH); break;
+                        case 1:
+                            if (!engine.isConnected()) { toast("请先连接相机"); return; }
+                            status("读取相机槽位 C1–C4 …");
+                            engine.readSlots();
+                            break;
+                        case 2: loadRecipeDialog(); break;
+                        case 3: probeDialog(); break;
+                        case 4: engine.probeDump(); break;
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
     }
 
     private View buildBottomBar() {
