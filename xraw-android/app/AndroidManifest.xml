@@ -11,12 +11,14 @@
 
     <application
         android:label="Fotofilm X RAW"
+        android:icon="@mipmap/ic_launcher"
         android:hasCode="true"
         android:allowBackup="false">
 
         <activity
             android:name="com.fotufilm.xraw.MainActivity"
             android:label="Fotofilm X RAW"
+        android:icon="@mipmap/ic_launcher"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

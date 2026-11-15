@@ -51,7 +51,7 @@ import java.util.List;
  */
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
-    static final String APP_VERSION = "4.0.0";
+    static final String APP_VERSION = "4.0.1";
 
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001, REQ_RAF_BATCH = 1002, REQ_TREE = 1003;
@@ -87,6 +87,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     private Ui.SeekRow tempRow, hiRow, shRow, colorRow, sharpRow, nrRow, clarityRow, expRow;
     private WbColorPadView colorPad;
     private TextView folderText;
+    private ScrollView paramScroll;
 
     // ================================================================ 生命周期
 
@@ -262,14 +263,16 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         sessionBar.setBackgroundColor(0xFF1B1B1B);
 
         LinearLayout row = Ui.row(this);
-        row.setPadding(Ui.dp(this, 10), Ui.dp(this, 7), Ui.dp(this, 8), Ui.dp(this, 7));
+        row.setPadding(Ui.dp(this, 8), Ui.dp(this, 5), Ui.dp(this, 6), Ui.dp(this, 5));
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 52)));
 
         LinearLayout titleCol = Ui.column(this);
-        titleCol.addView(Ui.text(this, "Fotofilm X RAW  v" + APP_VERSION, Ui.TEXT, 13f, true));
-        statusText = Ui.text(this, "未连接", Ui.TEXT_DIM, 10.5f, false);
+        titleCol.addView(Ui.text(this, "X RAW v" + APP_VERSION, Ui.TEXT, 12f, true));
+        statusText = Ui.text(this, "未连接", Ui.TEXT_DIM, 10f, false);
         statusText.setMaxLines(2);
         titleCol.addView(statusText);
-        row.addView(titleCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(titleCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
 
         android.widget.Button connect = Ui.button(this, "连接", true);
         connect.setOnClickListener(v -> tryAutoConnect());
@@ -279,12 +282,9 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         imp.setOnClickListener(v -> pickFile(REQ_RAF));
         row.addView(imp);
 
-        android.widget.Button panelBtn = Ui.button(this, "▥", false);
-        panelBtn.setOnClickListener(v -> {
-            exifVisible = !exifVisible;
-            if (exifPanel != null) exifPanel.setVisibility(exifVisible ? View.VISIBLE : View.GONE);
-        });
-        row.addView(panelBtn);
+        android.widget.Button expTop = Ui.button(this, "导出", false);
+        expTop.setOnClickListener(v -> doExport());
+        row.addView(expTop);
 
         android.widget.Button more = Ui.button(this, "⋯", false);
         more.setOnClickListener(v -> showMoreMenu());
@@ -298,6 +298,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         // 文件卡（可折叠）
         fileRow = Ui.row(this);
         fileRow.setPadding(Ui.dp(this, 10), 0, Ui.dp(this, 10), Ui.dp(this, 8));
+        fileRow.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 58)));
         LinearLayout meta = Ui.column(this);
         fileName = Ui.text(this, "未导入 RAF", 0xFFE0E0E0, 12f, false);
         fileMeta = Ui.text(this, "连接相机后点「导入」", Ui.TEXT_DIM, 10f, false);
@@ -346,31 +348,25 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         drawer.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0));
 
         LinearLayout info = Ui.row(this);
-        info.setPadding(Ui.dp(this, 12), Ui.dp(this, 3), Ui.dp(this, 12), Ui.dp(this, 2));
+        info.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 24)));
+        info.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 12), 0);
         queueText = Ui.text(this, "队列空闲", Ui.TEXT_DIM, 10.5f, false);
         info.addView(queueText, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(1000);
         progress.setVisibility(View.GONE);
-        info.addView(progress, new LinearLayout.LayoutParams(Ui.dp(this, 100), Ui.dp(this, 14)));
+        info.addView(progress, new LinearLayout.LayoutParams(Ui.dp(this, 90), Ui.dp(this, 12)));
         drawer.addView(info);
 
-        FrameLayout holder = new FrameLayout(this);
-        for (int i = 0; i < 6; i++) {
-            LinearLayout page = Ui.column(this);
-            page.setBackgroundColor(Ui.PANEL);
-            page.setVisibility(View.GONE);
-            ScrollView sv = Ui.scroller(this, page, Ui.PANEL);
-            sv.setVisibility(View.GONE);
-            pages[i] = page;
-            holder.addView(sv, new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            holder.getChildAt(i).setTag("page" + i);
-        }
-        drawer.addView(holder, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        drawer.setTag(holder);
-
+        // 6 个页面一次性建好，切换时只换 ScrollView 的内容
         buildPages();
+
+        paramScroll = new ScrollView(this);
+        paramScroll.setBackgroundColor(Ui.PANEL);
+        paramScroll.setFillViewport(true);
+        drawer.addView(paramScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return drawer;
     }
 
@@ -401,11 +397,14 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
             drawer.setVisibility(View.VISIBLE);
             drawer.getLayoutParams().height = drawerHeightPx();
             activeTab = idx;
-        }
-        ViewGroup holder = (ViewGroup) drawer.getTag();
-        if (holder != null) {
-            for (int i = 0; i < holder.getChildCount(); i++) {
-                holder.getChildAt(i).setVisibility(i == activeTab ? View.VISIBLE : View.GONE);
+            if (paramScroll != null && pages[idx] != null) {
+                if (pages[idx].getParent() != null) {
+                    ((ViewGroup) pages[idx].getParent()).removeView(pages[idx]);
+                }
+                paramScroll.removeAllViews();
+                paramScroll.addView(pages[idx], new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                paramScroll.scrollTo(0, 0);
             }
         }
         drawer.requestLayout();
@@ -892,6 +891,13 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     }
 
     // ================================================================ 菜单 / 对话框
+
+    private void doExport() {
+        if (!engine.isConnected()) { toast("请先连接相机"); return; }
+        if (loadedRaf == null) { toast("请先导入并上传一张 RAW"); return; }
+        status("导出中：" + recipe.summaryText());
+        engine.export(recipe);
+    }
 
     private void showMoreMenu() {
         final String[] items = {
