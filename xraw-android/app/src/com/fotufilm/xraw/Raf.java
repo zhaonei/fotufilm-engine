@@ -45,21 +45,54 @@ public final class Raf {
         }
     }
 
+    /** 兜底：在文件前 8MB 里扫描 JPEG 的 SOI(FFD8FF)…EOI(FFD9)，取最大的一张 */
+    private byte[] scanForJpeg(java.io.File f) {
+        try {
+            RandomAccessFile raf = new RandomAccessFile(f, "r");
+            try {
+                int limit = (int) Math.min(f.length(), 8L * 1024 * 1024);
+                byte[] buf = new byte[limit];
+                raf.readFully(buf);
+                int bestStart = -1, bestEnd = -1;
+                for (int i = 0; i + 3 < limit; i++) {
+                    if ((buf[i] & 0xFF) == 0xFF && (buf[i + 1] & 0xFF) == 0xD8
+                            && (buf[i + 2] & 0xFF) == 0xFF) {
+                        int end = -1;
+                        for (int j = i + 3; j + 1 < limit; j++) {
+                            if ((buf[j] & 0xFF) == 0xFF && (buf[j + 1] & 0xFF) == 0xD9) { end = j + 1; break; }
+                        }
+                        if (end > 0 && (bestEnd - bestStart) < (end - i)) { bestStart = i; bestEnd = end; }
+                        if (end > 0) i = end;      // 跳过这一张，继续找更大的
+                    }
+                }
+                if (bestStart >= 0 && bestEnd > bestStart) {
+                    byte[] out = new byte[bestEnd - bestStart];
+                    System.arraycopy(buf, bestStart, out, 0, out.length);
+                    return out;
+                }
+            } finally {
+                raf.close();
+            }
+        } catch (Exception ignored) { }
+        return null;
+    }
+
     /** 抽内嵌 JPEG；失败返回 null（UI 会退化为灰底占位） */
     public byte[] embeddedJpeg(java.io.File f) {
-        if (jpegOffset <= 0 || jpegLength <= 0) return null;
+        if (jpegOffset <= 0 || jpegLength <= 0) return scanForJpeg(f);
         try {
             RandomAccessFile raf = new RandomAccessFile(f, "r");
             try {
                 byte[] buf = new byte[jpegLength];
                 raf.seek(jpegOffset);
                 raf.readFully(buf);
-                return (buf.length > 4 && (buf[0] & 0xFF) == 0xFF && (buf[1] & 0xFF) == 0xD8) ? buf : null;
+                if (buf.length > 4 && (buf[0] & 0xFF) == 0xFF && (buf[1] & 0xFF) == 0xD8) return buf;
+            return scanForJpeg(f);
             } finally {
                 raf.close();
             }
         } catch (IOException e) {
-            return null;
+            return scanForJpeg(f);
         }
     }
 }

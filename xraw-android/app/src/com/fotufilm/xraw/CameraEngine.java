@@ -885,6 +885,8 @@ public final class CameraEngine {
                 {"清晰度", "-50", "50"},
                 {"降噪", "-4", "4"},
                 {"颗粒 强+大", "0", "1"},
+                {"彩色铬 强", "0", "1"},
+                {"FX蓝 强", "0", "1"},
                 {"白平衡 日光", "0", "1"},
                 {"动态范围", "0", "1"},
         };
@@ -927,6 +929,8 @@ public final class CameraEngine {
             case "清晰度": r.clarity = variant == 0 ? -5 : 5; break;
             case "降噪": r.nr = variant == 0 ? -4 : 4; break;
             case "颗粒 强+大": if (variant == 1) { r.grainStrength = 2; r.grainLarge = true; } else r.grainStrength = 0; break;
+            case "彩色铬 强": r.chrome = variant == 0 ? 0 : 2; break;
+            case "FX蓝 强": r.fxBlue = variant == 0 ? 0 : 2; break;
             case "白平衡 日光": if (variant == 1) r.wbIndex = 7; break;
             case "动态范围": r.dr = variant == 0 ? D185.DR_100 : D185.DR_400; break;
         }

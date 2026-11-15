@@ -51,7 +51,7 @@ import java.util.List;
  */
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
-    static final String APP_VERSION = "4.0.4";
+    static final String APP_VERSION = "4.1.0";
 
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001, REQ_RAF_BATCH = 1002, REQ_TREE = 1003;
@@ -240,6 +240,16 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                 Ui.dp(this, 172), ViewGroup.LayoutParams.WRAP_CONTENT);
         elp.gravity = Gravity.TOP | Gravity.END;
         elp.setMargins(0, Ui.dp(this, 10), Ui.dp(this, 10), 0);
+        busyDot = Ui.text(this, "● 渲染中", Ui.ACCENT, 10f, true);
+        busyDot.setVisibility(View.GONE);
+        busyDot.setBackground(Ui.bg(0xCC000000, 4, this));
+        busyDot.setPadding(Ui.dp(this, 6), Ui.dp(this, 2), Ui.dp(this, 6), Ui.dp(this, 2));
+        FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        blp.gravity = Gravity.TOP | Gravity.START;
+        blp.setMargins(Ui.dp(this, 12), Ui.dp(this, 10), 0, 0);
+        stage.addView(busyDot, blp);
+
         exifPanel.setOnClickListener(v -> {
             exifVisible = false;
             exifPanel.setVisibility(View.GONE);
@@ -252,7 +262,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         cmp.setGravity(Gravity.CENTER);
         cmp.setBackground(Ui.bg(0xCC121212, 19, 0xFF4A4A4A, this));
         cmp.setOnClickListener(v -> {
-            if (originalBmp == null) { toast("还没有原图：请先导入一张 RAF"); return; }
+            if (originalBmp == null) { toast("这张 RAF 没有可用内嵌预览，无法对比"); return; }
             compareOriginal = !compareOriginal;
             applyDisplay();
         });
@@ -465,8 +475,9 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
     private void pageExposure(LinearLayout c) {
         c.addView(Ui.section(this, "曝光补偿"));
-        expRow = new Ui.SeekRow(this, "曝光补偿 (1/3 EV)", -9, 9, recipe.expBiasThirds, "", false,
+        expRow = new Ui.SeekRow(this, "曝光补偿 (1/3 档，±5EV)", -15, 15, recipe.expBiasThirds, " EV", true,
                 v -> { recipe.expBiasThirds = v; schedulePreview(); }, this::schedulePreview);
+        expRow.scale(3);                      // 线上单位=1/3EV，显示成 +1.0 EV
         c.addView(expRow);
 
         c.addView(Ui.section(this, "动态范围"));
@@ -705,7 +716,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         if (sharpRow != null) sharpRow.setValue(recipe.sharpness, -4);
         if (nrRow != null) nrRow.setValue(recipe.nr, -4);
         if (clarityRow != null) clarityRow.setValue(recipe.clarity, -5);
-        if (expRow != null) expRow.setValue(recipe.expBiasThirds, -9);
+        if (expRow != null) expRow.setValue(recipe.expBiasThirds, -15);
         if (colorPad != null) { colorPad.setValue(recipe.wbR, recipe.wbB); updateWbReadout(); }
         suppress = false;
     }
@@ -732,13 +743,30 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     // ================================================================ 渲染调度
 
     private final Runnable previewTick = () -> {
-        if (engine != null && engine.isConnected() && loadedRaf != null) engine.preview(recipe);
+        if (engine != null && engine.isConnected() && loadedRaf != null) {
+            startBusy();
+            status("⟳ 机身渲染中…");
+            engine.preview(recipe);
+        }
     };
+
+    private long renderStartAt = 0;
+    private TextView busyDot;
 
     private void schedulePreview() {
         if (suppress) return;
         ui.removeCallbacks(previewTick);
         ui.postDelayed(previewTick, 350);
+        status("… 参数已改，等待渲染");
+    }
+
+    private void startBusy() {
+        renderStartAt = android.os.SystemClock.elapsedRealtime();
+        if (busyDot != null) busyDot.setVisibility(View.VISIBLE);
+    }
+
+    private void stopBusy() {
+        if (busyDot != null) busyDot.setVisibility(View.GONE);
     }
 
     // ================================================================ 显示
@@ -930,7 +958,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     private void doExport() {
         if (!engine.isConnected()) { toast("请先连接相机"); return; }
         if (loadedRaf == null) { toast("请先导入并上传一张 RAW"); return; }
-        status("导出中：" + recipe.summaryText());
+        startBusy();
+        status("⟳ 机身渲染全分辨率中…（TIFF 可能需要 30 秒以上）");
         engine.export(recipe);
     }
 
@@ -1044,7 +1073,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     }
 
     @Override public void onCaps(java.util.Map<Integer, PropDesc> c) {
-        toast("已读取 " + c.size() + " 条相机能力");
+        if (c.size() > 0) toast("已读取 " + c.size() + " 条相机能力");
     }
 
     @Override public void onBaseProfile(D185 base, Recipe fromCam) {
@@ -1058,10 +1087,16 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     @Override public void onPreview(byte[] jpeg, String summary) {
         lastPreview = jpeg;
         showRendered(jpeg);
-        summaryText.setText(summary + " · " + jpeg.length / 1024 + "KB");
+        long ms = renderStartAt > 0 ? (android.os.SystemClock.elapsedRealtime() - renderStartAt) : 0;
+        renderStartAt = 0;
+        String tail = " · " + jpeg.length / 1024 + "KB" + (ms > 0 ? " · " + ms + "ms" : "");
+        summaryText.setText(summary + tail);
+        status("✔ 已应用" + tail);
+        stopBusy();
     }
 
     @Override public void onExport(File file, String summary) {
+        stopBusy();
         progress.setVisibility(View.GONE);
         status("已保存 " + file.getName());
         toast("导出完成：" + file.getName());
@@ -1074,6 +1109,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     }
 
     @Override public void onError(String msg) {
+        stopBusy();
         progress.setVisibility(View.GONE);
         status("⚠ " + msg);
         toast(msg);
