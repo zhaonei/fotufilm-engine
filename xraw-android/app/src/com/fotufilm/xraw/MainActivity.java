@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "2.1.2";
+    static final String APP_VERSION = "2.1.3";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001;
     private static final int REQ_RAF_BATCH = 1002;
@@ -677,7 +677,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         "④ 从相机读回当前 RAF 的机内参数到面板",
                         "⑤ 测试当前上传通道（先拔插数据线，再跑本项）",
                         "⑥ 选择上传通道形态（0-6；默认 2 = libpict 风格，改完必须拔插数据线）",
-                        "⑦ 字段绑定自校准（逐个参数写读对比，定位真实字段索引）"
+                        "⑦ 字段绑定自校准（逐个参数写读对比，定位真实字段索引）",
+                        "⑧ d185 参数快照（导出当前 RAW 的全部参数默认值，调试用）"
                 }, (d, which) -> {
                     if (which == 0) { engine.probeDump(); return; }   // 连不上时也要能导出
                     if (!engine.isConnected()) { toast("请先连接相机"); return; }
@@ -696,10 +697,13 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         engine.diagUploadVariants();
                     } else if (which == 5) {
                         chooseUploadChannel();
-                    } else {
+                    } else if (which == 6) {
                         if (loadedRaf == null) { toast("请先导入一张 RAF"); return; }
                         toast("开始自校准（约 20 秒）");
                         engine.calibrate();
+                    } else {
+                        if (loadedRaf == null) { toast("请先导入一张 RAF 并等它上传完成"); return; }
+                        engine.dumpD185();
                     }
                 })
                 .setNegativeButton("关闭", null)

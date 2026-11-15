@@ -37,7 +37,7 @@ public final class CameraEngine {
 
     private static final int J_CONNECT = 1, J_UPLOAD = 2, J_PREVIEW = 3, J_EXPORT = 4,
             J_BATCH = 5, J_PROBE_DUMP = 6, J_PROBE_SIMS = 7, J_DISCONNECT = 8, J_CLOSE = 9,
-            J_PROBE_CAPS = 10, J_DIAG_UPLOAD = 11, J_CALIB = 12;
+            J_PROBE_CAPS = 10, J_DIAG_UPLOAD = 11, J_CALIB = 12, J_DUMP_D185 = 13;
 
     private static final class Job {
         final int kind;
@@ -474,6 +474,20 @@ public final class CameraEngine {
                 status("已读取 " + c.size() + " 条属性约束");
                 break;
             }
+            case J_DUMP_D185: {
+                requireSession();
+                status("读取 d185 配置包…");
+                D185 p = fuji.readProfile();
+                if (baseProfile == null) baseProfile = p;
+                String text = D185Dump.report(p, session, loadedRaf);
+                MediaSaver.Exported ex = MediaSaver.exportText(ctx, "d185_snapshot.txt", text);
+                lastLogPath = ex.displayPath();
+                lastLogUri = ex.uri;
+                final String path = lastLogPath;
+                main.post(() -> listener.onProbeDone(path));
+                status("d185 快照已导出：" + path);
+                break;
+            }
             case J_CALIB: {
                 requireLoaded();
                 final String path = runCalibration();
@@ -818,6 +832,13 @@ public final class CameraEngine {
         final Fuji.Session s2 = fuji.handshake();
         session = s2;
         main.post(() -> listener.onSession(s2));
+    }
+
+    /** 调试用：把当前已装载 RAW 的 d185 全字段导出成可读快照 */
+    public void dumpD185() {
+        Job j = new Job(J_DUMP_D185);
+        j.label = "d185 参数快照";
+        post(j);
     }
 
     public void calibrate() {
