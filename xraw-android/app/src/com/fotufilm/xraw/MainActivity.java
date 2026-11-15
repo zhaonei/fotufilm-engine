@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "3.1.0";
+    static final String APP_VERSION = "3.2.0";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_TREE = 1003;
     private static final int REQ_RAF = 1001;
@@ -510,8 +510,9 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         c.addView(Ui.section(this, "白平衡"));
         wbRow = new Ui.ChoiceRow(this, "白平衡", D185.WB_NAMES, recipe.wbIndex, i -> { recipe.wbIndex = i; schedulePreview(); });
         c.addView(wbRow);
-        tempRow = new Ui.SeekRow(this, "色温 (K)", 2500, 10000, recipe.wbTemp, "K", false,
-                v -> { recipe.wbTemp = v; schedulePreview(); }, this::schedulePreview);
+        tempRow = new Ui.SeekRow(this, "色温 (K)", 2500, 10000, Math.max(2500, recipe.wbTemp), "K", false,
+                v -> { recipe.wbTemp = v; recipe.wbTempTouched = true; schedulePreview(); },
+                this::schedulePreview);
         c.addView(tempRow);
         // 2D 色偏盘（对齐机内）：横=R、纵=B，拖动吸附整数格
         wbReadout = Ui.text(this, "", Ui.ACCENT, 12.5f, true);
@@ -808,7 +809,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         "⑤ 测试当前上传通道（先拔插数据线，再跑本项）",
                         "⑥ 选择上传通道形态（0-6；默认 2 = libpict 风格，改完必须拔插数据线）",
                         "⑦ 字段绑定自校准（逐个参数写读对比，定位真实字段索引）",
-                        "⑧ d185 参数快照（导出当前 RAW 的全部参数默认值，调试用）"
+                        "⑧ d185 参数快照（导出当前 RAW 的全部参数默认值，调试用）",
+                        "⑨ 参数生效自检（A/B 双渲染对比，客观判定每个参数是否真的生效）"
                 }, (d, which) -> {
                     if (which == 0) { engine.probeDump(); return; }   // 连不上时也要能导出
                     if (!engine.isConnected()) { toast("请先连接相机"); return; }
@@ -831,9 +833,13 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         if (loadedRaf == null) { toast("请先导入一张 RAF"); return; }
                         toast("开始自校准（约 20 秒）");
                         engine.calibrate();
-                    } else {
+                    } else if (which == 7) {
                         if (loadedRaf == null) { toast("请先导入一张 RAF 并等它上传完成"); return; }
                         engine.dumpD185();
+                    } else {
+                        if (loadedRaf == null) { toast("请先导入一张 RAF 并等它上传完成"); return; }
+                        toast("开始自检，约 40 秒（每个参数渲染两次）");
+                        engine.selfTest();
                     }
                 })
                 .setNegativeButton("关闭", null)

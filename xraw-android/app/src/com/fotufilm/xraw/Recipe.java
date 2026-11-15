@@ -25,6 +25,11 @@ public final class Recipe {
     public String name = "未命名配方";
 
     private int[] base = new int[D185.PROPS];
+    /** 基线白平衡：切到"色温"时用它兜底，绝不凭空猜一个 K 值（那会造成整幅偏色） */
+    private int baseWbMode = 0;
+    private int baseWbTemp = 0;
+    /** 用户是否真的动过色温滑块（没动过就不写 K） */
+    public transient boolean wbTempTouched = false;
     /** 本次打包发生的"降级/受限"说明，UI 会显示出来 */
     public transient String note = "";
     /** DR 已通过相机属性下发时置 true：profile 里就不再动 DR/优先两个字段 */
@@ -104,7 +109,9 @@ public final class Recipe {
                 if (D185.WB_VALUES[i] == wb) { r.wbIndex = i; break; }
             }
         }
-        r.wbTemp = p.get(D185.Idx.WB_COLOR_TEMP);        // 保留原值（0 = 未使用），不强行夹到 2500
+        r.baseWbMode = p.wbMode();
+        r.baseWbTemp = p.get(D185.Idx.WB_COLOR_TEMP);
+        r.wbTemp = r.baseWbTemp;                          // 保留原值（0 = 未使用）
         r.wbR = D185.clamp((short) (p.get(D185.Idx.WB_SHIFT_R) & 0xFFFF), -9, 9);
         r.wbB = D185.clamp((short) (p.get(D185.Idx.WB_SHIFT_B) & 0xFFFF), -9, 9);
 
@@ -148,11 +155,6 @@ public final class Recipe {
                 }
             }
             want[D185.Idx.DYNAMIC_RANGE] = dr;
-        } else {
-            // 「动态范围优先」开启时，相机接管 DR / 高光 / 阴影，并会拒绝整包写入 → 一律不写
-            want[D185.Idx.HIGHLIGHT] = base[D185.Idx.HIGHLIGHT];
-            want[D185.Idx.SHADOW] = base[D185.Idx.SHADOW];
-            note = "动态范围优先开启：DR/高光/阴影由相机接管（这三项本次不下发）";
         }
 
         int grain;
@@ -165,9 +167,14 @@ public final class Recipe {
         want[D185.Idx.CHROME] = (chrome == 0 && base[D185.Idx.CHROME] == 0) ? 0 : chrome + 1;
         want[D185.Idx.FX_BLUE] = (fxBlue == 0 && base[D185.Idx.FX_BLUE] == 0) ? 0 : fxBlue + 1;
 
-        // 白平衡：As Shot 时只置 WBShootCond，绝不覆盖 WB 模式/色温
+        // 白平衡：As Shot 时**完全不碰** WB 相关字段（保持相机原样）；
+        // 这是"整体变绿"的根因：以前 AsShot 也会被写成"色温+乱值K"
         if (wbIndex == D185.WB_VALUES.length - 1) {
-            want[D185.Idx.WB_SHOOT_COND] = D185.WB_SHOOT_ON;
+            want[D185.Idx.WB_SHOOT_COND] = base[D185.Idx.WB_SHOOT_COND];
+            want[D185.Idx.WB_MODE] = base[D185.Idx.WB_MODE];
+            want[D185.Idx.WB_COLOR_TEMP] = base[D185.Idx.WB_COLOR_TEMP];
+            want[D185.Idx.WB_SHIFT_R] = base[D185.Idx.WB_SHIFT_R];
+            want[D185.Idx.WB_SHIFT_B] = base[D185.Idx.WB_SHIFT_B];
         } else {
             int mode = D185.WB_VALUES[Math.max(0, Math.min(D185.WB_VALUES.length - 1, wbIndex))];
             want[D185.Idx.WB_SHOOT_COND] = D185.WB_SHOOT_OFF;
@@ -175,7 +182,12 @@ public final class Recipe {
             want[D185.Idx.WB_SHIFT_R] = wbR;
             want[D185.Idx.WB_SHIFT_B] = wbB;
             if (mode == D185.WB_TEMPERATURE) {
-                want[D185.Idx.WB_COLOR_TEMP] = D185.clamp(wbTemp, 2500, 10000);
+                // K 值优先级：用户拖过的值 → 基线 K（若有效）→ 5500
+                int k = wbTempTouched && wbTemp >= 2500 ? wbTemp
+                        : (baseWbTemp >= 2500 ? baseWbTemp : 5500);
+                want[D185.Idx.WB_COLOR_TEMP] = D185.clamp(k, 2500, 10000);
+            } else {
+                want[D185.Idx.WB_COLOR_TEMP] = base[D185.Idx.WB_COLOR_TEMP];
             }
         }
 

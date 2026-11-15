@@ -40,7 +40,7 @@ public final class CameraEngine {
     private static final int J_CONNECT = 1, J_UPLOAD = 2, J_PREVIEW = 3, J_EXPORT = 4,
             J_BATCH = 5, J_PROBE_DUMP = 6, J_PROBE_SIMS = 7, J_DISCONNECT = 8, J_CLOSE = 9,
             J_PROBE_CAPS = 10, J_DIAG_UPLOAD = 11, J_CALIB = 12, J_DUMP_D185 = 13,
-            J_SLOT_READ = 14, J_SLOT_WRITE = 15;
+            J_SLOT_READ = 14, J_SLOT_WRITE = 15, J_SELFTEST = 16;
 
     private static final class Job {
         final int kind;
@@ -499,6 +499,13 @@ public final class CameraEngine {
                 status("已读取 " + c.size() + " 条属性约束");
                 break;
             }
+            case J_SELFTEST: {
+                requireLoaded();
+                final String path = runSelfTest();
+                main.post(() -> listener.onProbeDone(path));
+                status("参数生效自检完成：" + path);
+                break;
+            }
             case J_SLOT_READ: {
                 requireSession();
                 status("读取 C1–C4 …");
@@ -864,6 +871,74 @@ public final class CameraEngine {
         }
     }
 
+    /** 对每个参数做 A/B 两次渲染，比 hash：不同=生效，相同=无效 */
+    private String runSelfTest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("== 参数生效自检（A/B 双渲染对比）==\n");
+        sb.append("判定：两次渲染的 JPEG 字节不同 = 参数确实影响机身渲染；相同 = 无效。\n\n");
+        String[][] cases = {
+                {"胶片模拟", "0", "11"},      // base → Classic Chrome
+                {"高光色调", "-20", "40"},
+                {"阴影色调", "-20", "40"},
+                {"色彩", "-40", "40"},
+                {"锐度", "-40", "40"},
+                {"清晰度", "-50", "50"},
+                {"降噪", "-4", "4"},
+                {"颗粒 强+大", "0", "1"},
+                {"白平衡 日光", "0", "1"},
+                {"动态范围", "0", "1"},
+        };
+        for (String[] c : cases) {
+            try {
+                Recipe a = Recipe.fromD185(baseProfile);
+                Recipe b = Recipe.fromD185(baseProfile);
+                applyCase(a, c[0], 0);
+                applyCase(b, c[0], 1);
+                byte[] ia = renderWith(a);
+                byte[] ib = renderWith(b);
+                boolean diff = ia.length != ib.length || !java.util.Arrays.equals(ia, ib);
+                sb.append(String.format(java.util.Locale.US,
+                        "%-14s A=%d B=%d  %s%n", c[0], ia.length, ib.length,
+                        diff ? "✔ 生效" : "✗ 无差异（该参数未影响渲染）"));
+            } catch (IOException e) {
+                sb.append(String.format("%-14s 失败：%s%n", c[0], e.getMessage()));
+            }
+        }
+        sb.append("\n（本工具会改动相机参数，结束后已把原始档写回）\n");
+        try { fuji.writeProfile(baseProfile); } catch (IOException ignored) { }
+        try {
+            MediaSaver.Exported ex = MediaSaver.exportText(ctx, "selftest_params.txt", sb.toString());
+            lastLogPath = ex.displayPath();
+            lastLogUri = ex.uri;
+        } catch (IOException e) {
+            lastLogPath = "写入失败: " + e.getMessage();
+        }
+        return lastLogPath;
+    }
+
+    /** 按参数名设置第 variant 个极值（0=A, 1=B） */
+    private void applyCase(Recipe r, String name, int variant) {
+        switch (name) {
+            case "胶片模拟": r.filmSim = variant == 0 ? r.filmSim : 11; break;
+            case "高光色调": r.highlight = variant == 0 ? -20 : 40; break;
+            case "阴影色调": r.shadow = variant == 0 ? -20 : 40; break;
+            case "色彩": r.color = variant == 0 ? -4 : 4; break;
+            case "锐度": r.sharpness = variant == 0 ? -4 : 4; break;
+            case "清晰度": r.clarity = variant == 0 ? -5 : 5; break;
+            case "降噪": r.nr = variant == 0 ? -4 : 4; break;
+            case "颗粒 强+大": if (variant == 1) { r.grainStrength = 2; r.grainLarge = true; } else r.grainStrength = 0; break;
+            case "白平衡 日光": if (variant == 1) r.wbIndex = 7; break;
+            case "动态范围": r.dr = variant == 0 ? D185.DR_100 : D185.DR_400; break;
+        }
+    }
+
+    private byte[] renderWith(Recipe r) throws IOException {
+        D185 p = baseProfile.copy();
+        r.applyTo(p);
+        fuji.writeProfile(p);
+        return fuji.render(false, 60000);
+    }
+
     private void doUpload(File file) throws IOException {
         requireSession();
         if (loadedRaf != null && loadedRaf.getAbsolutePath().equals(file.getAbsolutePath())
@@ -892,6 +967,13 @@ public final class CameraEngine {
         final Fuji.Session s2 = fuji.handshake();
         session = s2;
         main.post(() -> listener.onSession(s2));
+    }
+
+    /** 参数生效自检：对每个参数取两个极值各渲染一次，比较字节差异 */
+    public void selfTest() {
+        Job j = new Job(J_SELFTEST);
+        j.label = "参数生效自检";
+        post(j);
     }
 
     /** 配方工坊：读取相机 C1–C4 */
