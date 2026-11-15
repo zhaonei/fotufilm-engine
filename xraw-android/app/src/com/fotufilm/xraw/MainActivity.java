@@ -47,7 +47,7 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "3.2.0";
+    static final String APP_VERSION = "3.2.1";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_TREE = 1003;
     private static final int REQ_RAF = 1001;
@@ -457,7 +457,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     }
 
     private void buildParams(LinearLayout c) {
-        c.addView(Ui.section(this, "输出（相机原生 d185 未确认该组字段，暂不生效）"));
+        c.addView(Ui.section(this, "输出"));
         sizeRow = new Ui.ChoiceRow(this, "图像尺寸", D185.SIM_NAMES.length > 0
                 ? new String[]{"L 3:2", "L 16:9", "L 1:1", "M 3:2", "M 16:9", "M 1:1", "S 3:2", "S 16:9", "S 1:1"}
                 : new String[]{}, recipe.imageSizeIdx, i -> { recipe.imageSizeIdx = i; schedulePreview(); });
@@ -499,7 +499,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         shRow.setRange(-20, 40, 5, true, recipe.shadow);
         c.addView(shRow);
 
-        c.addView(Ui.section(this, "色彩"));
+        c.addView(Ui.section(this, "色彩（细微变化在预览尺寸下可能不明显，导出后可见）"));
         colorRow = new Ui.SeekRow(this, "色彩", -4, 4, recipe.color, "", false,
                 v -> { recipe.color = v; schedulePreview(); }, this::schedulePreview);
         c.addView(colorRow);
