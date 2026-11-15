@@ -51,7 +51,7 @@ import java.util.List;
  */
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
-    static final String APP_VERSION = "4.0.3";
+    static final String APP_VERSION = "4.0.4";
 
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001, REQ_RAF_BATCH = 1002, REQ_TREE = 1003;
@@ -103,16 +103,46 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
             engine.start();
         }
 
-        setContentView(buildRoot());
-        refreshUiFromRecipe();
-        registerUsbReceivers();
-        if (lastPreview != null) showRendered(lastPreview);
+        try {
+            setContentView(buildRoot());
+            refreshUiFromRecipe();
+            registerUsbReceivers();
+            if (lastPreview != null) showRendered(lastPreview);
+        } catch (Throwable t) {
+            showCrash(t);
+            return;
+        }
 
         if (engine.isConnected() && engine.session() != null) onSession(engine.session());
         else {
             status("请用 USB-OTG 连接相机，并把相机设为 USB RAW CONV./BACKUP RESTORE");
             tryAutoConnect();
         }
+    }
+
+    /** 把崩溃堆栈画在屏幕上，并写入文件，便于用户截图/回传 */
+    private void showCrash(Throwable t) {
+        java.io.StringWriter sw = new java.io.StringWriter();
+        t.printStackTrace(new java.io.PrintWriter(sw));
+        String trace = sw.toString();
+        try {
+            java.io.File f = new java.io.File(getExternalFilesDir(null), "crash.txt");
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(f);
+            fos.write(trace.getBytes("UTF-8"));
+            fos.close();
+        } catch (Exception ignored) { }
+
+        LinearLayout box = Ui.column(this);
+        box.setBackgroundColor(0xFF1A1A1A);
+        box.setPadding(Ui.dp(this, 14), Ui.dp(this, 40), Ui.dp(this, 14), Ui.dp(this, 14));
+        box.addView(Ui.text(this, "启动失败（请截图发我）", 0xFFE0574D, 15f, true));
+        TextView tv = Ui.text(this, trace, 0xFFE6E6E6, 9f, false);
+        tv.setTextIsSelectable(true);
+        ScrollView sv = new ScrollView(this);
+        sv.addView(tv);
+        box.addView(sv, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        setContentView(box);
     }
 
     @Override protected void onDestroy() {
@@ -359,7 +389,12 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         info.addView(progress, new LinearLayout.LayoutParams(Ui.dp(this, 90), Ui.dp(this, 12)));
         drawer.addView(info);
 
-        // 6 个页面一次性建好，切换时只换 ScrollView 的内容
+        // 6 个页面一次性建好（必须先初始化，之前漏了这一步导致启动 NPE 闪退）
+        for (int i = 0; i < 6; i++) {
+            pages[i] = Ui.column(this);
+            pages[i].setBackgroundColor(Ui.PANEL);
+            pages[i].setPadding(0, Ui.dp(this, 4), 0, Ui.dp(this, 8));
+        }
         buildPages();
 
         paramScroll = new ScrollView(this);
