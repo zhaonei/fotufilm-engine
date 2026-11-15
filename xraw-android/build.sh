@@ -75,9 +75,12 @@ done
 
 if [ -n "$AAPT2" ]; then
   echo "== 3/5 aapt2 link（官方工具链，生成 binary manifest + resources.arsc）"
+  # aapt2 link 只接受「编译后的资源」(compile 产出的 zip)，不能直接给 res 目录
+  rm -f "$OUT/res.zip"
+  "$AAPT2" compile --dir app/res -o "$OUT/res.zip"
   "$AAPT2" link -o "$OUT/base.apk" -I "$PLATFORM" \
       --manifest app/AndroidManifest.xml \
-      --dir app/res \
+      "$OUT/res.zip" \
       --no-resource-deduping --no-static-lib-packages
   echo "== 4/5 加入 classes.dex"
   cp "$OUT/base.apk" "$OUT/$APK_NAME-unsigned.apk"
