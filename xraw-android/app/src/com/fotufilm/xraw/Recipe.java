@@ -48,8 +48,20 @@ public final class Recipe {
     public int lmo = D185.LMO_OFF;
     public int expBiasThirds = 0;
 
-    // 输出相关（相机原生 d185 中未确认，暂不下发）
-    public int imageSizeIdx = 0, qualityIdx = 0, fileTypeIdx = 0, colorSpaceIdx = 0;
+    // 输出相关（字段表已锁定：idx1 FileType / idx2 ImageSize / idx3 ImageQuality / idx21 ColorSpace）
+    public int imageSizeIdx = 0;     // 0..8 → L3:2 … S1:1
+    public int qualityIdx = 0;       // 0=FINE 1=NORMAL
+    public int fileTypeIdx = 0;      // 0=JPEG 1=TIFF8 2=TIFF16
+    public int colorSpaceIdx = 0;    // 0=sRGB 1=AdobeRGB
+
+    public static final String[] SIZE_NAMES = {"L 3:2","L 16:9","L 1:1","M 3:2","M 16:9","M 1:1","S 3:2","S 16:9","S 1:1"};
+    public static final int[] SIZE_VALUES = {7,8,9,4,5,6,1,2,3};
+    public static final String[] QUALITY_NAMES = {"FINE","NORMAL"};
+    public static final int[] QUALITY_VALUES = {2,3};
+    public static final String[] FILETYPE_NAMES = {"JPEG","TIFF 8bit","TIFF 16bit"};
+    public static final int[] FILETYPE_VALUES = {7,9,11};
+    public static final String[] CSPACE_NAMES = {"sRGB","AdobeRGB"};
+    public static final int[] CSPACE_VALUES = {2,1};
 
     // ---------------------------------------------------------------- 读回
 
@@ -102,6 +114,10 @@ public final class Recipe {
         r.sharpness = D185.clamp(D185.decodeTenths(p.get(D185.Idx.SHARPNESS)), -4, 4);
         r.nr = D185.clamp(D185.nrDecode(p.get(D185.Idx.NOISE_RED)), -4, 4);
         r.clarity = D185.clamp(D185.decodeTenths(p.get(D185.Idx.CLARITY)), -5, 5);
+        r.fileTypeIdx = indexOf(FILETYPE_VALUES, p.get(D185.Idx.FILE_TYPE));
+        r.imageSizeIdx = indexOf(SIZE_VALUES, p.get(D185.Idx.IMAGE_SIZE));
+        r.qualityIdx = indexOf(QUALITY_VALUES, p.get(D185.Idx.IMAGE_QUALITY));
+        r.colorSpaceIdx = indexOf(CSPACE_VALUES, p.get(D185.Idx.COLOR_SPACE));
         return r;
     }
 
@@ -172,6 +188,10 @@ public final class Recipe {
         want[D185.Idx.NOISE_RED] = D185.nrEncode(nr);
         want[D185.Idx.CLARITY] = D185.encodeTenths(clarity);
         want[D185.Idx.LMO] = lmo;
+        want[D185.Idx.FILE_TYPE] = FILETYPE_VALUES[clampIdx(fileTypeIdx, FILETYPE_VALUES.length)];
+        want[D185.Idx.IMAGE_SIZE] = SIZE_VALUES[clampIdx(imageSizeIdx, SIZE_VALUES.length)];
+        want[D185.Idx.IMAGE_QUALITY] = QUALITY_VALUES[clampIdx(qualityIdx, QUALITY_VALUES.length)];
+        want[D185.Idx.COLOR_SPACE] = CSPACE_VALUES[clampIdx(colorSpaceIdx, CSPACE_VALUES.length)];
 
         for (int i = 0; i < D185.PROPS; i++) {
             if (want[i] != base[i]) p.set(i, want[i]);
@@ -196,8 +216,17 @@ public final class Recipe {
         sb.append(" · 高光").append(tone(highlight)).append(" 阴影").append(tone(shadow));
         sb.append(" · 色彩").append(signed(color)).append(" 锐度").append(signed(sharpness));
         sb.append(" 清晰度").append(signed(clarity));
-        sb.append(" · 改动 ").append(changedCount()).append(" 项");
+        sb.append(" · ").append(FILETYPE_NAMES[clampIdx(fileTypeIdx, 3)])
+                .append(' ').append(SIZE_NAMES[clampIdx(imageSizeIdx, 9)])
+                .append(" · 改动 ").append(changedCount()).append(" 项");
         return sb.toString();
+    }
+
+    private static int clampIdx(int i, int n) { return Math.max(0, Math.min(n - 1, i)); }
+
+    private static int indexOf(int[] arr, int v) {
+        for (int i = 0; i < arr.length; i++) if (arr[i] == v) return i;
+        return 0;
     }
 
     private static String signed(int v) { return v > 0 ? "+" + v : String.valueOf(v); }
@@ -208,7 +237,16 @@ public final class Recipe {
         return String.format(java.util.Locale.US, "%s%.1f", enc > 0 ? "+" : "", enc / 10.0);
     }
 
-    public String exportExtension() { return ".jpg"; }
+    /** 按文件类型给出扩展名：JPEG(.jpg) / TIFF(.tif) */
+    public String exportExtension() {
+        int ft = FILETYPE_VALUES[clampIdx(fileTypeIdx, FILETYPE_VALUES.length)];
+        return ft == D185.FILE_JPG ? ".jpg" : ".tif";
+    }
+
+    public String exportMime() {
+        int ft = FILETYPE_VALUES[clampIdx(fileTypeIdx, FILETYPE_VALUES.length)];
+        return ft == D185.FILE_JPG ? "image/jpeg" : "image/tiff";
+    }
 
     // ---------------------------------------------------------------- JSON / 配方库
 
@@ -234,6 +272,10 @@ public final class Recipe {
             o.put("nr", nr);
             o.put("clarity", clarity);
             o.put("lmo", lmo);
+            o.put("imageSizeIdx", imageSizeIdx);
+            o.put("qualityIdx", qualityIdx);
+            o.put("fileTypeIdx", fileTypeIdx);
+            o.put("colorSpaceIdx", colorSpaceIdx);
             o.put("expBiasThirds", expBiasThirds);
         } catch (Exception ignored) { }
         return o;
@@ -260,6 +302,10 @@ public final class Recipe {
         r.nr = o.optInt("nr", r.nr);
         r.clarity = o.optInt("clarity", r.clarity);
         r.lmo = o.optInt("lmo", r.lmo);
+        r.imageSizeIdx = o.optInt("imageSizeIdx", r.imageSizeIdx);
+        r.qualityIdx = o.optInt("qualityIdx", r.qualityIdx);
+        r.fileTypeIdx = o.optInt("fileTypeIdx", r.fileTypeIdx);
+        r.colorSpaceIdx = o.optInt("colorSpaceIdx", r.colorSpaceIdx);
         r.expBiasThirds = o.optInt("expBiasThirds", r.expBiasThirds);
         return r;
     }

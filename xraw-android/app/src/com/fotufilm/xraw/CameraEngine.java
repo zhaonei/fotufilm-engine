@@ -33,11 +33,14 @@ public final class CameraEngine {
         void onQueueChanged(List<String> items, int activeIndex);
         void onDisconnected();
         void onProbeDone(String path);
+        void onSlots(java.util.List<SlotData> slots);
+        void onSlotWritten(String summary);
     }
 
     private static final int J_CONNECT = 1, J_UPLOAD = 2, J_PREVIEW = 3, J_EXPORT = 4,
             J_BATCH = 5, J_PROBE_DUMP = 6, J_PROBE_SIMS = 7, J_DISCONNECT = 8, J_CLOSE = 9,
-            J_PROBE_CAPS = 10, J_DIAG_UPLOAD = 11, J_CALIB = 12, J_DUMP_D185 = 13;
+            J_PROBE_CAPS = 10, J_DIAG_UPLOAD = 11, J_CALIB = 12, J_DUMP_D185 = 13,
+            J_SLOT_READ = 14, J_SLOT_WRITE = 15;
 
     private static final class Job {
         final int kind;
@@ -45,6 +48,8 @@ public final class CameraEngine {
         List<File> files;
         Recipe recipe;
         String label;
+        int slot;
+        String slotName;
         Job(int kind) { this.kind = kind; }
     }
 
@@ -375,7 +380,8 @@ public final class CameraEngine {
                 fuji.writeProfile(p);
                 status("渲染全分辨率（机身处理中）…");
                 byte[] data = fuji.render(true, 60000);
-                File out = MediaSaver.save(ctx, data, baseName(loadedRaf) + "_" + tag(p), job.recipe.exportExtension());
+                File out = MediaSaver.saveWithPrefs(ctx, data, baseName(loadedRaf) + "_" + tag(p),
+                        job.recipe.exportExtension(), job.recipe.exportMime());
                 final String sum = p.summary();
                 final File f = out;
                 main.post(() -> listener.onExport(f, sum));
@@ -398,8 +404,8 @@ public final class CameraEngine {
                         job.recipe.applyTo(p);
                                 fuji.writeProfile(p);
                         byte[] data = fuji.render(true, 60000);
-                        File out = MediaSaver.save(ctx, data, baseName(raf) + "_" + tag(p),
-                                job.recipe.exportExtension());
+                        File out = MediaSaver.saveWithPrefs(ctx, data, baseName(raf) + "_" + tag(p),
+                                job.recipe.exportExtension(), job.recipe.exportMime());
                         final String sum = p.summary();
                         final File f = out;
                         main.post(() -> listener.onExport(f, sum));
@@ -491,6 +497,33 @@ public final class CameraEngine {
                 caps = c;
                 main.post(() -> listener.onCaps(c));
                 status("已读取 " + c.size() + " 条属性约束");
+                break;
+            }
+            case J_SLOT_READ: {
+                requireSession();
+                status("读取 C1–C4 …");
+                FujiSlots slots = new FujiSlots(fuji, transport);
+                final java.util.List<SlotData> out = new java.util.ArrayList<>();
+                for (int i = 1; i <= FujiSlots.MAX_SLOTS; i++) {
+                    try {
+                        out.add(slots.readSlot(i));
+                    } catch (IOException e) {
+                        SlotData bad = new SlotData(i);
+                        bad.missing.put(-1, e.getMessage());
+                        out.add(bad);
+                    }
+                }
+                main.post(() -> listener.onSlots(out));
+                status("槽位读取完成");
+                break;
+            }
+            case J_SLOT_WRITE: {
+                requireSession();
+                status("写入 C" + job.slot + " …");
+                FujiSlots slots = new FujiSlots(fuji, transport);
+                final FujiSlots.WriteResult wr = slots.writeSlot(job.slot, job.recipe, job.slotName);
+                if (transport != null) transport.note(wr.summarize());
+                main.post(() -> listener.onSlotWritten(wr.summarize()));
                 break;
             }
             case J_DUMP_D185: {
@@ -851,6 +884,24 @@ public final class CameraEngine {
         final Fuji.Session s2 = fuji.handshake();
         session = s2;
         main.post(() -> listener.onSession(s2));
+    }
+
+    /** 配方工坊：读取相机 C1–C4 */
+    public void readSlots() {
+        Job j = new Job(J_SLOT_READ);
+        j.label = "读取相机槽位";
+        post(j);
+    }
+
+    /** 配方工坊：把一条配方写入指定槽位 */
+    public void pushSlot(int slot, Recipe r, String name) {
+        Job j = new Job(J_SLOT_WRITE);
+        j.label = "写入 C" + slot;
+        j.slot = slot;
+        j.recipe = r;
+        j.label = "写入 C" + slot + (name == null || name.isEmpty() ? "" : " " + name);
+        j.slotName = name;
+        post(j);
     }
 
     /** 调试用：把当前已装载 RAW 的 d185 全字段导出成可读快照 */

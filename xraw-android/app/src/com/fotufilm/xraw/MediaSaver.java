@@ -26,6 +26,36 @@ public final class MediaSaver {
         }
     }
 
+    /**
+     * 保存图片：若用户在「导出」里选过目录（SAF tree URI），存到该目录；
+     * 否则退回 App 外部目录 + Android 10+ 相册/下载。
+     */
+    public static File saveWithPrefs(Context ctx, byte[] data, String baseName, String ext, String mime)
+            throws IOException {
+        String tree = ctx.getSharedPreferences("xraw", Context.MODE_PRIVATE)
+                .getString("exportTree", "");
+        if (tree != null && !tree.isEmpty()) {
+            try {
+                android.net.Uri treeUri = android.net.Uri.parse(tree);
+                String docId = android.provider.DocumentsContract.getTreeDocumentId(treeUri);
+                android.net.Uri dir = android.provider.DocumentsContract
+                        .buildDocumentUriUsingTree(treeUri, docId);
+                String safe = baseName.replaceAll("[^\\p{L}\\p{N}_\\-.]", "_");
+                android.net.Uri doc = android.provider.DocumentsContract.createDocument(
+                        ctx.getContentResolver(), dir, mime, safe + ext);
+                java.io.OutputStream os = ctx.getContentResolver().openOutputStream(doc);
+                if (os != null) {
+                    try { os.write(data); } finally { os.close(); }
+                }
+                File marker = new File(ctx.getCacheDir(), safe + ext);
+                return marker;      // 仅用于展示名字
+            } catch (Exception e) {
+                // 目录不可用（被删除/无权限）→ 退回默认路径
+            }
+        }
+        return save(ctx, data, baseName, ext);
+    }
+
     /** 把纯文本（诊断日志/配方）导出到用户可见位置 */
     public static Exported exportText(Context ctx, String name, String text) throws IOException {
         byte[] data = text.getBytes(StandardCharsets.UTF_8);

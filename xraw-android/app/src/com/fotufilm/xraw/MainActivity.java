@@ -47,8 +47,9 @@ import java.util.List;
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
     /** 版本号直接显示在标题栏，避免"装了旧包却以为在测新包" */
-    static final String APP_VERSION = "2.2.2";
+    static final String APP_VERSION = "3.0.0";
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
+    private static final int REQ_TREE = 1003;
     private static final int REQ_RAF = 1001;
     private static final int REQ_RAF_BATCH = 1002;
 
@@ -126,6 +127,20 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
         if (res != RESULT_OK || data == null) return;
+        if (req == REQ_TREE) {
+            Uri tree = data.getData();
+            if (tree != null) {
+                try {
+                    getContentResolver().takePersistableUriPermission(tree,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                } catch (Exception ignored) { }
+                getSharedPreferences("xraw", MODE_PRIVATE).edit()
+                        .putString("exportTree", tree.toString()).apply();
+                status("导出目录已设置");
+                toast("导出目录已设置");
+            }
+            return;
+        }
         if (req == REQ_RAF) {
             Uri u = data.getData();
             if (u != null) importOne(u);
@@ -285,6 +300,14 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         android.widget.Button imp = Ui.button(this, "导入 RAF", false);
         imp.setOnClickListener(v -> pickFile(REQ_RAF));
         bar.addView(imp);
+
+        android.widget.Button slots = Ui.button(this, "配方", false);
+        slots.setOnClickListener(v -> {
+            if (!engine.isConnected()) { toast("请先连接相机"); return; }
+            status("读取相机槽位 C1–C4 …");
+            engine.readSlots();
+        });
+        bar.addView(slots);
 
         android.widget.Button batch = Ui.button(this, "批量", false);
         batch.setOnClickListener(v -> pickFile(REQ_RAF_BATCH));
@@ -897,6 +920,28 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         status("已断开，可重新连接");
     }
 
+    @Override public void onSlots(java.util.List<SlotData> slots) {
+        StringBuilder sb = new StringBuilder();
+        for (SlotData d : slots) {
+            sb.append("C").append(d.slot).append("  ");
+            if (d.missing.containsKey(-1)) sb.append("读取失败：").append(d.missing.get(-1));
+            else sb.append(d.summary());
+            sb.append('\n');
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("相机槽位（C1–C4，已回读）")
+                .setMessage(sb.toString())
+                .setPositiveButton("把当前配方写入 C1", (x, w) -> engine.pushSlot(1, recipe, recipe.name))
+                .setNeutralButton("写入 C2", (x, w) -> engine.pushSlot(2, recipe, recipe.name))
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    @Override public void onSlotWritten(String summary) {
+        status("槽位写入：" + summary);
+        toast(summary);
+    }
+
     @Override public void onProbeDone(String path) {
         status("诊断日志已导出：" + path);
         new AlertDialog.Builder(this)
@@ -1015,6 +1060,26 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         wbReadout.setText(String.format(java.util.Locale.US, "R %+d   B %+d    %s", r, b, hint));
     }
 
+    // ---------------------------------------------------------------- 导出目录（SAF）
+
+    private String exportFolderLabel() {
+        String t = getSharedPreferences("xraw", MODE_PRIVATE).getString("exportTree", "");
+        if (t == null || t.isEmpty()) return "导出到：默认（相册 / 下载 FotofilmXRAW）";
+        return "导出到：已选文件夹（可再次点下方按钮更改）";
+    }
+
+    private void pickExportFolder(TextView label) {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            startActivityForResult(i, REQ_TREE);
+        } catch (Exception e) {
+            toast("系统没有可用的文件夹选择器");
+        }
+    }
+
     private void status(String msg) {
         if (statusText != null) statusText.setText(msg);
     }
@@ -1037,6 +1102,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         @Override public void onError(String msg) { MainActivity a = cur(); if (a != null) a.onError(msg); }
         @Override public void onQueueChanged(List<String> items, int active) { MainActivity a = cur(); if (a != null) a.onQueueChanged(items, active); }
         @Override public void onDisconnected() { MainActivity a = cur(); if (a != null) a.onDisconnected(); }
+        @Override public void onSlots(java.util.List<SlotData> slots) { MainActivity a = cur(); if (a != null) a.onSlots(slots); }
+        @Override public void onSlotWritten(String summary) { MainActivity a = cur(); if (a != null) a.onSlotWritten(summary); }
         @Override public void onProbeDone(String path) { MainActivity a = cur(); if (a != null) a.onProbeDone(path); }
     };
 }

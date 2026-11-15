@@ -50,6 +50,9 @@ public final class D185 {
     }
 
     // ---- 取值 ----
+    /** 文件类型（idx1） */
+    public static final int FILE_JPG = 7, FILE_TIF_8 = 9, FILE_TIF_16 = 11;
+
     public static final int DR_100 = 100, DR_200 = 200, DR_400 = 400;
     public static final int DRP_OFF = 0, DRP_WEAK = 1, DRP_STRONG = 2;
 
