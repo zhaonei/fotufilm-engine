@@ -45,6 +45,44 @@ public final class Raf {
         }
     }
 
+    /** 在字节缓冲区里扫描 JPEG（取最大的那张）；用于缩略图快速预览 */
+    public static byte[] jpegFromBytes(byte[] buf) {
+        int limit = buf.length;
+        int bestStart = -1, bestEnd = -1;
+        for (int i = 0; i + 3 < limit; i++) {
+            if ((buf[i] & 0xFF) == 0xFF && (buf[i + 1] & 0xFF) == 0xD8
+                    && (buf[i + 2] & 0xFF) == 0xFF) {
+                int end = -1;
+                for (int j = i + 3; j + 1 < limit; j++) {
+                    if ((buf[j] & 0xFF) == 0xFF && (buf[j + 1] & 0xFF) == 0xD9) { end = j + 1; break; }
+                }
+                if (end > 0 && (bestEnd - bestStart) < (end - i)) { bestStart = i; bestEnd = end; }
+                if (end > 0) i = end;
+            }
+        }
+        if (bestStart < 0) return null;
+        byte[] out = new byte[bestEnd - bestStart];
+        System.arraycopy(buf, bestStart, out, 0, out.length);
+        return out;
+    }
+
+    /** 从任意 Uri 读前 maxBytes 字节并抽内嵌 JPEG（缩略图用，不拷整文件） */
+    public static byte[] prefixJpeg(android.content.ContentResolver cr, android.net.Uri uri, int maxBytes) {
+        try (java.io.InputStream in = cr.openInputStream(uri)) {
+            if (in == null) return null;
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[64 * 1024];
+            int n, total = 0;
+            while (total < maxBytes && (n = in.read(b)) > 0) {
+                bos.write(b, 0, n);
+                total += n;
+            }
+            return jpegFromBytes(bos.toByteArray());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** 兜底：在文件前 8MB 里扫描 JPEG 的 SOI(FFD8FF)…EOI(FFD9)，取最大的一张 */
     private byte[] scanForJpeg(java.io.File f) {
         try {

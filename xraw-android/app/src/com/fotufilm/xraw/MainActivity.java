@@ -51,10 +51,10 @@ import java.util.List;
  */
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
-    static final String APP_VERSION = "4.3.0";
+    static final String APP_VERSION = "4.4.0";
 
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
-    private static final int REQ_RAF = 1001, REQ_RAF_BATCH = 1002, REQ_TREE = 1003, REQ_RECIPE_JSON = 1004;
+    private static final int REQ_RAF = 1001, REQ_RAF_BATCH = 1002, REQ_TREE = 1003, REQ_RECIPE_JSON = 1004, REQ_SRC_TREE = 1005;
 
     private static final String[] TAB_NAMES = {"曝光", "胶片", "影调", "白平衡", "细节", "画质"};
 
@@ -92,6 +92,8 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     private WbColorPadView colorPad;
     private TextView folderText;
     private ScrollView paramScroll;
+    private SelectPanel selectPanel;
+    private FrameLayout stageBox;
 
     // ================================================================ 生命周期
 
@@ -172,6 +174,16 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
             }
             return;
         }
+        if (req == REQ_SRC_TREE) {
+            Uri tree = data.getData();
+            if (tree == null) return;
+            try {
+                getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) { }
+            getSharedPreferences("xraw", MODE_PRIVATE).edit().putString("srcTree", tree.toString()).apply();
+            if (selectPanel != null) selectPanel.loadFolder(tree);
+            return;
+        }
         if (req == REQ_RECIPE_JSON) {
             Uri u = data.getData();
             if (u == null) return;
@@ -224,6 +236,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
         // 预览舞台（最大化）
         FrameLayout stage = new FrameLayout(this);
+        stageBox = stage;
         stage.setBackgroundColor(0xFF0F0F0F);
 
         preview = new ZoomImageView(this);
@@ -1011,6 +1024,53 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
     // ================================================================ 菜单 / 对话框
 
+    /** 选片页：覆盖预览区，缩略图网格 + 多选 + 批量渲染 */
+    private void showSelectPanel() {
+        if (selectPanel == null) {
+            selectPanel = new SelectPanel(this, getContentResolver());
+            selectPanel.setCallback(new SelectPanel.Callback() {
+                @Override public void onPickFolder() {
+                    Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                    try { startActivityForResult(i, REQ_SRC_TREE); } catch (Exception e) { toast("系统无文件夹选择器"); }
+                }
+
+                @Override public void onRender(java.util.List<Uri> uris) {
+                    if (!engine.isConnected()) { toast("请先连接相机"); return; }
+                    if (uris.isEmpty()) { toast("请先勾选要渲染的照片"); return; }
+                    status("准备批量渲染 " + uris.size() + " 张…");
+                    new Thread(() -> {
+                        final List<File> files = new ArrayList<>();
+                        for (Uri u : uris) {
+                            try { files.add(copyToCache(u)); } catch (IOException ignored) { }
+                        }
+                        ui.post(() -> {
+                            if (files.isEmpty()) { status("读取文件失败"); return; }
+                            status("批量渲染 " + files.size() + " 张 · 配方 " + recipe.name);
+                            engine.batch(files, recipe);
+                        });
+                    }, "batch-copy").start();
+                }
+            });
+            stageBox.addView(selectPanel, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            String tree = getSharedPreferences("xraw", MODE_PRIVATE).getString("srcTree", "");
+            if (tree != null && !tree.isEmpty()) selectPanel.loadFolder(Uri.parse(tree));
+        }
+        boolean show = selectPanel.getVisibility() != View.VISIBLE;
+        selectPanel.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (show) {
+            String tree = getSharedPreferences("xraw", MODE_PRIVATE).getString("srcTree", "");
+            if (tree != null && !tree.isEmpty()) {
+                Uri t = Uri.parse(tree);
+                try { getContentResolver().takePersistableUriPermission(t, Intent.FLAG_GRANT_READ_URI_PERMISSION); }
+                catch (Exception ignored) { }
+                selectPanel.loadFolder(t);
+            } else toast("点「选择文件夹」挑选存有 RAF 的目录");
+        }
+    }
+
     private void doExport() {
         if (!engine.isConnected()) { toast("请先连接相机"); return; }
         if (loadedRaf == null) { toast("请先导入并上传一张 RAW"); return; }
@@ -1021,19 +1081,20 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
 
     private void showMoreMenu() {
         final String[] items = {
-                "批量导入 RAF", "读取相机槽位（C1–C4）", "配方库（本地）",
+                "选片（文件夹批量）", "批量导入 RAF", "读取相机槽位（C1–C4）", "配方库（本地）",
                 "自检与日志", "导出诊断日志"
         };
         new AlertDialog.Builder(this).setTitle("更多").setItems(items, (d, w) -> {
             switch (w) {
-                case 0: pickFile(REQ_RAF_BATCH); break;
-                case 1:
+                case 0: showSelectPanel(); break;
+                case 1: pickFile(REQ_RAF_BATCH); break;
+                case 2:
                     if (!engine.isConnected()) { toast("请先连接相机"); return; }
                     engine.readSlots();
                     break;
-                case 2: loadRecipeDialog(); break;
-                case 3: probeDialog(); break;
-                case 4: engine.probeDump(); break;
+                case 3: loadRecipeDialog(); break;
+                case 4: probeDialog(); break;
+                case 5: engine.probeDump(); break;
             }
         }).setNegativeButton("取消", null).show();
     }
