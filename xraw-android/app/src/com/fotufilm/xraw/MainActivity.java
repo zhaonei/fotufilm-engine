@@ -51,7 +51,7 @@ import java.util.List;
  */
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
-    static final String APP_VERSION = "4.4.0";
+    static final String APP_VERSION = "4.5.0";
 
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001, REQ_RAF_BATCH = 1002, REQ_TREE = 1003, REQ_RECIPE_JSON = 1004, REQ_SRC_TREE = 1005;
@@ -94,6 +94,7 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
     private ScrollView paramScroll;
     private SelectPanel selectPanel;
     private FrameLayout stageBox;
+    private ResultsPanel resultsPanel;
 
     // ================================================================ 生命周期
 
@@ -1071,6 +1072,15 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         }
     }
 
+    private void showResults(List<File> files) {
+        if (resultsPanel == null) {
+            resultsPanel = new ResultsPanel(this);
+            stageBox.addView(resultsPanel, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        resultsPanel.setResults(files);
+    }
+
     private void doExport() {
         if (!engine.isConnected()) { toast("请先连接相机"); return; }
         if (loadedRaf == null) { toast("请先导入并上传一张 RAW"); return; }
@@ -1304,6 +1314,12 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                 .setNegativeButton("关闭", null).show();
     }
 
+    @Override public void onBatchDone(List<File> files) {
+        stopBusy();
+        status("批量完成：" + files.size() + " 张已导出");
+        if (!files.isEmpty()) showResults(files);
+    }
+
     @Override public void onSlotWritten(String summary) {
         status("槽位写入：" + summary);
         toast(summary);
@@ -1342,5 +1358,6 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         @Override public void onProbeDone(String p) { MainActivity a = cur(); if (a != null) a.onProbeDone(p); }
         @Override public void onSlots(List<SlotData> s) { MainActivity a = cur(); if (a != null) a.onSlots(s); }
         @Override public void onSlotWritten(String s) { MainActivity a = cur(); if (a != null) a.onSlotWritten(s); }
+        @Override public void onBatchDone(List<File> f) { MainActivity a = cur(); if (a != null) a.onBatchDone(f); }
     };
 }

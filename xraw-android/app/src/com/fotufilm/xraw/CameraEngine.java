@@ -35,6 +35,8 @@ public final class CameraEngine {
         void onProbeDone(String path);
         void onSlots(java.util.List<SlotData> slots);
         void onSlotWritten(String summary);
+
+        void onBatchDone(java.util.List<File> files);
     }
 
     private static final int J_CONNECT = 1, J_UPLOAD = 2, J_PREVIEW = 3, J_EXPORT = 4,
@@ -390,6 +392,7 @@ public final class CameraEngine {
             }
             case J_BATCH: {
                 requireSession();
+                final List<File> done = new ArrayList<>();
                 int i = 0;
                 for (File raf : job.files) {
                     i++;
@@ -408,6 +411,7 @@ public final class CameraEngine {
                                 job.recipe.exportExtension(), job.recipe.exportMime());
                         final String sum = p.summary();
                         final File f = out;
+                        done.add(f);
                         main.post(() -> listener.onExport(f, sum));
                     } catch (IOException e) {
                         Log.w(TAG, "批量单张失败 " + nm, e);
@@ -419,6 +423,8 @@ public final class CameraEngine {
                 loadedRaf = null;
                 baseProfile = null;
                 status("批量完成");
+                final java.util.List<File> doneCopy = new java.util.ArrayList<>(done);
+                main.post(() -> listener.onBatchDone(doneCopy));
                 break;
             }
             case J_PROBE_DUMP: {
