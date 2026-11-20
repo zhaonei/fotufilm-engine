@@ -51,7 +51,7 @@ import java.util.List;
  */
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
-    static final String APP_VERSION = "4.2.0";
+    static final String APP_VERSION = "4.2.1";
 
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
     private static final int REQ_RAF = 1001, REQ_RAF_BATCH = 1002, REQ_TREE = 1003;

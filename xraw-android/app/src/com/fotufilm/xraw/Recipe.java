@@ -53,8 +53,8 @@ public final class Recipe {
     public int lmo = D185.LMO_OFF;
     /** 肤色优化（平滑皮肤）0=关 1=弱 2=强；d185 里 1-indexed 写入 */
     public int smoothSkin = 0;
-    /** 该机型上「肤色优化」实际对应的 d185 索引（由自检⑩探测得出，默认 23） */
-    public static int SMOOTH_SKIN_IDX = 23;
+    /** 该机型上「肤色优化」对应的 d185 索引；fuji-studio 的字段表确认 = 23 */
+    public static int SMOOTH_SKIN_IDX = D185.Idx.SMOOTH_SKIN;
     public int expBiasThirds = 0;
 
     // 输出相关（字段表已锁定：idx1 FileType / idx2 ImageSize / idx3 ImageQuality / idx21 ColorSpace）

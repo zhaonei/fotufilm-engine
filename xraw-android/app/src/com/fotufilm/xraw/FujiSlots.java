@@ -9,7 +9,7 @@ import java.util.Map;
 /**
  * 相机自定义配方槽位（C1–C4）的读写。
  *
- * 与主流程（d185 / RAF 转换）**完全独立**：只用 0xD18C + 0xD18E…0xD1A4 这些普通设备属性，
+ * 与主流程（d185 / RAF 转换）**完全独立**：只用 0xD18C + 0xD18E…0xD1A5 这些普通设备属性，
  * 不涉及 RAW 上传，所以可以在"工坊"里单独用，不影响拍摄/调参。
  *
  * 关键实现纪律（全部来自 zgrimz docs/04-custom-slots.md 的 X RAW Studio 抓包）：

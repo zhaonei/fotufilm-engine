@@ -41,7 +41,8 @@ public final class D185 {
         public static final int LMO = 20;
         public static final int COLOR_SPACE = 21;
         public static final int BLACK_TONE = 22;      // 单色 WC
-        public static final int UNKNOWN_23 = 23;
+        /** 肤色优化（平滑皮肤）：1 关 2 弱 3 强。字段表来源：fuji-studio(SMOOTH_SKIN=24, 其索引=本表+1) */
+        public static final int SMOOTH_SKIN = 23;
         public static final int FX_BLUE = 24;
         public static final int MONO_RG = 25;         // 单色 MG
         public static final int CLARITY = 26;
