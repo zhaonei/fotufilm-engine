@@ -335,6 +335,145 @@ public final class Recipe {
         return d;
     }
 
+    // ================================================================
+    // fuji-studio 兼容的配方 JSON（https://github.com/ELjagi623/fuji-studio）
+    // 字段：name / film / exposure / dynamic_range / grain / color_chrome /
+    //       color_chrome_blue / smooth_skin / white_balance / wb_kelvin /
+    //       wb_shift_r / wb_shift_b / highlight / shadow / color / sharpness /
+    //       noise_reduction / clarity / raw
+    // 未给出的字段保持原片值（与对方语义一致）
+    // ================================================================
+
+    private static final String[][] FILM_MAP = {
+            {"provia", "1"}, {"velvia", "2"}, {"astia", "3"},
+            {"pro-neg-hi", "4"}, {"pro-neg-std", "5"},
+            {"monochrome", "6"}, {"monochrome-ye", "7"},
+            {"monochrome-r", "8"}, {"monochrome-g", "9"}, {"sepia", "10"},
+            {"classic-chrome", "11"}, {"acros", "12"}, {"acros-ye", "13"},
+            {"acros-r", "14"}, {"acros-g", "15"}, {"eterna", "16"},
+            {"classic-neg", "17"}, {"eterna-bleach-bypass", "18"},
+            {"nostalgic-neg", "19"}, {"reala-ace", "20"},
+    };
+
+    private static String normKey(String s) {
+        return s == null ? "" : s.toLowerCase().replaceAll("[^a-z0-9]", "");
+    }
+
+    private static int filmFromName(String n) {
+        String k = normKey(n);
+        for (String[] row : FILM_MAP) if (normKey(row[0]).equals(k)) return Integer.parseInt(row[1]);
+        try { return Integer.parseInt(n.trim(), n.trim().startsWith("0x") ? 16 : 10); }
+        catch (Exception e) { return -1; }
+    }
+
+    private static String filmToName(int v) {
+        for (String[] row : FILM_MAP) if (Integer.parseInt(row[1]) == v) return row[0];
+        return String.valueOf(v);
+    }
+
+    private static int effect(String s) {
+        String k = normKey(s);
+        if (k.equals("weak")) return 1;
+        if (k.equals("strong")) return 2;
+        return 0;   // off / 未知
+    }
+
+    private static String effectName(int v) {
+        return v <= 0 ? "off" : v == 1 ? "weak" : "strong";
+    }
+
+    private static int wbFromName(String s) {
+        String k = normKey(s);
+        switch (k) {
+            case "asshot": case "": return D185.WB_VALUES.length - 1;
+            case "auto": return indexOfWb(2);
+            case "autowhite": return indexOfWb(0x8020);
+            case "autoambience": return indexOfWb(0x8021);
+            case "daylight": return indexOfWb(4);
+            case "shade": return indexOfWb(0x8006);
+            case "incandescent": return indexOfWb(6);
+            case "underwater": return indexOfWb(8);
+            case "fluorescent1": return indexOfWb(0x8001);
+            case "fluorescent2": return indexOfWb(0x8002);
+            case "fluorescent3": return indexOfWb(0x8003);
+            case "kelvin": case "colortemp": return indexOfWb(0x8007);
+            default: return D185.WB_VALUES.length - 1;
+        }
+    }
+
+    private static int indexOfWb(int code) {
+        for (int i = 0; i < D185.WB_VALUES.length; i++) if (D185.WB_VALUES[i] == code) return i;
+        return D185.WB_VALUES.length - 1;
+    }
+
+    /** 解析 fuji-studio 的配方 JSON（字段全部可选，缺省=保持原片） */
+    public static Recipe fromStudioJson(String text) throws org.json.JSONException {
+        Recipe r = new Recipe();
+        JSONObject o = new JSONObject(text);
+        r.name = o.optString("name", "导入配方");
+        String film = o.optString("film", "");
+        if (!film.isEmpty()) {
+            int f = filmFromName(film);
+            if (f > 0) r.filmSim = f;
+        }
+        if (o.has("exposure")) r.expBiasThirds = Math.round((float) o.optDouble("exposure", 0) * 3f);
+        if (o.has("dynamic_range")) r.dr = o.optInt("dynamic_range", r.dr);
+        String grain = o.optString("grain", "");
+        if (!grain.isEmpty()) {
+            String k = normKey(grain);
+            if (k.equals("off")) { r.grainStrength = 0; r.grainLarge = false; }
+            else if (k.startsWith("weak")) { r.grainStrength = 1; r.grainLarge = k.contains("large"); }
+            else if (k.startsWith("strong")) { r.grainStrength = 2; r.grainLarge = k.contains("large"); }
+        }
+        if (o.has("color_chrome")) r.chrome = effect(o.optString("color_chrome"));
+        if (o.has("color_chrome_blue")) r.fxBlue = effect(o.optString("color_chrome_blue"));
+        if (o.has("smooth_skin")) r.smoothSkin = effect(o.optString("smooth_skin"));
+        if (o.has("white_balance")) {
+            r.wbIndex = wbFromName(o.optString("white_balance"));
+        } else if (o.has("wb_kelvin")) {
+            r.wbIndex = indexOfWb(0x8007);
+        }
+        if (o.has("wb_kelvin")) { r.wbTemp = o.optInt("wb_kelvin"); r.wbTempTouched = true; }
+        if (o.has("wb_shift_r")) r.wbR = o.optInt("wb_shift_r");
+        if (o.has("wb_shift_b")) r.wbB = o.optInt("wb_shift_b");
+        if (o.has("highlight")) r.highlight = Math.round((float) o.optDouble("highlight") * 10f);
+        if (o.has("shadow")) r.shadow = Math.round((float) o.optDouble("shadow") * 10f);
+        if (o.has("color")) r.color = Math.round((float) o.optDouble("color") * 1f);
+        if (o.has("sharpness")) r.sharpness = Math.round((float) o.optDouble("sharpness") * 1f);
+        if (o.has("noise_reduction")) r.nr = o.optInt("noise_reduction");
+        if (o.has("clarity")) r.clarity = Math.round((float) o.optDouble("clarity") * 1f);
+        return r;
+    }
+
+    /** 输出为 fuji-studio 可读的配方 JSON */
+    public String toStudioJson() {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("name", name);
+            o.put("film", filmToName(filmSim));
+            o.put("exposure", Math.round(expBiasThirds / 3f * 10f) / 10f);
+            o.put("dynamic_range", dr);
+            String g;
+            if (grainStrength <= 0) g = "off";
+            else g = (grainStrength == 1 ? "weak" : "strong") + (grainLarge ? "-large" : "");
+            o.put("grain", g);
+            o.put("color_chrome", effectName(chrome));
+            o.put("color_chrome_blue", effectName(fxBlue));
+            o.put("smooth_skin", effectName(smoothSkin));
+            o.put("white_balance", wbIndex == D185.WB_VALUES.length - 1 ? "as-shot" : "kelvin");
+            if (wbIndex != D185.WB_VALUES.length - 1) o.put("wb_kelvin", wbTemp);
+            o.put("wb_shift_r", wbR);
+            o.put("wb_shift_b", wbB);
+            o.put("highlight", highlight / 10.0);
+            o.put("shadow", shadow / 10.0);
+            o.put("color", color);
+            o.put("sharpness", sharpness);
+            o.put("noise_reduction", nr);
+            o.put("clarity", clarity);
+        } catch (org.json.JSONException ignored) { }
+        return o.toString();
+    }
+
     public static void save(Context c, Recipe r) throws IOException {
         String safe = r.name.replaceAll("[^\\p{L}\\p{N}_\\- ]", "_");
         File f = new File(dir(c), safe + ".json");

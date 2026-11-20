@@ -51,10 +51,10 @@ import java.util.List;
  */
 public class MainActivity extends Activity implements CameraEngine.Listener {
 
-    static final String APP_VERSION = "4.2.1";
+    static final String APP_VERSION = "4.3.0";
 
     private static final String ACTION_USB_PERMISSION = "com.fotufilm.xraw.USB_PERMISSION";
-    private static final int REQ_RAF = 1001, REQ_RAF_BATCH = 1002, REQ_TREE = 1003;
+    private static final int REQ_RAF = 1001, REQ_RAF_BATCH = 1002, REQ_TREE = 1003, REQ_RECIPE_JSON = 1004;
 
     private static final String[] TAB_NAMES = {"曝光", "胶片", "影调", "白平衡", "细节", "画质"};
 
@@ -169,6 +169,25 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         .putString("exportTree", tree.toString()).apply();
                 if (folderText != null) folderText.setText(exportFolderLabel());
                 toast("导出目录已设置");
+            }
+            return;
+        }
+        if (req == REQ_RECIPE_JSON) {
+            Uri u = data.getData();
+            if (u == null) return;
+            try (InputStream in = getContentResolver().openInputStream(u)) {
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+                Recipe r = Recipe.fromStudioJson(bos.toString("UTF-8"));
+                copyInto(recipe, r);
+                refreshUiFromRecipe();
+                toast("已导入配方：" + r.name);
+                status("已导入配方 " + r.name + " · " + recipe.summaryText());
+                if (engine.isConnected() && loadedRaf != null) engine.preview(recipe);
+            } catch (Exception e) {
+                toast("配方解析失败：" + e.getMessage());
             }
             return;
         }
@@ -676,6 +695,16 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
         btnRow.addView(loadR);
         c.addView(btnRow);
 
+        LinearLayout btnRow2 = Ui.row(this);
+        btnRow2.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 8), Ui.dp(this, 6));
+        android.widget.Button impR = Ui.button(this, "导入配方 JSON", false);
+        impR.setOnClickListener(v -> pickRecipeJson());
+        btnRow2.addView(impR);
+        android.widget.Button expR = Ui.button(this, "导出配方 JSON", false);
+        expR.setOnClickListener(v -> shareRecipeJson());
+        btnRow2.addView(expR);
+        c.addView(btnRow2);
+
         c.addView(Ui.section(this, "相机槽位（配方工坊）"));
         LinearLayout slotRow = Ui.row(this);
         slotRow.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 8), Ui.dp(this, 10));
@@ -1022,6 +1051,34 @@ public class MainActivity extends Activity implements CameraEngine.Listener {
                         status("配方已保存：" + recipe.name);
                     } catch (IOException e) { status("保存失败：" + e.getMessage()); }
                 }).setNegativeButton("取消", null).show();
+    }
+
+    private void pickRecipeJson() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        try { startActivityForResult(i, REQ_RECIPE_JSON); } catch (Exception e) { toast("没有可用的文件选择器"); }
+    }
+
+    private void shareRecipeJson() {
+        try {
+            File f = new File(getCacheDir(), (recipe.name.isEmpty() ? "recipe" : recipe.name) + ".json");
+            FileOutputStream fos = new FileOutputStream(f);
+            fos.write(recipe.toStudioJson().getBytes("UTF-8"));
+            fos.close();
+            // 工程无 AndroidX：用 MediaSaver 把 JSON 落到下载目录再分享
+            MediaSaver.Exported ex = MediaSaver.exportText(this, f.getName(), new String(
+                    java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8"));
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("application/json");
+            i.putExtra(Intent.EXTRA_STREAM, ex.uri);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(i, "导出配方"));
+        } catch (Exception e) {
+            // 没有 FileProvider 时退化为直接显示 JSON
+            new AlertDialog.Builder(this).setTitle("配方 JSON")
+                    .setMessage(recipe.toStudioJson()).setPositiveButton("知道了", null).show();
+        }
     }
 
     private void loadRecipeDialog() {
