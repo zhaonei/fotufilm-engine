@@ -38,7 +38,11 @@ jobs:
           set +e
           flutter analyze --no-fatal-infos --no-fatal-warnings > analyze.log 2>&1
           echo "analyze exit=$?"
-          tail -60 analyze.log
+          tail -80 analyze.log
+          echo '### analyze 摘要' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -25 analyze.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           exit 0
 
       - name: build debug apk
@@ -58,7 +62,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: fotufilm-zh-ui-apk
-          path: flutter/build/app/outputs/flutter-apk/app-debug.apk
+          path: flutter/build/app/outputs/flutter-apk/*.apk
           if-no-files-found: error
 
       - name: 发布到 Release
@@ -70,5 +74,5 @@ jobs:
           body: |
             汉化验收包（仅 UI，无原生引擎，不能处理照片）。
             提交：${{ github.sha }}
-          files: flutter/build/app/outputs/flutter-apk/app-debug.apk
+          files: flutter/build/app/outputs/flutter-apk/*.apk
           fail_on_unmatched_files: true
