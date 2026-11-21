@@ -412,9 +412,16 @@ jobs:
         # the licences lets AGP fetch the ones this runner lacks instead of failing at configure.
         run: |
           sdk="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          manager="$(find "$sdk/cmdline-tools" -maxdepth 2 -name sdkmanager 2>/dev/null | head -1)"
+          # cmdline-tools/latest/bin/sdkmanager is three levels down, which maxdepth 2 missed: the
+          # licences then went unaccepted and AGP could not fetch the platform Flutter 3.50 wants.
+          manager="$(find "$sdk/cmdline-tools" -maxdepth 3 -name sdkmanager 2>/dev/null | head -1)"
+          [ -n "$manager" ] || manager="$(command -v sdkmanager || true)"
           [ -n "$manager" ] || { echo "::warning::no sdkmanager; relying on what the image has"; exit 0; }
+          echo "sdkmanager: $manager"
           yes | "$manager" --licenses > /dev/null 2>&1 || true
+          # Flutter 3.50's plugin asks for a platform this image may not carry; name it so the
+          # configure step does not have to download it mid-build.
+          "$manager" --list 2>/dev/null | sed -n 's/^ *platforms;android-\([0-9]*\).*/\1/p' | sort -n | tail -3 | tr '\n' ' ' | sed 's/^/platforms on the runner: android-/' || true
 
       - name: Build the Flutter app and pack the engine into it
         # flutter/build-android.sh is the repository's own path: it rebuilds the engine through
@@ -442,8 +449,19 @@ jobs:
           export PATH="$SWIFT_TOOLCHAIN/usr/bin:$PATH"
           echo "flutter: $(flutter --version | head -1)"
           echo "engine libraries: $(find flutter/build/android-engine/jniLibs/arm64-v8a -name '*.so' | wc -l)"
-          ./flutter/build-android.sh
-          ls -lh build/flutter-host/Fotufilm.apk
+          # The job's log needs admin rights to read; an annotation does not. On failure the last
+          # lines of the build are re-emitted as annotations, so the error is readable from the
+          # API without the log.
+          set -o pipefail
+          if ./flutter/build-android.sh 2>&1 | tee /tmp/flutter-build.log; then
+            ls -lh build/flutter-host/Fotufilm.apk
+          else
+            status=$?
+            echo "::error::Flutter build failed (exit $status)"
+            tail -c 6000 /tmp/flutter-build.log | tr -d '\r' | sed 's/%/%25/g' | tail -40 |
+              while IFS= read -r line; do [ -n "$line" ] && echo "::error::$line"; done
+            exit "$status"
+          fi
 
       - name: Re-sign the APK with v1 and v2 only
         # AGP signs v1 + v2 + v3. VIVO's installer answers "软件包似乎无效 / 安装包缺乏开发者证书"
