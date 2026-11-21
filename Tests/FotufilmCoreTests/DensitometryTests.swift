@@ -64,7 +64,9 @@ final class DensitometryTests: XCTestCase {
         }
     }
 
-    /// Clear paper carries no dye, so a print's white is display white under its own lamp.
+    /// Clear paper carries no dye, so a paper print's white is display white under its own lamp.
+    /// A release print is judged against its LAD grey, which leaves clear film warmer than
+    /// display white with its brightest channel on the display's peak.
     func testClearPaperIsDisplayWhite() {
         for paper in Self.physicalPrints {
             let unmix = PrintDyeUnmix(dyes: paper.analyticalDyes)
@@ -73,6 +75,11 @@ final class DensitometryTests: XCTestCase {
                 stock: stock, paper: paper,
                 viewingLight: SpectralRuntime.referenceViewingLight(for: paper))
             let white = receiver.rgb(density: .zero)
+            if paper.ladStatusA(for: stock) != nil {
+                XCTAssertEqual(white.max(), 1, accuracy: 1e-4, "\(paper.rawValue)")
+                XCTAssertLessThan(white.z, white.x, "\(paper.rawValue)")
+                continue
+            }
             for channel in 0..<3 {
                 XCTAssertEqual(white[channel], 1, accuracy: 1e-4, "\(paper.rawValue)")
             }
@@ -95,6 +102,20 @@ final class DensitometryTests: XCTestCase {
                     "\(paper.rawValue) returned an emitting dye for \(target)")
                 XCTAssertTrue(amounts.x.isFinite && amounts.y.isFinite
                               && amounts.z.isFinite)
+                func error(_ a: SIMD3<Float>) -> Float {
+                    let r = Densitometry.statusADensity(amounts: a, dyes: paper.analyticalDyes) - target
+                    return r.x * r.x + r.y * r.y + r.z * r.z
+                }
+                for c in 0..<3 {
+                    for delta: Float in [-0.002, 0.002] {
+                        var adjacent = amounts; adjacent[c] += delta
+                        if adjacent[c] >= 0 {
+                            XCTAssertLessThanOrEqual(
+                                error(amounts), error(adjacent) + 1e-5,
+                                "\(paper.rawValue) did not project orthogonally onto gamut boundary at \(target)")
+                        }
+                    }
+                }
             }
         }
     }

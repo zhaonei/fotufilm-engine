@@ -7,6 +7,7 @@
 #include "../Schedule/Cpu.h"
 #include "../Graph/Frame.h"
 #include "../FotufilmCompiledCache.h"
+#include "ExtraDonorLutStore.h"
 #include "FilmTileStore.h"
 
 #include <algorithm>
@@ -32,8 +33,9 @@ using Halide::Pipeline;
 using Halide::RDom;
 using Halide::Var;
 
-/// The JIT roads keep the film grain tiles as compiler buffers.
+/// The JIT roads keep the film grain tiles and extra donor cubes as compiler buffers.
 using FilmTileStore = BasicFilmTileStore<Buffer<float>>;
+using ExtraDonorLutStore = BasicExtraDonorLutStore<Buffer<float>>;
 
 using namespace fotufilm;
 using namespace fotufilm::cpu;
@@ -221,6 +223,10 @@ public:
           film_tiles_(Float(32), 3, "develop_film_tiles" + suffix),
           grain_mode_("develop_grain_mode" + suffix),
           film_grain_("develop_film_on" + suffix),
+#if !defined(FOTUFILM_HALIDE_AOT_GENERATOR)
+          extra_donor_lut_(Float(32), 1, "develop_extra_donor_lut" + suffix),
+          extra_donor_on_("develop_extra_donor_on" + suffix),
+#endif
           monochrome_("develop_monochrome" + suffix),
           features_("develop_features" + suffix),
           additional_exposure_(Float(32), 3, "develop_additional_exposure" + suffix),
@@ -255,6 +261,10 @@ public:
             "develop_", suffix};
         inputs.film_tiles = &film_tiles_;
         inputs.film_on = film_grain_ != 0;
+#if !defined(FOTUFILM_HALIDE_AOT_GENERATOR)
+        inputs.extra_donor_lut = &extra_donor_lut_;
+        inputs.extra_donor_on = extra_donor_on_ != 0;
+#endif
         if (with_additional_exposure_) {
             additional_exposure_.dim(0).set_stride(4);
             additional_exposure_.dim(2).set_bounds(0, 4).set_stride(1);
@@ -318,6 +328,20 @@ public:
         bool film_on = false;
         film_tiles_.set(FilmTileStore::shared().tiles_for(configuration, film_on));
         film_grain_.set(film_on ? 1 : 0);
+#if !defined(FOTUFILM_HALIDE_AOT_GENERATOR)
+        bool extra_on = false;
+        Buffer<float> extra_lut = ExtraDonorLutStore::shared().lut_for(configuration, extra_on);
+        if ((feature_mask & FOTUFILM_FRAME_DONOR_LAYER) != 0
+            && (feature_mask & (FOTUFILM_FRAME_NO_FILM | FOTUFILM_FRAME_DENSITY_IN
+                                | FOTUFILM_FRAME_RECORD_EXPOSURE_IN | FOTUFILM_FRAME_LIGHT_OUT)) == 0
+            && configuration[FOTUFILM_CONFIG_RECORD_INPUT] == 0.0f
+            && int32_t(configuration[FOTUFILM_CONFIG_DONOR_COUNT]) > 1
+            && !extra_on) {
+            throw Halide::RuntimeError("Fotufilm extra donor LUT is not registered");
+        }
+        extra_donor_lut_.set(extra_lut);
+        extra_donor_on_.set(extra_on ? 1 : 0);
+#endif
         monochrome_.set((feature_mask & FOTUFILM_FRAME_MONOCHROME) != 0 ? 1 : 0);
         features_.set(feature_mask);
         if (cached_) cached_.realize(result);
@@ -350,6 +374,9 @@ public:
             });
         }
         args.insert(args.end(), {features_, film_tiles_, film_grain_});
+#if !defined(FOTUFILM_HALIDE_AOT_GENERATOR)
+        args.insert(args.end(), {extra_donor_lut_, extra_donor_on_});
+#endif
         if (with_additional_exposure_) args.insert(args.end(), {additional_exposure_, additional_on_});
         return args;
     }
@@ -370,6 +397,10 @@ private:
     ImageParam film_tiles_;
     Param<int32_t> grain_mode_;
     Param<int32_t> film_grain_;
+#if !defined(FOTUFILM_HALIDE_AOT_GENERATOR)
+    ImageParam extra_donor_lut_;
+    Param<int32_t> extra_donor_on_;
+#endif
     Param<int32_t> monochrome_;
     Param<int32_t> features_;
     ImageParam additional_exposure_;
@@ -398,7 +429,9 @@ public:
         // A scanned negative arrives as its scan and is read as the film's densities here
         // (FOTUFILM_CONFIG_SCAN_READING); anything else arrives as density.
         Expr scan_mode = scan_reading_mode(configuration_);
-        Expr scan_r = input_(x, y, 0), scan_g = input_(x, y, 1), scan_b = input_(x, y, 2);
+        Expr scan_r = scan_film_sample(configuration_, 0, input_(x, y, 0)),
+             scan_g = scan_film_sample(configuration_, 1, input_(x, y, 1)),
+             scan_b = scan_film_sample(configuration_, 2, input_(x, y, 2));
         Expr reads_scan = scan_mode == kScanFilm;
         Func developed("print_developed" + suffix);
         developed(x, y, c) = Halide::select(
@@ -408,10 +441,12 @@ public:
         graph::PrintInputs inputs{configuration_, Expr(reversal ? 1 : 0), monochrome, true, true,
                                   "", suffix};
         Func read_print = graph::build_print(backend, inputs, developed, x, y, c);
-        // What the reading could not place, often the holder, prints black.
+        // What the reading could not place prints black, but for what is too dark to be film,
+        // the holder, which prints as the densest film does: white.
         Func printed("print_read" + suffix);
         printed(x, y, c) = Halide::select(
-            reads_scan && !scan_film_readable(configuration_, scan_r, scan_g, scan_b),
+            reads_scan && !scan_film_readable(configuration_, scan_r, scan_g, scan_b)
+                && !scan_film_opaque(configuration_, scan_r, scan_g, scan_b),
             0.0f, read_print(x, y, c));
 
         Func output("print_output" + suffix);

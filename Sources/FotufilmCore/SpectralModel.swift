@@ -381,6 +381,7 @@ public enum SpectralRuntime {
                               paper: PrintPaper = .default,
                               bleachBypass: Float = 0,
                               printViewingKelvin: Float? = nil,
+                              printSurface: PrintSurface = .clean,
                               callier: Float = 1,
                               printer: PrinterProfile? = nil,
                               printerLights: PrinterLights? = nil,
@@ -402,9 +403,11 @@ public enum SpectralRuntime {
                                                   digitalReference: digitalReference)
         let printViewingKelvin = !paper.acceptsViewingIlluminant ? nil
             : printLightKelvin(printViewingKelvin)
+        let printSurface = printSurface.resolved(for: stock, paper: paper)
         let callier = callierCoefficient(callier, stock: stock, paper: paper)
         let key = cacheIdentifier(for: stock, paper: paper, bleachBypass: bleachBypass,
-                                  printViewingKelvin: printViewingKelvin, callier: callier,
+                                  printViewingKelvin: printViewingKelvin,
+                                  printSurface: printSurface, callier: callier,
                                   printer: printer, printerLights: printerLights,
                                   digitalReference: digitalReference,
                                   screenGrade: screenGrade, screenExposureEV: screenExposureEV,
@@ -425,7 +428,8 @@ public enum SpectralRuntime {
         lock.unlock()
 
         let built = buildTables(for: stock, paper: paper, bleachBypass: bleachBypass,
-                                printViewingKelvin: printViewingKelvin, callier: callier,
+                                printViewingKelvin: printViewingKelvin,
+                                printSurface: printSurface, callier: callier,
                                 printer: printer, printerLights: printerLights,
                                 digitalReference: digitalReference,
                                 screenGrade: screenGrade, screenExposureEV: screenExposureEV,
@@ -497,6 +501,7 @@ public enum SpectralRuntime {
                                        paper: PrintPaper = .default,
                                        bleachBypass: Float = 0,
                                        printViewingKelvin: Float? = nil,
+                                       printSurface: PrintSurface = .clean,
                                        callier: Float = 1,
                                        printer: PrinterProfile? = nil,
                                        printerLights: PrinterLights? = nil,
@@ -572,6 +577,10 @@ public enum SpectralRuntime {
            let kelvin = printLightKelvin(printViewingKelvin) {
             h = (h ^ UInt64(kelvin.bitPattern)) &* 0x9E3779B97F4A7C15
         }
+        let surface = printSurface.resolved(for: stock, paper: paper)
+        if surface != .clean {
+            for byte in surface.rawValue.utf8 { h = (h ^ UInt64(byte)) &* 0x9E3779B97F4A7C15 }
+        }
         // A diffuser head is the read the sheets were measured in, so it leaves the identity alone.
         let callier = callierCoefficient(callier, stock: stock, paper: paper)
         if callier != 1 {
@@ -595,6 +604,7 @@ public enum SpectralRuntime {
                                     paper: PrintPaper,
                                     bleachBypass: Float = 0,
                                     printViewingKelvin: Float? = nil,
+                                    printSurface: PrintSurface = .clean,
                                     callier: Float = 1,
                                     printer: PrinterProfile? = nil,
                                     printerLights: PrinterLights? = nil,
@@ -813,21 +823,14 @@ public enum SpectralRuntime {
                 return paper.deliversRec709
                     ? ColorScience.linearSRGBToDisplayP3(rgb) : rgb
             }
-        } else if !stock.isMonochrome {
+        } else {
             let receiver = printReceiver(stock: stock, paper: paper,
-                                         viewingLight: viewingLight)
+                                         viewingLight: viewingLight,
+                                         printSurface: printSurface)
             paperOutput = buildLUT { activation in
                 receiver.rgb(density: SIMD3(activation.x * paperRanges[0],
                                             activation.y * paperRanges[1],
                                             activation.z * paperRanges[2]))
-            }
-        } else {
-            paperOutput = buildLUT { activation in
-                let density = [activation.x * paperRanges[0],
-                               activation.y * paperRanges[1],
-                               activation.z * paperRanges[2]]
-                return transmissionRGB(density: density, dyes: paper.dyes,
-                                       illuminant: viewingLight)
             }
         }
         return SpectralPipelineTables(exposure: exposure, filmOutput: printing,
@@ -2093,6 +2096,12 @@ public enum SpectralRuntime {
                 h = h &* 0x100000001b3
             }
             for v in donor.inhibition { h = (h ^ UInt64(v.bitPattern)) &* 0x100000001b3 }
+            if donor.releaseGamma != 1 {
+                h = (h ^ UInt64(donor.releaseGamma.bitPattern)) &* 0x100000001b3
+            }
+            if donor.releaseKappa != 1 {
+                h = (h ^ UInt64(donor.releaseKappa.bitPattern)) &* 0x100000001b3
+            }
         }
         return h
     }
@@ -2108,7 +2117,23 @@ public enum SpectralRuntime {
     static func transmissionRGB(density: [Float], dyes: [[Float]],
                                 neutralDensity: Float = 0,
                                 illuminant: [Float]? = nil,
-                                densityOffset: [Float]? = nil) -> SIMD3<Float> {
+                                densityOffset: [Float]? = nil,
+                                adaptedWhite: SIMD3<Float>? = nil) -> SIMD3<Float> {
+        let spectrum = transmission(density: density, dyes: dyes,
+                                    neutralDensity: neutralDensity,
+                                    densityOffset: densityOffset)
+        guard let illuminant else {
+            return SpectralGrid.toLinearDisplayP3(reflectance: spectrum)
+        }
+        return SpectralGrid.toLinearDisplayP3(reflectance: spectrum,
+                                              under: illuminant,
+                                              adaptedTo: adaptedWhite)
+    }
+
+    /// The spectral transmittance `transmissionRGB` integrates.
+    static func transmission(density: [Float], dyes: [[Float]],
+                             neutralDensity: Float = 0,
+                             densityOffset: [Float]? = nil) -> [Float] {
         assert(density.count == dyes.count,
                "density must be dye-aligned: \(density.count) records, \(dyes.count) dyes")
         var spectrum = [Float](repeating: 0, count: SpectralGrid.count)
@@ -2118,11 +2143,7 @@ public enum SpectralRuntime {
             if let densityOffset { d += densityOffset[i] }
             spectrum[i] = pow(10, -d)
         }
-        guard let illuminant else {
-            return SpectralGrid.toLinearDisplayP3(reflectance: spectrum)
-        }
-        return SpectralGrid.toLinearDisplayP3(reflectance: spectrum,
-                                              under: illuminant)
+        return spectrum
     }
 
     // Internal so the crossover tests can mirror the print exposure path.
@@ -2201,6 +2222,26 @@ public enum SpectralRuntime {
                                          digitalReference: digitalReference)
         return DigitalReferenceReceiver.exposureShift(
             stops: min(max(stops, -6), 6), stock: stock, style: digitalReference, grade: grade)
+    }
+
+    /// Pre-curve `screenCMY` filtration that carries `balance` (`1 / whiteBalance.gains`) into
+    /// Digital Reference or Lab Scan before the positive curve.
+    public static func screenCMY(forWhiteBalanceGains balance: SIMD3<Float>, stock: FilmStock,
+                                 paper: PrintPaper,
+                                 digitalReference: DigitalReferenceStyle = .default,
+                                 screenGrade: Float = 2) -> SIMD3<Float> {
+        let paper = paper.resolved(for: stock)
+        switch paper {
+        case .screen:
+            let grade = effectiveScreenGrade(screenGrade, stock: stock, paper: paper,
+                                             digitalReference: digitalReference)
+            return DigitalReferenceReceiver.cmy(
+                forWhiteBalanceGains: balance, stock: stock, style: digitalReference, grade: grade)
+        case .labScan:
+            return LabScanTiming.cmy(forWhiteBalanceGains: balance, stock: stock)
+        default:
+            return .zero
+        }
     }
 
     /// Auto Levels balances the toe per record the way a lab scanner's per-channel black point
@@ -2375,33 +2416,93 @@ public enum SpectralRuntime {
         let dyes: [[Float]]
         let viewingLight: [Float]?
         let unmix: PrintDyeUnmix?
+        let baseReflectance: [Float]?
+        let surfaceReflectance: Float
+        /// The white the viewer has adapted to, as XYZ. Nil is the bare viewing light.
+        var adaptedWhite: SIMD3<Float>?
+        /// Places the clear medium's brightest channel on the display's peak.
+        var gain: Float = 1
+
+        init(dyes: [[Float]], viewingLight: [Float]?, unmix: PrintDyeUnmix?,
+             baseReflectance: [Float]? = nil, surfaceReflectance: Float = 0,
+             adaptedWhite: SIMD3<Float>? = nil, gain: Float = 1) {
+            self.dyes = dyes
+            self.viewingLight = viewingLight
+            self.unmix = unmix
+            self.baseReflectance = baseReflectance
+            self.surfaceReflectance = surfaceReflectance
+            self.adaptedWhite = adaptedWhite
+            self.gain = gain
+        }
 
         func rgb(density: SIMD3<Float>) -> SIMD3<Float> {
-            guard let unmix else {
-                return SpectralRuntime.transmissionRGB(
-                    density: [density.x, density.y, density.z], dyes: dyes,
-                    illuminant: viewingLight)
+            let amounts: SIMD3<Float>
+            if let unmix {
+                amounts = unmix.amounts(forStatusA: density)
+            } else {
+                amounts = density
             }
-            let amounts = unmix.amounts(forStatusA: density)
-            return SpectralRuntime.transmissionRGB(
-                density: [amounts.x, amounts.y, amounts.z], dyes: dyes,
-                illuminant: viewingLight)
+            guard let baseReflectance else {
+                return SpectralRuntime.transmissionRGB(
+                    density: [amounts.x, amounts.y, amounts.z], dyes: dyes,
+                    illuminant: viewingLight, adaptedWhite: adaptedWhite) * gain
+            }
+            let bodyScale = max(1 - surfaceReflectance, 0)
+            var spectrum = [Float](repeating: 0, count: SpectralGrid.count)
+            for i in 0..<SpectralGrid.count {
+                let d = amounts.x * dyes[0][i] + amounts.y * dyes[1][i] + amounts.z * dyes[2][i]
+                spectrum[i] = bodyScale * baseReflectance[i] * pow(10, -d) + surfaceReflectance
+            }
+            guard let viewingLight else {
+                return SpectralGrid.toLinearDisplayP3(reflectance: spectrum) * gain
+            }
+            return SpectralGrid.toLinearDisplayP3(reflectance: spectrum,
+                                                  under: viewingLight,
+                                                  adaptedTo: adaptedWhite) * gain
         }
     }
 
+    static func viewingLight(for paper: PrintPaper, kelvin: Float?) -> [Float]? {
+        kelvin.map(printLightSPD) ?? referenceViewingLight(for: paper)
+    }
+
     static func printReceiver(stock: FilmStock, paper: PrintPaper,
-                              viewingLight: [Float]?) -> PrintReceiver {
+                              viewingLight: [Float]?,
+                              printSurface: PrintSurface = .clean) -> PrintReceiver {
+        let surface = printSurface.resolved(for: stock, paper: paper)
+        let base = surface == .clean ? nil : paper.baseReflectance
+        let glare = surface.surfaceReflectance
         // A scan has no viewing dyes, the digital reference is not a sheet, and a monochrome
         // print is forced neutral, so none of them unmix.
         let unmixes = !stock.isMonochrome && !paper.isScan
             && paper != .screen && !paper.isNegative
         guard unmixes else {
             return PrintReceiver(dyes: paper.dyes,
-                                 viewingLight: viewingLight, unmix: nil)
+                                 viewingLight: viewingLight, unmix: nil,
+                                 baseReflectance: base, surfaceReflectance: glare)
         }
         let unmix = PrintDyeUnmix(dyes: paper.analyticalDyes)
-        return PrintReceiver(dyes: paper.analyticalDyes,
-                             viewingLight: viewingLight, unmix: unmix)
+        var receiver = PrintReceiver(dyes: paper.analyticalDyes,
+                                     viewingLight: viewingLight, unmix: unmix,
+                                     baseReflectance: base, surfaceReflectance: glare)
+        // A release print is timed until its LAD patch looks neutral on the screen, and that
+        // patch is not the colour of the lamp through clear film: the gross Status A aims are
+        // unequal and the dyes are not flat. A theatre audience sees nothing but the print, so
+        // the patch as lit is the white its eyes settle on. Adapting to the bare lamp instead
+        // made every normally exposed grey read blue. The developed dyes are not touched; clear
+        // film then stands warmer than grey, and the gain keeps it inside the display.
+        if let aim = paper.ladStatusA(for: stock), let viewingLight {
+            let curves = paper.printCurves(for: stock)
+            let patch = unmix.amounts(forStatusA: SIMD3((0..<3).map {
+                aim[$0] - curves[$0].dMin
+            }))
+            let transmitted = transmission(density: [patch.x, patch.y, patch.z],
+                                           dyes: paper.analyticalDyes)
+            receiver.adaptedWhite = SpectralGrid.xyz(
+                spectrum: (0..<SpectralGrid.count).map { viewingLight[$0] * transmitted[$0] })
+            receiver.gain = 1 / max(receiver.rgb(density: .zero).max(), 1e-6)
+        }
+        return receiver
     }
 
     /// The reflection print's visual setup is solved once, under D50. These density targets
@@ -2615,6 +2716,7 @@ extension SpectralRuntime {
                                  paper: PrintPaper = .default,
                                  printCorrection: Float,
                                  callier: Float = 1,
+                                 printSurface: PrintSurface = .clean,
                                  digitalReference: DigitalReferenceStyle = .default,
                                  sceneHighlightStops: Float? = nil,
                                  screenGrade: Float = 2,
@@ -2624,6 +2726,7 @@ extension SpectralRuntime {
         let paper = paper.resolved(for: stock)
         let receiverBands = effectiveReceiverBands(receiverBands, stock: stock, paper: paper)
         let callier = callierCoefficient(callier, stock: stock, paper: paper)
+        let printSurface = printSurface.resolved(for: stock, paper: paper)
         let grade = effectiveScreenGrade(screenGrade, stock: stock, paper: paper,
                                          digitalReference: digitalReference)
         let exposureShift = screenExposureShift(screenExposureEV, stock: stock, paper: paper,
@@ -2735,7 +2838,8 @@ extension SpectralRuntime {
         for channel in 0..<3 { xMids[channel] += colourShift[channel] }
         let viewingLight = referenceViewingLight(for: paper)
         let receiver = printReceiver(stock: stock, paper: paper,
-                                     viewingLight: viewingLight)
+                                     viewingLight: viewingLight,
+                                     printSurface: printSurface)
         return stops.map { s in
             let density = (0..<3).map {
                 stock.developedDensity(layer: $0, logExposure: s * perStop)
@@ -2920,6 +3024,56 @@ extension SpectralRuntime {
         BoundedCache<UInt64, (warm: SpectralLUT, cool: SpectralLUT)>(limit: 16)
     nonisolated(unsafe) private static var filteredExposureCache =
         BoundedCache<UInt64, SpectralLUT>(limit: 32)
+    private static let extraDonorLock = NSLock()
+    nonisolated(unsafe) private static var extraDonorExposureCache =
+        BoundedCache<UInt64, SpectralLUT>(limit: 16)
+
+    /// Exposure-domain LUT for extra donor capture layers (`donorLayers[1]` in `.x`,
+    /// `donorLayers[2]` in `.y`). Nil when the stock coats at most one donor or when the
+    /// spectral reconstruction model is unavailable.
+    public static func extraDonorExposure(
+        for stock: FilmStock,
+        illuminant: [Float],
+        stack: LensFilterStack = LensFilterStack()
+    ) -> (key: UInt64, table: SpectralLUT)? {
+        guard stock.donorLayers.count > 1, hasReconstructionModel else { return nil }
+        let gain: Float = stack.isEmpty ? 1 : stack.exposureGain(stock: stock, illuminant: illuminant)
+        var key = (filterKey(for: stock) ^ illuminantSignature(illuminant)) &* 0x100000001b3
+        key = (key ^ stack.signature) &* 0x100000001b3
+        key = (key ^ UInt64(gain.bitPattern) ^ 0x4558545241444E52) &* 0x100000001b3
+        extraDonorLock.lock()
+        if let found = extraDonorExposureCache.value(for: key) {
+            extraDonorLock.unlock()
+            return (key, found)
+        }
+        extraDonorLock.unlock()
+
+        let reference = filmReferenceIlluminant(for: stock)
+        var filter: SpectralFilter? = nil
+        if !stack.isEmpty {
+            var resolved = spectralFilter(for: stock, stack: stack, illuminant: illuminant)
+            resolved.gain = gain
+            filter = resolved
+        }
+        let donor1 = stock.donorLayers[1]
+        let donor2 = stock.donorLayers.count > 2 ? stock.donorLayers[2] : nil
+        let table = buildLUT { point in
+            let e1 = domainDonorExposure(
+                point, donor: donor1, illuminant: illuminant,
+                referenceIlluminant: reference, filter: filter)
+            let e2 = donor2.map {
+                domainDonorExposure(
+                    point, donor: $0, illuminant: illuminant,
+                    referenceIlluminant: reference, filter: filter)
+            } ?? 0
+            return SIMD3(e1, e2, 0)
+        }
+
+        extraDonorLock.lock()
+        extraDonorExposureCache.insert(table, for: key)
+        extraDonorLock.unlock()
+        return (key, table)
+    }
 
     /// The two anchor exposure tables for a stock behind a filter, built with the metering scale
     /// left out so that one pair serves every colour temperature. Each anchor carries the
@@ -3231,14 +3385,19 @@ public enum SpectralGrid {
     /// reflectance reads the same grey under every illuminant, while the paper dyes' spectral
     /// metamerism remains. Dividing Display P3 channels directly is not a von Kries transform;
     /// display primaries are not cone-response channels and produce hue errors away from neutral.
+    ///
+    /// `adaptedWhite` names what the viewer has adapted to when that is not the light itself,
+    /// as XYZ of any scale: only its chromaticity is used. Luminance stays relative to the light.
     static func toLinearDisplayP3(reflectance: [Float],
-                                  under illuminant: [Float]) -> SIMD3<Float> {
+                                  under illuminant: [Float],
+                                  adaptedTo adaptedWhite: SIMD3<Float>? = nil) -> SIMD3<Float> {
         precondition(reflectance.count == count)
         var reflected = [Float](repeating: 0, count: count)
         for i in 0..<count { reflected[i] = illuminant[i] * reflectance[i] }
         var reflectedXYZ = xyz(spectrum: reflected)
-        var whiteXYZ = xyz(spectrum: illuminant)
-        reflectedXYZ /= max(whiteXYZ.y, 1e-12)
+        let lightXYZ = xyz(spectrum: illuminant)
+        reflectedXYZ /= max(lightXYZ.y, 1e-12)
+        var whiteXYZ = adaptedWhite ?? lightXYZ
         whiteXYZ /= max(whiteXYZ.y, 1e-12)
         let sourceLMS = bradfordLMS(fromXYZ: whiteXYZ)
         let destinationLMS = bradfordLMS(fromXYZ: d65WhiteXYZ)

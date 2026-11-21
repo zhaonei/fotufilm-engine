@@ -18,6 +18,12 @@ extension PrintPaper {
         printStock?.spectra.analyticalDyes ?? SpectralGrid.paperDyeAmounts
     }
 
+    /// Unexposed support reflectance on `SpectralGrid`, or unit reflectance where nothing is
+    /// printed onto a reflection sheet.
+    var baseReflectance: [Float] {
+        printStock?.spectra.baseReflectance ?? PrintStock.unitBaseReflectance
+    }
+
     /// Layer sensitivities with publication tails extended. Release prints preserve the
     /// publication's inter-layer speed scale: it determines the additive printer's beam mix.
     /// Per-layer normalization is harmless only for paths without a spectral timing solve.
@@ -42,6 +48,12 @@ extension PrintPaper {
     /// by an RGB-neutralizing correction after development.
     var ladStatusA: SIMD3<Float>? { printStock?.releaseSetup?.ladStatusA }
 
+    /// The setup aim `stock` is timed to on this medium. Only a colour negative prints a LAD
+    /// patch; monochrome keeps the single-record neutral convention.
+    func ladStatusA(for stock: FilmStock) -> SIMD3<Float>? {
+        stock.isMonochrome || stock.isReversal ? nil : ladStatusA
+    }
+
     /// Density at which the published reciprocal-exposure sensitivity was measured.
     /// Kodak labels D = 1.0; Fuji explicitly states 1.0 above minimum density.
     func sensitivityReferenceExposures(for stock: FilmStock) -> [Float] {
@@ -60,7 +72,7 @@ extension PrintPaper {
         // Cineon's straight line reads the relative printing density as its own log exposure.
         if deliversCodeValues { return [0, 0, 0] }
         let curves = printCurves(for: stock, digitalReference: digitalReference)
-        if let aim = ladStatusA, !stock.isMonochrome, !stock.isReversal {
+        if let aim = ladStatusA(for: stock) {
             return (0..<3).map { curves[$0].logExposure(density: aim[$0]) }
         }
         let offset = acceptsViewingIlluminant && !stock.isMonochrome

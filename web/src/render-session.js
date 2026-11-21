@@ -29,12 +29,23 @@ import {
   INVALID_BORDER,
   areaPreview,
   denseEnd,
+  channelEnds,
+  midtone,
+  average,
+  tonalSlopes,
+  rollClearFilm,
+  pictureAreaFrame,
+  frameLight,
+  holder,
+  withoutHolder,
+  readingFlare,
+  netOfFlare,
   estimatedBorder,
   loadScanPreparation,
   plainReading,
   positiveSource,
 } from './negative-reading.js'
-import { rolledDenseEnd } from './negative-document.js'
+import { pictureArea, readingRequest, readsModel } from './negative-document.js'
 import { rampCurve, toneRamp } from './tone-curve.js'
 import {
   assetUrl,
@@ -370,12 +381,16 @@ export class RenderSession {
     return entry.value
   }
   // What a scanned negative's reading takes from its framing: the clear film it is measured
-  // against, sampled or else the thinnest film of the whole scan, and the framing's densest end.
-  // The densest end is kept, so each film reads it without drawing the scan again.
+  // against, sampled or else the thinnest film of the whole scan, the stray light the reading
+  // takes off, and, net of that, the framing's densest end and the rises across its tonal steps.
+  // What a framing measures is kept, so each film reads it without drawing the scan again.
   async negativeFraming(image, edit, report, stale) {
     let kept = this.negativeReadings.get(image)
     if (!kept)
-      this.negativeReadings.set(image, (kept = { border: null, framings: [] }))
+      this.negativeReadings.set(
+        image,
+        (kept = { border: null, whole: null, holders: new Map(), framings: [] }),
+      )
     // The framed scan by area at 512 pixels, from a copy four times that across: close to the
     // desktop host's reduction of the whole scan, at a size a browser reads quickly.
     const read = async (edit) => {
@@ -388,36 +403,99 @@ export class RenderSession {
         source.height,
       )
     }
+    // The whole scan, for the readings that look past the framing: the clear film where none
+    // is sampled, and the holder.
+    const whole = async () => (kept.whole ??= await read(defaultEdit()))
     if (!edit.negative.border && !kept.border) {
-      const whole = await read(defaultEdit())
-      if (!whole) return null
-      kept.border = estimatedBorder(whole.pixels)
+      const scan = await whole()
+      if (!scan) return null
+      kept.border = estimatedBorder(scan.pixels)
       if (!kept.border) throw new Error(INVALID_BORDER)
     }
-    const border = edit.negative.border ?? kept.border
-    const framing = JSON.stringify([
+    // The current reading takes the film's base where the scan shows its bare light past the
+    // film (ApproximateNegativeScan.estimatedFilmBase), which the import read.
+    const estimate = (readsModel(edit.negative) && image.negative?.base) || kept.border
+    // The frame's own clear film, and the one it is read against: on a roll, its own in the
+    // roll's colour of clear film (WebNativeEdit.Negative.clearFilm).
+    const own = edit.negative.border ?? estimate
+    // A scan merged from an exposure under each LED has three exposures, each its own, and
+    // no colour of clear film to share (WebNativeEdit.Negative.sharesClearFilm).
+    const shares = readsModel(edit.negative) && edit.negative.scanLight !== 'rgb'
+    const border = edit.negative.border || !shares ? own : rollClearFilm(own, edit.negative.roll)
+    // A picture area picked on the scan is read instead of the crop, and read whole
+    // (WebNativeEdit.Negative.pictureArea).
+    const area = pictureArea(edit.negative)
+    const measured = area ? { ...edit, crop: area, cropShape: 'corners' } : edit
+    const framingOf = JSON.stringify([
       border,
       edit.rotation,
       edit.flip,
       lensIsActive(edit.lens) ? edit.lens : null,
-      edit.crop,
+      measured.crop,
+      area != null,
       edit.straighten,
       edit.perspectiveV || 0,
       edit.perspectiveH || 0,
     ])
+    // A reading through the scan's light and camera leaves the scan's holder out of what it
+    // measures of the frame; the first reading measures as it did.
+    let shown = null
+    if (readsModel(edit.negative)) {
+      const key = JSON.stringify(border)
+      if (!kept.holders.has(key)) {
+        const scan = await whole()
+        if (!scan) return null
+        if (kept.holders.size >= 8) kept.holders.clear()
+        kept.holders.set(key, holder(border, scan.pixels, scan.width, scan.height))
+      }
+      shown = kept.holders.get(key)
+    }
+    const framing = JSON.stringify([framingOf, shown?.limit ?? null])
     let framed = kept.framings.find((item) => item.key === framing)
     if (!framed) {
-      const preview = await read(edit)
+      let preview = await read(measured)
       if (!preview) return null
+      if (shown)
+        preview.pixels = withoutHolder(preview.pixels, preview.width, preview.height, border, shown.limit)
+      if (area) preview = pictureAreaFrame(preview.pixels, preview.width, preview.height)
       framed = {
         key: framing,
         border,
-        dense: denseEnd(border, preview.pixels, preview.width, preview.height),
+        preview,
+        light: frameLight(preview.pixels, preview.width, preview.height),
+        measures: new Map(),
       }
       kept.framings.push(framed)
       if (kept.framings.length > 8) kept.framings.shift()
     }
-    return framed
+    // The holder's stray light is taken only where the edit leaves it to be measured.
+    const flare = readingFlare(
+      edit.negative,
+      border,
+      framed.light,
+      edit.negative.flare == null ? (shown?.stray ?? null) : null,
+    )
+    const model = readsModel(edit.negative)
+    const measured = JSON.stringify([flare, model])
+    if (!framed.measures.has(measured)) {
+      const { preview } = framed
+      const pixels = netOfFlare(preview.pixels, flare),
+        clear = border.map((v, c) => v - flare[c])
+      framed.measures.set(measured, {
+        // The first reading keeps its own densest end, and times its print on that alone.
+        dense: (model ? denseEnd : channelEnds)(clear, pixels, preview.width, preview.height),
+        midtone: midtone(clear, pixels, preview.width, preview.height),
+        average: average(clear, pixels, preview.width, preview.height),
+        slopes: tonalSlopes(clear, pixels, preview.width, preview.height),
+      })
+    }
+    return {
+      border,
+      clear: shares ? own : null,
+      flare,
+      holder: shown?.limit ?? null,
+      ...framed.measures.get(measured),
+    }
   }
   async capturePack(pack, stock, kelvin, report) {
     if (!pack || !Number.isFinite(kelvin) || kelvin <= 0) return pack
@@ -577,18 +655,37 @@ export class RenderSession {
           ? await this.negativeFraming(image, edit, report, stale)
           : null
         if (edit.negative && (!reading || stale())) return null
-        // The frame read on its roll's colour, when it is balanced on its roll.
-        const dense = reading && rolledDenseEnd(reading.dense, edit.negative.roll)
-        // What this frame measures for its roll (useRollActions), before any roll's colour.
+        // What this frame measures for its roll, before any roll's colour.
         const negativeMeasure = reading
-          ? { border: reading.border, denseEnd: reading.dense }
+          ? {
+              border: reading.border,
+              clear: reading.clear,
+              flare: reading.flare,
+              denseEnd: reading.dense,
+              slopes: reading.slopes,
+              midtone: reading.midtone,
+              average: reading.average,
+            }
           : undefined
-        // A negative without a film is a positive photograph (plainReading); one read as a film
-        // prints from its scan, which the kernels read as the film.
+        // What a request says of the reading: the edit's, what the frame measures, and what the
+        // scan's file says of its camera.
+        const asked = reading
+          ? readingRequest(edit.negative, reading, image.raw?.scanSource)
+          : null
+        // A negative without a film is a positive photograph; one read as a film prints from its
+        // scan, which the kernels read as the film. The current reading is the engine's own
+        // (WebNegativePlainRequest), with the scan's light and camera; the first is plainReading.
         const plain =
           edit.negative && !negative
-            ? plainReading(reading.border, dense, edit.negative.crosstalk, edit.negative.scanLight)
+            ? readsModel(edit.negative)
+              ? JSON.parse(
+                  new TextDecoder().decode(
+                    await loadFilmProfile({ kind: 'negative-plain', negative: asked }, report),
+                  ),
+                )
+              : plainReading(asked.border, asked.denseEnd, asked.crosstalk, asked.scanLight)
             : null
+        if (stale()) return null
         const preparation = plain ? await loadScanPreparation() : null
         if (stale()) return null
         const scene = (pixels) => (plain ? positiveSource(pixels, plain, preparation) : pixels)
@@ -656,13 +753,7 @@ export class RenderSession {
                   filterMetering: edit.filterMetering,
                   ...(negative
                     ? {
-                        negative: {
-                          border: reading.border,
-                          denseEnd: dense,
-                          light: negativeLight(edit.params),
-                          crosstalk: edit.negative.crosstalk ?? 0,
-                          scanLight: edit.negative.scanLight ?? 'white',
-                        },
+                        negative: { ...asked, light: negativeLight(edit.params) },
                       }
                     : await sceneScreenMeter(
                         meterSource,

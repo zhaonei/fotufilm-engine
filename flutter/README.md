@@ -1,7 +1,6 @@
 # Fotufilm editor
 
-The editor, drawn by Flutter: the desktop app on macOS and Linux, the Android app and the browser
-editor, from one UI.
+The shared cross-platform darkroom UI built with Flutter—powering Fotufilm Desktop on macOS and Linux, the Android app, and the WebGPU browser editor from a single codebase. For end-user workflows, see [How to use](../docs/how-to-use.html) and [Documentation](../docs/documentation.html).
 
 - **Desktop:** the engine (`libfotufilm`, `Sources/CFotufilmHost/include/fotufilm.h`) is called
   through `dart:ffi` on its own isolate. Developed pictures are written straight into platform
@@ -10,6 +9,9 @@ editor, from one UI.
   come back as pixels rather than through a presenter.
 - **Browser:** the UI is compiled to WebAssembly and calls the WASM and WebGPU engine in `web/src`
   through `web/src/flutter-bridge.js`, which answers the same host calls the native engine does.
+
+It builds with Flutter 3.50 or newer, the version CI uses. On desktop and Android, Flutter
+draws through Impeller: Metal on macOS, OpenGL ES on Linux, and Vulkan or OpenGL ES on Android.
 
 ## Layout
 
@@ -74,7 +76,9 @@ node tool/serve-web.mjs --assets <a browser build's web/public>
 The bridge fetches the engine's runtime assets (its WASM modules and film packs, built by
 `tools/build-wasm.sh`) from `engine/`; `serve-web.mjs` serves them from `--assets` without
 copying. Deploying copies them to `engine/` beside the build. `?FOTUFILM_APPEARANCE=dark` in the
-page's address overrides the system appearance. The browser engine needs WebGPU.
+page's address overrides the system appearance. The browser engine needs WebGPU. Flutter's loader
+keeps the WebAssembly build to Chromium by default; `web/flutter_bootstrap.js` lets Safari and
+Firefox run it too, and a browser without what it needs still gets the JavaScript build.
 
 ## Scripted checks
 

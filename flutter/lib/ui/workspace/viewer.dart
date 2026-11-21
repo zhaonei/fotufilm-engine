@@ -129,7 +129,7 @@ class _PhotoCanvasState extends State<PhotoCanvas> {
   void _pressDown(PointerDownEvent event) {
     final touch = event.kind == PointerDeviceKind.touch;
     if (!touch && event.buttons != kPrimaryButton) return;
-    if (editor.crop.showing || editor.selective.sampling || editor.negatives.sampling) return;
+    if (editor.framing || editor.selective.sampling || editor.negatives.sampling) return;
     _pressed[event.pointer] = event.localPosition;
     _hold?.cancel();
     if (_pressed.length > 1) {
@@ -206,7 +206,7 @@ class _PhotoCanvasState extends State<PhotoCanvas> {
     }
   }
 
-  bool get _tooled => editor.crop.showing || editor.selective.sampling || editor.negatives.sampling;
+  bool get _tooled => editor.framing || editor.selective.sampling || editor.negatives.sampling;
 
   @override
   Widget build(BuildContext context) {

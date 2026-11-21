@@ -1,4 +1,5 @@
 #include "FotufilmHalide.h"
+#include "FotufilmHalideDevelop.h"
 
 // The schedules below are written against a DeviceAPI rather than against Metal, so the same
 // pipeline serves every GPU the engine reaches: Metal on Apple, Vulkan on Android, WebGPU in the
@@ -158,6 +159,11 @@ int32_t translate_metal_exceptions(Function &&function) {
 }
 
 bool valid_flare_mean(const float *configuration, int32_t feature_mask) {
+    if ((feature_mask & FOTUFILM_FRAME_DONOR_LAYER) != 0
+        && (feature_mask & (FOTUFILM_FRAME_NO_FILM | FOTUFILM_FRAME_DENSITY_IN | FOTUFILM_FRAME_LIGHT_OUT)) == 0) {
+        const float count = configuration[FOTUFILM_CONFIG_DONOR_COUNT];
+        if (!std::isfinite(count) || count < 0.0f || int32_t(count) > 3) return false;
+    }
     if ((feature_mask & FOTUFILM_FRAME_FLARE) == 0) return true;
     if ((feature_mask & FOTUFILM_FRAME_FLARE_MEASURE) != 0) return true;
     for (int channel = 0; channel < 3; ++channel) {
@@ -698,6 +704,20 @@ extern "C" int32_t fotufilm_halide_metal_decode_rows_realtime(
     });
 }
 
+// Host-queue async scope: the JIT Metal path does not support single-CB batching
+// (Resolve uses the AOT path in FotufilmHalideIOS.cpp).  Provide no-op stubs here
+// so a JIT-only build links cleanly if something calls these symbols.
+extern "C" void    fotufilm_halide_metal_host_queue_begin(void *) {}
+extern "C" int32_t fotufilm_halide_metal_host_queue_active(void) { return 0; }
+extern "C" void   *fotufilm_halide_metal_host_compute_encoder(void) { return nullptr; }
+extern "C" void   *fotufilm_halide_metal_host_queue_end(void) { return nullptr; }
+extern "C" int32_t fotufilm_halide_metal_host_queue_refused(void) { return 0; }
+extern "C" int32_t fotufilm_halide_metal_host_queue_on_completed(
+    void (*)(void *, int32_t), void *) { return 0; }
+extern "C" void    fotufilm_halide_metal_decode_report_later(
+    void (*sink)(void *, float, int32_t), void *context) { if (sink) sink(context, 0, 0); }
+extern "C" void    fotufilm_halide_metal_set_io_flip(int32_t, int32_t, int32_t) {}
+
 #endif  // __APPLE__
 
 #if defined(FOTUFILM_HALIDE_CUDA)
@@ -964,5 +984,17 @@ extern "C" FOTUFILM_FALLBACK int32_t fotufilm_halide_metal_process_buffers_tail(
     uint64_t, uint64_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t,
     const float *, const float *, const float *, const float *, int32_t,
     uint64_t, int32_t, uint32_t) { return -1; }
+// Host-queue async scope stubs: JIT builds have no AOT Metal-queue path; these
+// FOTUFILM_FALLBACK definitions let swift test and JIT host targets link cleanly.
+extern "C" FOTUFILM_FALLBACK void    fotufilm_halide_metal_host_queue_begin(void *) {}
+extern "C" FOTUFILM_FALLBACK int32_t fotufilm_halide_metal_host_queue_active(void) { return 0; }
+extern "C" FOTUFILM_FALLBACK void   *fotufilm_halide_metal_host_compute_encoder(void) { return nullptr; }
+extern "C" FOTUFILM_FALLBACK void   *fotufilm_halide_metal_host_queue_end(void) { return nullptr; }
+extern "C" FOTUFILM_FALLBACK int32_t fotufilm_halide_metal_host_queue_refused(void) { return 0; }
+extern "C" FOTUFILM_FALLBACK int32_t fotufilm_halide_metal_host_queue_on_completed(
+    void (*)(void *, int32_t), void *) { return 0; }
+extern "C" FOTUFILM_FALLBACK void    fotufilm_halide_metal_decode_report_later(
+    void (*sink)(void *, float, int32_t), void *context) { if (sink) sink(context, 0, 0); }
+extern "C" FOTUFILM_FALLBACK void    fotufilm_halide_metal_set_io_flip(int32_t, int32_t, int32_t) {}
 
 #endif

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "FotufilmHalideDevelop.h"
 #include "GpuBackend.h"
 
 namespace fotufilm::pipelines {
@@ -74,11 +75,19 @@ public:
         // One thread per row, as the fused measurement schedules its own row pass. A reduction
         // straight to the totals would run in a single thread; the totalling is the host's, and it
         // is three numbers or a few thousand.
-        Var block("measure_block" + suffix), thread("measure_thread" + suffix);
-        rows.compute_root()
-            .reorder(lane, y)
-            .gpu_tile(y, block, thread, 32, Halide::TailStrategy::GuardWithIf,
-                      gpu_device_api());
+        if (quantity_ == Quantity::Tone) {
+            Var block_x("measure_bx" + suffix), block_y("measure_by" + suffix);
+            Var thread_x("measure_tx" + suffix), thread_y("measure_ty" + suffix);
+            rows.compute_root()
+                .gpu_tile(lane, y, block_x, block_y, thread_x, thread_y, 1, 32,
+                          Halide::TailStrategy::GuardWithIf, gpu_device_api());
+        } else {
+            Var block("measure_block" + suffix), thread("measure_thread" + suffix);
+            rows.compute_root()
+                .reorder(lane, y)
+                .gpu_tile(y, block, thread, 32, Halide::TailStrategy::GuardWithIf,
+                          gpu_device_api());
+        }
         rows_ = rows;
         pipeline_ = Pipeline(rows_);
 #if !defined(FOTUFILM_HALIDE_AOT_GENERATOR)
@@ -192,7 +201,9 @@ public:
         : GpuSchedule(configuration), approximate_(approximate),
           input_(Float(32), 3, "decode_input" + suffix),
           parameters_(Float(32), 1, "decode_parameters" + suffix),
-          width_("decode_width" + suffix) {
+          width_("decode_width" + suffix),
+          flip_y_("decode_flip_y" + suffix),
+          full_height_("decode_full_height" + suffix) {
         Var x("decode_x" + suffix), y("decode_y" + suffix);
         Var channel("decode_channel" + suffix), lane("decode_lane" + suffix);
         input_.dim(0).set_stride(4).dim(2).set_stride(1).set_bounds(0, 4);
@@ -208,15 +219,17 @@ public:
         // from zero, so a negative never displaces it and a non-finite never enters. It is worth
         // having on its own because it reads the input and stops — no transfer curve, no matrix.
         auto peak_of = [&](Halide::Expr px, Halide::Expr py) {
-            Halide::Expr r = input_(px, py, 0), g = input_(px, py, 1), b = input_(px, py, 2);
+            Halide::Expr sy_in = Halide::select(flip_y_ != 0, full_height_ - 1 - py, py);
+            Halide::Expr r = input_(px, sy_in, 0), g = input_(px, sy_in, 1), b = input_(px, sy_in, 2);
             return Halide::max(
                 Halide::select(Halide::is_finite(r), r, 0.0f),
                 Halide::max(Halide::select(Halide::is_finite(g), g, 0.0f),
                             Halide::select(Halide::is_finite(b), b, 0.0f)));
         };
         auto decode = [&](Halide::Expr px, Halide::Expr py) {
-            Halide::Expr r = input_(px, py, 0), g = input_(px, py, 1);
-            Halide::Expr b = input_(px, py, 2), a = input_(px, py, 3);
+            Halide::Expr sy_in = Halide::select(flip_y_ != 0, full_height_ - 1 - py, py);
+            Halide::Expr r = input_(px, sy_in, 0), g = input_(px, sy_in, 1);
+            Halide::Expr b = input_(px, sy_in, 2), a = input_(px, sy_in, 3);
             Halide::Expr finite_r = Halide::is_finite(r), finite_g = Halide::is_finite(g);
             Halide::Expr finite_b = Halide::is_finite(b), finite_a = Halide::is_finite(a);
             Halide::Expr peak = peak_of(px, py);
@@ -289,6 +302,9 @@ public:
             Halide::max(scan(span, y)[0], peak_of(scan_x, y)),
             Halide::max(scan(span, y)[1],
                         Halide::select(decode(scan_x, y).repaired, 1.0f, 0.0f)));
+        // Note: `FotufilmHalideIOS.cpp` skips `_kernel_decode_chunk_` and `_kernel_decode_report_`
+        // when `tls_skip_decode_report` is active on async single-CB host Metal frames. Keep these
+        // two Func name prefixes synchronized with `dispatch_threadgroups` in `FotufilmHalideIOS.cpp`.
         Func chunk_lanes("decode_chunk" + suffix);
         chunk_lanes(span, y) = Halide::Tuple(scan(span, y)[0], scan(span, y)[1]);
 
@@ -302,12 +318,16 @@ public:
         Var block("decode_block" + suffix), thread("decode_thread" + suffix);
         Var xo("decode_xo" + suffix), xi("decode_xi" + suffix);
         Var yo("decode_yo" + suffix), yi("decode_yi" + suffix);
-        scene.compute_root().gpu_tile(x, y, xo, yo, xi, yi, 16, 16,
+        const int decode_tx = (gpu_device_api() == DeviceAPI::Metal) ? 32 : 16;
+        const int decode_ty = (gpu_device_api() == DeviceAPI::Metal) ? 8 : 16;
+        scene.compute_root().gpu_tile(x, y, xo, yo, xi, yi, decode_tx, decode_ty,
                                       Halide::TailStrategy::GuardWithIf, gpu_device_api());
+        scene.specialize(flip_y_ != 0);
         // A thread per chunk of a row, so the transfer curve is spread across the whole device
         // rather than down one lane per row.
         chunk_lanes.compute_root().gpu_tile(span, y, xo, yo, xi, yi, 16, 16,
                                             Halide::TailStrategy::GuardWithIf, gpu_device_api());
+        chunk_lanes.specialize(flip_y_ != 0);
         scan.compute_at(chunk_lanes, xi);
         // One thread per row for the fold, as the measurements schedule theirs: the reduction is
         // along the row and the host combines the rows.
@@ -360,6 +380,8 @@ public:
             input_.set(input_buffer);
             parameters_.set(parameter_buffer);
             width_.set(width);
+            flip_y_.set(0);
+            full_height_.set(rows);
             Buffer<float> report_buffer(report, 2, rows);
             pipeline_.realize(Halide::Realization({output_buffer, report_buffer}), target);
             report_buffer.copy_to_host();
@@ -378,7 +400,7 @@ public:
     void compile_aot(const std::string &prefix, const std::string &function_name,
                      Target target) {
         target.set_feature(Target::NoRuntime);
-        std::vector<Halide::Argument> arguments{input_, parameters_, width_};
+        std::vector<Halide::Argument> arguments{input_, parameters_, width_, flip_y_, full_height_};
         pipeline_.compile_to_static_library(prefix, arguments, function_name, target);
     }
 #endif
@@ -388,6 +410,8 @@ private:
     ImageParam input_;
     ImageParam parameters_;
     Param<int32_t> width_;
+    Param<int32_t> flip_y_;
+    Param<int32_t> full_height_;
     Func scene_;
     Func report_;
     Pipeline pipeline_;
@@ -401,8 +425,10 @@ public:
     GpuFramePipeline(int32_t feature_mask, const std::string &suffix,
                        bool windowed = false,
                        GpuConfiguration configuration = default_gpu_configuration(),
-                       bool exact_stages = false)
-        : GpuSchedule(configuration, windowed), FrameParams("frame_", suffix),
+                       bool exact_stages = false,
+                       bool gated_parity = false)
+        : GpuSchedule(configuration, windowed),
+          FrameParams("frame_", suffix),
           float_io_((feature_mask & FOTUFILM_FRAME_FLOAT_IO) != 0),
           realtime_(!float_io_
                     || (feature_mask & FOTUFILM_FRAME_REALTIME) != 0),
@@ -433,12 +459,19 @@ public:
           paper_lut_(Float(32), 1, "frame_paper_lut" + suffix),
           film_tiles_(Float(32), 3, "frame_film_tiles" + suffix),
           film_grain_("frame_film_on" + suffix),
+#if !defined(FOTUFILM_HALIDE_AOT_GENERATOR)
+          extra_donor_lut_(Float(32), 1, "frame_extra_donor_lut" + suffix),
+          extra_donor_on_("frame_extra_donor_on" + suffix),
+#endif
           halation_radius_0_("frame_halation_radius_0" + suffix),
           halation_radius_1_("frame_halation_radius_1" + suffix),
           halation_radius_2_("frame_halation_radius_2" + suffix),
           runtime_features_("frame_features" + suffix),
           byte_basis_("frame_byte_basis" + suffix) {
         feature_mask &= ~ablated_features();
+        if (gated_parity && exact_stages && (feature_mask & FOTUFILM_FRAME_COUPLERS)) {
+            feature_mask |= FOTUFILM_FRAME_DONOR_LAYER;
+        }
         features_ = feature_mask;
         const bool use_mtf = feature_mask & FOTUFILM_FRAME_MTF;
         const bool use_mtf_luma = feature_mask & FOTUFILM_FRAME_MTF_LUMA;
@@ -528,6 +561,8 @@ public:
         policy.half_tetra = fast(kStillFastHalfTetra) && f16_tetra_compute();
         policy.film_lut_base = film_lut_base;
         policy.paper_lut_base = paper_lut_base;
+        policy.exact_stages = exact_stages && !texture_ && !no_film_ && !density_out_ && !light_out_;
+        policy.gated_parity = gated_parity;
         GpuBackend backend(*this, policy, *this, configuration_, film_lut_, paper_lut_);
 
         auto input_density = [&](Expr plane_index) {
@@ -557,7 +592,9 @@ public:
         // A scanned negative arrives as its scan, read here as the film's densities
         // (FOTUFILM_CONFIG_SCAN_READING); a staged print's input arrives as density.
         Expr scan_mode = scan_reading_mode(configuration_);
-        Expr scan_r = input_density(0), scan_g = input_density(1), scan_b = input_density(2);
+        Expr scan_r = scan_film_sample(configuration_, 0, input_density(0)),
+             scan_g = scan_film_sample(configuration_, 1, input_density(1)),
+             scan_b = scan_film_sample(configuration_, 2, input_density(2));
         Expr reads_scan = density_in_ ? Expr(scan_mode == kScanFilm)
                                       : Expr(Halide::Internal::const_false());
         auto density_source = [&](Expr plane_index) {
@@ -575,11 +612,16 @@ public:
             [&](Expr index) { return decoded(x, y, index); },
             Expr(monochrome ? 1 : 0),
             Halide::cast<int32_t>(configuration_(FOTUFILM_CONFIG_GRAIN_MODE) + 0.5f),
-            texture_, density_in_, false, light_out_, !exact_stages, "frame_", suffix};
+            texture_, density_in_, false, light_out_, !exact_stages, "frame_", suffix,
+            gated_parity};
         // The film grain model's tiles are a buffer of their own. Only the film grain kernel binds
         // them, beside the configuration and the stored density, so WebGPU has the room too.
         inputs.film_tiles = &film_tiles_;
         inputs.film_on = film_grain_ != 0;
+#if !defined(FOTUFILM_HALIDE_AOT_GENERATOR)
+        inputs.extra_donor_lut = &extra_donor_lut_;
+        inputs.extra_donor_on = extra_donor_on_ != 0;
+#endif
         graph::Developed developed_frame = graph::build_develop(backend, inputs, x, y, channel);
         Func light = developed_frame.light;
         Func developed = developed_frame.developed;
@@ -624,12 +666,19 @@ public:
             // the 33-node cube caused 1.37 codes of contouring; separate stages measured 0.003
             // codes in DenseRampTests. The 2048-sample curve table avoids per-pixel
             // transcendental functions.
-            graph::PrintInputs print{configuration_, Expr(reversal_), monochrome, density_in_,
-                                     print_detail, "frame_", suffix};
+            Expr zero_hold = (!print_detail && gated_parity && windowed
+                              && gpu_device_api() == DeviceAPI::Metal)
+                ? Halide::select((runtime_features_ & FOTUFILM_FRAME_PRINT_DETAIL) != 0, 1.0f, 0.0f)
+                : Expr();
+            graph::PrintInputs print{
+                configuration_, Expr(reversal_), monochrome, density_in_,
+                print_detail, "frame_", suffix, zero_hold};
             Func printed = graph::build_print(backend, print, developed, x, y, channel);
-            // What a scan's reading could not place, often the holder, prints black.
+            // What a scan's reading could not place prints black, but for what is too dark to
+            // be film, the holder, which prints as the densest film does: white.
             display_linear(x, y, channel) = Halide::select(
-                reads_scan && !scan_film_readable(configuration_, scan_r, scan_g, scan_b),
+                reads_scan && !scan_film_readable(configuration_, scan_r, scan_g, scan_b)
+                    && !scan_film_opaque(configuration_, scan_r, scan_g, scan_b),
                 0.0f, printed(x, y, channel));
         }
 
@@ -665,8 +714,7 @@ public:
         if (density_out_) {
             output(x, y, channel) = Halide::cast(
                 float_io_ ? Float(32) : Float(16),
-                Halide::select(channel == 3,
-                               Halide::cast<float>(input_(x, y, 3)),
+                Halide::select(channel == 3, Halide::cast<float>(input_(x, y, 3)),
                                developed(x, y, safe_channel)));
         } else if (float_io_ && light_out_) {
             // The finest halation grid of this strip's post-MTF light: the light decimated by
@@ -716,7 +764,7 @@ public:
             output(x, y, channel) = graph::gated(
                 on_encode,
                 Halide::mux(channel, {encoded(0), encoded(1), encoded(2), alpha}),
-                Halide::select(channel == 3, input_(x, y, 3), linear));
+                Halide::select(channel == 3, alpha, linear));
         } else {
             Func srgb("frame_srgb" + suffix);
             // The material's own SDR knee, which the host writes into the output shoulder slot:
@@ -788,15 +836,18 @@ public:
                 .gpu_tile(x, row, block_x, block_y, thread_x, thread_y,
                           gpu_tile_x(), gpu_tile_y(),
                           Halide::TailStrategy::GuardWithIf, gpu_device_api());
+            if (gpu_device_api() == DeviceAPI::Metal) {
+                output.never_partition_all();
+            }
             for (Func stage : window_stores()) {
                 stage.store_at(output, window).compute_at(output, window);
             }
         } else {
             gpu_pointwise(output, x, y, channel, output_channels);
         }
-        // Specialize only full-frame graphs. Windowed graphs keep one consumer loop;
-        // host_output_encode's uniform configuration select still skips fitting when it
-        // is disabled.
+        // Specialize only full-frame graphs on output shape/gamut. Windowed graphs keep
+        // one consumer loop per flip orientation; host_output_encode's uniform configuration
+        // select still skips fitting when it is disabled.
         if (encodes && !windowed) {
             for (Expr shape : {on_encode && shape_linear, on_encode && shape_power,
                                on_encode && shape_log, on_encode}) {
@@ -831,7 +882,8 @@ public:
             // single FrameFunction shape.
             diffusion_stride_0_, diffusion_stride_1_, diffusion_stride_2_,
             diffusion_strided_radius_0_, diffusion_strided_radius_1_,
-            diffusion_strided_radius_2_, runtime_features_, film_tiles_, film_grain_,},
+            diffusion_strided_radius_2_, runtime_features_, film_tiles_, film_grain_,
+            extra_donor_lut_, extra_donor_on_,},
             gpu_target())) {
             pipeline_.compile_jit(gpu_target());
         }
@@ -1206,6 +1258,24 @@ private:
         }
         film_tiles_.set(film_tiles_buffer_);
         film_grain_.set(film_on ? 1 : 0);
+#if !defined(FOTUFILM_HALIDE_AOT_GENERATOR)
+        bool extra_on = false;
+        Buffer<float> extra_lut = ExtraDonorLutStore::shared().lut_for(configuration, extra_on);
+        if ((requested & FOTUFILM_FRAME_DONOR_LAYER) != 0
+            && !no_film_ && !density_in_ && !light_out_
+            && configuration[FOTUFILM_CONFIG_RECORD_INPUT] == 0.0f
+            && int32_t(configuration[FOTUFILM_CONFIG_DONOR_COUNT]) > 1
+            && !extra_on) {
+            throw Halide::RuntimeError("Fotufilm extra donor LUT is not registered");
+        }
+        if (!extra_donor_buffer_.defined() || extra_lut.data() != extra_donor_host_.data()) {
+            extra_donor_host_ = extra_lut;
+            extra_donor_buffer_ = Buffer<float>(extra_lut.data(), extra_lut.dim(0).extent());
+            extra_donor_buffer_.set_host_dirty();
+        }
+        extra_donor_lut_.set(extra_donor_buffer_);
+        extra_donor_on_.set(extra_on ? 1 : 0);
+#endif
         const ResolvedFrameParams frame(configuration, width, height, seed, reversal,
                                         origin_x, origin_y);
         set_frame(frame);
@@ -1255,6 +1325,10 @@ private:
     /// The film grain model's tiles (FilmTileStore), and whether this frame samples them.
     ImageParam film_tiles_;
     Param<int32_t> film_grain_;
+#if !defined(FOTUFILM_HALIDE_AOT_GENERATOR)
+    ImageParam extra_donor_lut_;
+    Param<int32_t> extra_donor_on_;
+#endif
     Param<int32_t> halation_radius_0_, halation_radius_1_, halation_radius_2_;
     Param<int32_t> runtime_features_;
     /// The byte frames' primaries as FOTUFILM_CONFIG_BYTE_BASIS packs them: bit 0 the input is
@@ -1269,6 +1343,9 @@ private:
     /// The film grain tiles this pipeline last read: the store's buffer, kept alive, and this
     /// pipeline's own view of its floats, which carries the device copy.
     Buffer<float> film_tiles_host_, film_tiles_buffer_;
+#if !defined(FOTUFILM_HALIDE_AOT_GENERATOR)
+    Buffer<float> extra_donor_host_, extra_donor_buffer_;
+#endif
     uint64_t lut_cache_id_ = 0;
     Buffer<float> extended_configuration_;
     int32_t extended_configuration_floats_ = 0;

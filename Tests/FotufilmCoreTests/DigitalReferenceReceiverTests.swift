@@ -179,12 +179,12 @@ final class DigitalReferenceReceiverTests: XCTestCase {
     }
 
     func testReceiverSeparatesSmallReferenceDyeChangesAndHoldsNeutral() {
-        let dyes = SpectralGrid.dyes(family: .kodakNegative)
+        let dyes = DigitalReferenceReceiver.referenceDyes
         for bands in Self.bandSets {
             let unmix = DigitalReferenceReceiver.unmix(bands)
             func energy(_ density: SIMD3<Float>) -> SIMD3<Float> {
                 SpectralRuntime.paperExposure(density: [density.x, density.y, density.z],
-                    dyes: dyes, lamp: DigitalReferenceReceiver.illuminant,
+                    dyes: dyes, lamp: DigitalReferenceReceiver.referenceIlluminant,
                     paperSensitivity: bands.sensitivity)
             }
             let center = SIMD3<Float>(repeating: 1)
@@ -200,6 +200,15 @@ final class DigitalReferenceReceiverTests: XCTestCase {
             for level: Float in [-3, -0.5, 0, 0.5, 3] {
                 let neutral = SIMD3<Float>(repeating: level)
                 XCTAssertLessThan(distance(unmix.read(neutral), neutral), 1e-6)
+            }
+            for delta in [SIMD3<Float>(1.4, -0.3, -1.1),
+                          SIMD3<Float>(-1.1, 1.3, -0.2),
+                          SIMD3<Float>(0.2, -1.2, 1.0)] {
+                let ratio = energy(center + delta) / reference
+                let reading = unmix.read(SIMD3(log10(ratio.x), log10(ratio.y), log10(ratio.z)))
+                XCTAssertLessThan(
+                    distance(reading, -delta), 1e-5,
+                    "\(bands): nonlinear unmix must recover saturated reference dye excursions")
             }
         }
     }
@@ -368,6 +377,56 @@ final class DigitalReferenceReceiverTests: XCTestCase {
                 XCTAssertGreaterThan(yellow, 49, "\(id), couplers \(couplers)")
                 XCTAssertLessThan(yellow, 72, "\(id), couplers \(couplers)")
                 XCTAssertGreaterThan(yellow - orange, 9, id)
+            }
+        }
+    }
+
+    func testUnmaskedAndMotionStocksRecoverYellowHueOnReferenceExposure() throws {
+        try XCTSkipUnless(FotufilmEngine.isHalideBackendAvailable, "Halide engine required")
+        func hue(_ rgb: SIMD3<Float>) -> Float {
+            let high = max(rgb.x, rgb.y, rgb.z), low = min(rgb.x, rgb.y, rgb.z)
+            let chroma = high - low
+            guard chroma > 1e-6 else { return 0 }
+            let sector: Float = high == rgb.x ? (rgb.y - rgb.z) / chroma
+                : high == rgb.y ? 2 + (rgb.z - rgb.x) / chroma
+                : 4 + (rgb.x - rgb.y) / chroma
+            let degrees = sector * 60
+            return degrees >= 0 ? degrees : degrees + 360
+        }
+        let yellow = SIMD3<Float>(218.0 / 255, 178.0 / 255, 0)
+        let expectedHue = hue(yellow)
+        let linearP3 = SIMD3(ColorScience.srgbToLinear(yellow.x),
+                             ColorScience.srgbToLinear(yellow.y),
+                             ColorScience.srgbToLinear(yellow.z))
+        let patch = ColorScience.linearDisplayP3ToRec2020(linearP3)
+        var image = ImageBuffer(width: 8, height: 8)
+        for index in 0..<image.pixelCount {
+            image.planes[0][index] = patch.x
+            image.planes[1][index] = patch.y
+            image.planes[2][index] = patch.z
+        }
+        for id in ["aerocolor2460", "cinestill400d", "cinestill800t"] {
+            let stock = try XCTUnwrap(FilmStock.named(id), id)
+            let knee = FilmSDRDelivery.shoulderKnee(
+                carriesHeadroom: PrintPaper.screen.supportsHDRDelivery(for: stock))
+            for couplers: Float in [0, 2] {
+                var options = FotufilmEngine.Options()
+                options.paper = .screen
+                options.digitalReference = .referenceExposure
+                options.couplerScale = couplers
+                options.grainScale = 0
+                options.halationScale = 0
+                options.sceneIlluminantKelvin = stock.referenceIlluminantKelvin
+                let out = try FotufilmEngine(stock: stock, options: options).processChecked(linearRGB: image)
+                let encoded = SIMD3(
+                    ColorScience.linearToSrgb(ColorScience.displayShoulder(out.planes[0][0], knee: knee)),
+                    ColorScience.linearToSrgb(ColorScience.displayShoulder(out.planes[1][0], knee: knee)),
+                    ColorScience.linearToSrgb(ColorScience.displayShoulder(out.planes[2][0], knee: knee)))
+                if couplers == 0 {
+                    XCTAssertEqual(hue(encoded), expectedHue, accuracy: 3.5, id)
+                } else {
+                    XCTAssertGreaterThanOrEqual(encoded.x * 255, encoded.y * 255 + 5, id)
+                }
             }
         }
     }

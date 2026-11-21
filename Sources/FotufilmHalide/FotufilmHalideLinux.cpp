@@ -35,6 +35,7 @@
 #include <HalideRuntimeVulkan.h>
 
 #include "FotufilmHalide.h"
+#include "FotufilmNegativeScan.h"
 #include "FotufilmResolvedFrameParams.h"
 #include "Pipeline/FilmTileStore.h"
 
@@ -289,6 +290,11 @@ void release_device() {
 }
 
 bool valid_flare_mean(const float *configuration, int32_t feature_mask) {
+    if ((feature_mask & FOTUFILM_FRAME_DONOR_LAYER) != 0
+        && (feature_mask & (FOTUFILM_FRAME_NO_FILM | FOTUFILM_FRAME_DENSITY_IN | FOTUFILM_FRAME_LIGHT_OUT)) == 0) {
+        const float count = configuration[FOTUFILM_CONFIG_DONOR_COUNT];
+        if (!std::isfinite(count) || count < 0.0f || int32_t(count) > 1) return false;
+    }
     if ((feature_mask & FOTUFILM_FRAME_FLARE) == 0) return true;
     if ((feature_mask & FOTUFILM_FRAME_FLARE_MEASURE) != 0) return true;
     for (int channel = 0; channel < 3; ++channel) {
@@ -490,7 +496,7 @@ extern "C" int32_t fotufilm_scan_prepare(const float *in, float *out, int32_t w,
                                          const float *p) {
     if (!in || !out || !p || w < 1 || h < 1 || w > 40000 || h > 40000
         || int64_t(w) * h > 150000000) return -1;
-    for (int i = 0; i < 18; ++i) if (!std::isfinite(p[i])) return -1;
+    for (int i = 0; i < FOTUFILM_SCAN_PREPARE_PARAMETERS; ++i) if (!std::isfinite(p[i])) return -1;
     const bool lit = p[0] > 0.5f;
     if (lit && (!light || lw < 1 || lh < 1 || lw > 4096 || lh > 4096)) return -1;
     static const float none[3] = {1, 1, 1};
@@ -498,7 +504,7 @@ extern "C" int32_t fotufilm_scan_prepare(const float *in, float *out, int32_t w,
     auto output = Buffer<float>::make_interleaved(out, w, h, 4);
     auto cells = Buffer<float>::make_interleaved(const_cast<float *>(lit ? light : none),
                                                  lit ? lw : 1, lit ? lh : 1, 3);
-    Buffer<float> params(const_cast<float *>(p), 18);
+    Buffer<float> params(const_cast<float *>(p), FOTUFILM_SCAN_PREPARE_PARAMETERS);
     return fotufilm_aot_scan_prepare_cpu(input, cells, params, output);
 }
 
@@ -577,6 +583,11 @@ extern "C" int32_t fotufilm_film_tile_build(int32_t, int32_t, int32_t, const flo
 extern "C" int32_t fotufilm_halide_set_film_tiles(int32_t id, const float *tiles,
                                                   int64_t count) {
     return film_tile_store().set(id, tiles, count) ? 0 : -1;
+}
+extern "C" int32_t fotufilm_halide_set_extra_donor_lut(int32_t, const float *lut,
+                                                       int64_t count) {
+    if (!lut || count == 0) return 0;
+    return count == int64_t(kLutValueCount) ? -2 : -1;
 }
 extern "C" int32_t fotufilm_halide_develop(
     const float *, const float *, const float *, float *, float *, float *,

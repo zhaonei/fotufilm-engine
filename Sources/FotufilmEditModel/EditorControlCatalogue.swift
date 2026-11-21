@@ -326,7 +326,7 @@ public enum EditorControlCatalogue {
             documentation: "Sets physical negative dimensions. Smaller formats increase grain enlargement and spatial halation reach."),
         EditorControl(
             .frameCoverage, title: "Frame Coverage",
-            detail: "Short edge of the film frame retained after the host's crop",
+            detail: "Short edge of the film frame retained after the host's crop.",
             section: .filmStock,
             kind: .slider(EditorControlScale(0.05...1, neutral: 1, unit: .percent)),
             scope: .hostOnly,
@@ -849,7 +849,8 @@ public enum EditorControlCatalogue {
             commandLine: CommandLineFlag("--coupler-self", placeholder: "<scale>",
                                          help: "Within-layer inhibition as a multiple of the stock's "
                                              + "own, 0-3 (default: 1)"),
-            documentation: "Scales inhibition acting within a layer rather than across two."),
+            documentation: "Scales inhibition acting within a layer across tonal and colour edges, "
+                + "leaving uniform areas unchanged."),
         EditorControl(
             .couplerRedGreen, title: "Red–Green Reach",
             detail: "Adjust the separation between the red and green layers.",
@@ -1264,7 +1265,7 @@ public enum EditorControlCatalogue {
                 .android: "Android decodes RAW with LibRaw, which applies no lens correction.",
                 .web: "The browser decodes RAW with LibRaw, which applies no lens correction and shows the whole sensor area.",
             ]) { $1 },
-            documentation: "On, a camera RAW decodes as the camera's maker intends: Apple's decoder corrects the lens's distortion and vignetting where it knows the lens, and the picture is the camera's default crop. Off shows the capture as the sensor recorded it — the lens's own distortion and dark corners, and on Linux the whole sensor area with its edges — so the true flaws of the capture print. Choosing Film Border or Film Border Positive turns it off. On the Mac and iPhone Core Image always delivers the camera's crop. Lens Correction's own correction still applies when it is on. Included in saved edits and exports."),
+            documentation: "When on, camera RAW files decode with manufacturer lens corrections where supported, using the camera's default crop. Turning it off shows the uncorrected sensor capture — including native lens distortion, corner falloff, and on Linux the full uncropped sensor edges — so those optical characteristics carry into the print. Choosing Film Border or Film Border Positive turns this off automatically. On Mac and iPhone, Core Image always delivers the camera's default crop. Manual Lens Correction settings still apply when enabled. Included in saved edits and exports."),
         EditorControl(
             .lensCorrection, title: "Lens Correction",
             detail: "Correct lens distortion, dark corners, and color fringing.",
@@ -1703,6 +1704,33 @@ public enum EditorControlCatalogue {
                                          generic: false),
             documentation: "Changes the viewing lamp without re-timing the developed print; digital media ignore it."),
         EditorControl(
+            .printSurface, title: "Paper Surface",
+            detail: "Choose the surface finish and viewing glare of a reflection print.",
+            section: .printPaper,
+            kind: .menu(.fixed(PrintSurface.allCases.enumerated().map {
+                EditorMenuChoice(Double($0.offset), $0.element.name,
+                                 detail: $0.element.detail, id: $0.element.id)
+            })),
+            availability: .printStage,
+            persistence: .bespoke,
+            binding: .printSurfaceIndex,
+            surfaces: [.app, .desktop, .cli, .web],
+            omitted: [
+                .android: "Paper surface finish is currently exposed in the Apple apps, browser editor and CLI.",
+                .resolve: "The plugin bridge does not yet expose paper surface finishes.",
+                .finalcut: "The plugin bridge does not yet expose paper surface finishes.",
+            ],
+            web: .profile,
+            commandLine: CommandLineFlag(
+                "--print-surface", placeholder: "<finish>",
+                help: "Reflection paper surface finish: clean (default, pure reference white with "
+                    + "zero glare), glossy, lustre or matte. Evaluates the paper stock's base "
+                    + "reflectance and adds diffuse surface viewing scatter. Reflection papers only"),
+            documentation: "Selects a reflection paper's base tone and surface viewing glare: Clean "
+                + "keeps the pure 0/45° reference white with zero glare; Glossy, Lustre and Matte "
+                + "render the paper stock's base reflectance with progressive diffuse surface scatter "
+                + "in the shadows. Ignored outside reflection print media."),
+        EditorControl(
             .printCorrection, title: "Channel Contrast Match",
             detail: "Optional digital channel-contrast correction; not a printer-light adjustment.",
             section: .printPaper,
@@ -2105,7 +2133,7 @@ public enum EditorControlCatalogue {
             documentation: "Chooses a diffuser or condenser head for an enlarged reflection print."),
         EditorControl(
             .printerEnabled, title: "Simulated Printer",
-            detail: "Print through a tungsten lamp and colour filters",
+            detail: "Print through a tungsten lamp and color filters.",
             section: .printLamp, kind: .toggle(restingOn: false), availability: .printStage,
             drives: ["printer"], surfaces: [.app, .desktop, .cli, .web], omitted: printerOmissions,
             web: .profile,
@@ -2115,7 +2143,7 @@ public enum EditorControlCatalogue {
             documentation: "Enables a synthetic tungsten printer with fixed reference calibration."),
         EditorControl(
             .printerLamp, title: "Lamp Temperature",
-            detail: "Change the spectrum of the enlarger's lamp",
+            detail: "Change the spectrum of the enlarger's lamp.",
             section: .printLamp,
             kind: .slider(EditorControlScale(2800...3600, neutral: 3200, unit: .kelvin)),
             availability: .printStage, persistence: .bespoke, drives: ["printer"],
@@ -2127,7 +2155,7 @@ public enum EditorControlCatalogue {
             documentation: "Changes the spectrum illuminating the negative."),
         EditorControl(
             .printerExposure, title: "Paper Exposure",
-            detail: "More light darkens negative paper and lightens positive paper",
+            detail: "More light darkens negative paper and lightens positive paper.",
             section: .printLamp,
             kind: .slider(EditorControlScale(-6...6, neutral: 0, unit: .stops)),
             availability: .printStage, persistence: .bespoke, drives: ["printer"],
@@ -2139,7 +2167,7 @@ public enum EditorControlCatalogue {
             documentation: "One stop doubles the light exposing the paper: negative paper darkens and positive paper lightens."),
         EditorControl(
             .printerMagenta, title: "Magenta Filter",
-            detail: "Reduce the green light reaching the paper",
+            detail: "Reduce the green light reaching the paper.",
             section: .printLamp,
             kind: .slider(EditorControlScale(0...1.2, neutral: 0.4, unit: .opticalDensity)),
             availability: .printStage, persistence: .bespoke, drives: ["printer"],
@@ -2151,7 +2179,7 @@ public enum EditorControlCatalogue {
             documentation: "Synthetic magenta filtration in optical density, not manufacturer dial units."),
         EditorControl(
             .printerYellow, title: "Yellow Filter",
-            detail: "Reduce the blue light reaching the paper",
+            detail: "Reduce the blue light reaching the paper.",
             section: .printLamp,
             kind: .slider(EditorControlScale(0...1.2, neutral: 0.5, unit: .opticalDensity)),
             availability: .printStage, persistence: .bespoke, drives: ["printer"],
@@ -2215,12 +2243,12 @@ public enum EditorControlCatalogue {
         }
         return [
             EditorControl(fields.0, title: "\(name) Warmth",
-                          detail: "Cool to warm, in the \(name.lowercased())",
+                          detail: "Cool to warm, in the \(name.lowercased()).",
                           section: .lightGrade, kind: .slider(signed),
                           persistence: .bespoke, binding: .grade(band, .warmth),
                           omitted: hostsOwnIt),
             EditorControl(fields.1, title: "\(name) Tint",
-                          detail: "Magenta to green, in the \(name.lowercased())",
+                          detail: "Magenta to green, in the \(name.lowercased()).",
                           section: .lightGrade, kind: .slider(signed),
                           persistence: .bespoke, binding: .grade(band, .tint),
                           omitted: hostsOwnIt),
@@ -2374,7 +2402,7 @@ public enum EditorControlCatalogue {
                 kind: .choice(.fixed(pluginWorkingSpaces), value: 0), animates: false, order: 12)),
         EditorControl(
             .colorSpace, title: "Timeline Color Space",
-            detail: "What this node is being handed",
+            detail: "The color space of the image handed to this node.",
             section: .pipeline, kind: .menu(.dynamic(.colourSpaces)),
             scope: .hostOnly,
             surfaces: [.resolve, .finalcut],
@@ -2392,7 +2420,7 @@ public enum EditorControlCatalogue {
                 kind: .choice(.dynamic(.colourSpaces), value: 7), order: 10)),
         EditorControl(
             .stage, title: "Stage",
-            detail: "Which span of the pipeline this node performs",
+            detail: "Which span of the pipeline this node performs.",
             section: .pipeline, kind: .menu(.dynamic(.stages)),
             scope: .hostOnly,
             binding: .stageIndex,
@@ -2412,7 +2440,7 @@ public enum EditorControlCatalogue {
                 kind: .choice(.dynamic(.stages), value: 0), composed: true, order: 10)),
         EditorControl(
             .textureStages, title: "Texture Stages",
-            detail: "Which spatial stages the texture span lays over the frame",
+            detail: "Which spatial stages the texture span lays over the frame.",
             section: .pipeline, kind: .menu(.dynamic(.textureStages)),
             scope: .hostOnly,
             binding: .textureStagesMask,
@@ -2426,7 +2454,7 @@ public enum EditorControlCatalogue {
                 kind: .choice(.dynamic(.textureStages), value: 0), composed: true, order: 30)),
         EditorControl(
             .renderMode, title: "Render Mode",
-            detail: "Default preserves the launch-time renderer setting",
+            detail: "Default preserves the launch-time renderer setting.",
             section: .pipeline,
             kind: .menu(.fixed([EditorMenuChoice(0, "Default", id: "default"),
                                 EditorMenuChoice(1, "Realtime", id: "realtime"),

@@ -17,12 +17,17 @@ public enum NegativeScanCrosstalk {
 
     /// The light a scan was made under, which sets how broad its channels are.
     public enum Light: String, Codable, CaseIterable, Sendable {
-        /// A camera or scanner under white light: the scan's linear Rec. 2020 channels see the
-        /// spectrum as the Rec. 2020 primaries' colour-matching functions do, through a flat lamp.
+        /// A camera or scanner under white light, a white LED panel where the lamp's own spectrum
+        /// is modelled (`NegativeScanSetup`). This correction takes every one-light scan as the
+        /// Rec. 2020 primaries' colour-matching functions see the spectrum through a flat lamp.
         case white
         /// One exposure under each of a red, green and blue LED, merged (`TrichromaticRoll`): each
         /// channel sees its own LED's narrow band, peaks 625, 522 and 455 nm.
         case rgb
+        /// A phone's or tablet's screen showing white: three narrow emitters.
+        case screen
+        /// A halogen or tungsten lamp, as in an enlarger's head or a slide copier.
+        case halogen
     }
 
     /// How far a reading undoes crosstalk, and the light the scan was made under.
@@ -102,7 +107,7 @@ public enum NegativeScanCrosstalk {
     }
 
     static func sensitivities(_ light: Light) -> [SIMD3<Float>] {
-        light == .white ? whiteSensitivities : rgbSensitivities
+        light == .rgb ? rgbSensitivities : whiteSensitivities
     }
 
     /// The Rec. 2020 channels' spectral sensitivities, per grid wavelength.
@@ -112,12 +117,10 @@ public enum NegativeScanCrosstalk {
             * SpectralGrid.equalEnergy[i]
     }
 
-    /// Red, green and blue LEDs (a SmallRig RM120's, measured on a scanning camera): Gaussian
-    /// bands at their peaks and full widths at half maximum, in nm.
+    /// The red, green and blue LEDs' bands (`Light.rgbBands`), per grid wavelength.
     static let rgbSensitivities: [SIMD3<Float>] = {
-        let bands: [(peak: Float, width: Float)] = [(625, 18), (522, 30), (455, 22)]
-        return SpectralGrid.wavelengths.map { wavelength in
-            SIMD3(bands.map { band in
+        SpectralGrid.wavelengths.map { wavelength in
+            SIMD3(Light.rgbBands.map { band in
                 let sigma = band.width / 2.3548
                 return exp(-0.5 * pow((wavelength - band.peak) / sigma, 2))
             })
@@ -144,5 +147,20 @@ public enum NegativeScanCrosstalk {
         let c1 = cross(rows[2], rows[0]) / determinant
         let c2 = cross(rows[0], rows[1]) / determinant
         return [SIMD3(c0.x, c1.x, c2.x), SIMD3(c0.y, c1.y, c2.y), SIMD3(c0.z, c1.z, c2.z)]
+    }
+
+    /// Diagnostics for `FilmStockDefinition.validate()`'s `(V3)` signed-dye unmixing check:
+    /// the channel-density determinant and the equal-density row scales `(A^-1 * 1)_c^-1`
+    /// (`target[c] / (unmix[c] * target).sum()` at `target = (1, 1, 1)`), or `(det, nil)` if
+    /// singular. Note that `(unmix[c] * .one).sum()` and its reciprocal share `0.5...2`.
+    static func unmixDiagnostics(dyes: [[Float]], light: Light)
+        -> (determinant: Float, equalDensityRowSums: [Float]?) {
+        func cross(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> SIMD3<Float> {
+            SIMD3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x)
+        }
+        let rows = channelDensities(dyes: dyes, light: light)
+        let determinant = (rows[0] * cross(rows[1], rows[2])).sum()
+        guard let unmix = invert(rows) else { return (determinant, nil) }
+        return (determinant, (0..<3).map { (unmix[$0] * .one).sum() })
     }
 }

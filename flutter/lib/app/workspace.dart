@@ -7,7 +7,7 @@ import 'dart:math' as math;
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart' show Material, MaterialType;
+import 'package:material_ui/material_ui.dart' show Material, MaterialType;
 import 'package:flutter/widgets.dart';
 
 import '../model/editor.dart';
@@ -91,7 +91,7 @@ class _WorkspaceState extends State<Workspace> {
     });
     FocusManager.instance.addListener(_keepKeys);
     // Return applies the crop whatever control the keyboard is at (editor_shortcuts.dart).
-    returnGoesPast = () => editor.crop.showing;
+    returnGoesPast = () => editor.framing;
   }
 
   /// Keys that would go nowhere (a dialog closed, a focused control gone) come back to the
