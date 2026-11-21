@@ -47,7 +47,9 @@ jobs:
 
       - name: build debug apk
         working-directory: flutter
-        run: flutter build apk --debug --target-platform android-arm64 2>&1 | tee build.log
+        run: |
+          set -o pipefail
+          flutter build apk --debug --target-platform android-arm64 2>&1 | tee build.log
 
       - name: 收集 APK
         run: |
