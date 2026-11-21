@@ -41,8 +41,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
         onDismiss: widget.onClose,
         children: [
           SegmentedControl<SettingsPane>(
-            items: const [
-              (SettingsPane.general, 'General'),
+            items: [
+              (SettingsPane.general, T('General')),
               (SettingsPane.output, T('Output')),
               (SettingsPane.filmModel, T('Film Model')),
             ],
