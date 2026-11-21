@@ -1,0 +1,74 @@
+name: android-zh-ui
+
+# 只汉化 UI，构建「界面预览版」APK（无原生引擎，仅用于验收中文界面）
+on:
+  push:
+    branches: [zh-cn-ui]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: 环境信息
+        run: flutter --version && dart --version && java -version
+
+      - name: pub get
+        working-directory: flutter
+        run: flutter pub get
+
+      - name: analyze（记录日志，不阻断）
+        working-directory: flutter
+        run: |
+          set +e
+          flutter analyze --no-fatal-infos --no-fatal-warnings > analyze.log 2>&1
+          echo "analyze exit=$?"
+          tail -60 analyze.log
+          exit 0
+
+      - name: build debug apk
+        working-directory: flutter
+        run: flutter build apk --debug --target-platform android-arm64 2>&1 | tee build.log
+
+      - name: 上传 analyze 日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analyze-log
+          path: flutter/analyze.log
+          if-no-files-found: ignore
+
+      - name: 上传 APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fotufilm-zh-ui-apk
+          path: flutter/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+
+      - name: 发布到 Release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: zh-ui-${{ github.run_number }}
+          name: 中文界面预览版 ${{ github.run_number }}
+          body: |
+            汉化验收包（仅 UI，无原生引擎，不能处理照片）。
+            提交：${{ github.sha }}
+          files: flutter/build/app/outputs/flutter-apk/app-debug.apk
+          fail_on_unmatched_files: true
