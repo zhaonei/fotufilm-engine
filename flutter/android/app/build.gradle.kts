@@ -22,6 +22,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // Lint's drivers crash on AGP 9.3 with this Kotlin (LintDriver.handleDetectorError), which
+    // takes the release build down with them. The app ships no lint report, and the engine -- the
+    // code a detector would have something to say about -- is not built here.
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
     defaultConfig {
         applicationId = setting("FOTUFILM_ANDROID_APPLICATION_ID") ?: "com.muastudio.fotufilm.flutter"
         // The engine is built for android-28 (the Swift SDK's lowest), for 64-bit ARM alone.
