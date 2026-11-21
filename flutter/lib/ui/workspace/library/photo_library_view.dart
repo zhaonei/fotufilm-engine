@@ -3,6 +3,7 @@
 // the folders, photos and ratings are the model's (PhotoLibrary).
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import '../../kit/strings.dart';
 
 import '../../../app/host_window.dart';
 import '../../../model/editor.dart';
@@ -159,7 +160,7 @@ class _PhotoLibraryViewState extends State<PhotoLibraryView> {
         title: 'Remove “${folder.name}”?',
         body: 'Fotufilm forgets this folder with its ratings and saved edits. '
             'The files themselves are not changed.',
-        action: 'Remove',
+        action: T('Remove'),
         onConfirm: () => library.removeFolder(folder.id),
       );
 
@@ -168,7 +169,7 @@ class _PhotoLibraryViewState extends State<PhotoLibraryView> {
     final targets = menuTargets(photos, _selection.selected, key);
     final single = targets.length == 1;
     showMenuAt(context, position, width: 200, [
-      MenuItem(label: single ? 'Open' : 'Open ${targets.length} Photos', onSelected: () => _open(targets)),
+      MenuItem(label: single ? T('Open') : 'Open ${targets.length} Photos', onSelected: () => _open(targets)),
       if (HostWindow.showsFiles) ...[
         MenuItem(label: HostWindow.revealLabel, onSelected: () => library.reveal(targets)),
         const MenuItem.divider(),

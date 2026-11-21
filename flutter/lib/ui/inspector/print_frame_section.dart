@@ -1,6 +1,7 @@
 // The Print panel's Frame: the frames this film and medium offer around the finished picture, and
 // how a transparency's frame is viewed.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../model/editor.dart';
 import '../kit/kit.dart';
@@ -24,7 +25,7 @@ class PrintFrameSection extends StatelessWidget {
     final error = frames.error;
     final shown = (plan?['configuration'] as Map?)?['frame'];
     final renderMedium = plan?['renderMedium'] as String?;
-    return Section(title: 'Frame', children: [
+    return Section(title: T('Frame'), children: [
       PickerField<String>(
         label: control['title'] as String,
         detail: control['detail'] as String?,

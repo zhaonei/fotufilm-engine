@@ -3,6 +3,7 @@
 // on the photo clicked otherwise. In a browser there are no files to show, rename or trash. An edit to one photo shows it first, importing a waiting one;
 // its rating and its file are changed where it lies.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../app/host_window.dart';
 import '../../model/editor.dart';
@@ -88,7 +89,7 @@ void showStripMenu(BuildContext context, EditorModel editor, StripItem item, Off
           ? 'Close ${targets.length} Photos'
           : item.waiting
               ? 'Remove from Strip'
-              : 'Close',
+              : T('Close'),
       onSelected: () => strip.closeAll(targets),
     ),
     MenuItem(

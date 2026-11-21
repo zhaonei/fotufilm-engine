@@ -3,6 +3,7 @@
 // export in flight. A movie offers its formats, sizes, HDR, frame rate, processing and file
 // size instead.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../model/editor.dart';
 import '../../model/export.dart';
@@ -82,7 +83,7 @@ class _ExportDialogState extends State<ExportDialog> {
       title: batch ? 'Export $count photos' : 'Export image',
       width: 480,
       actions: [
-        PillButton('Cancel', onPressed: exporting ? x.cancel : widget.onClose),
+        PillButton(T('Cancel'), onPressed: exporting ? x.cancel : widget.onClose),
         PillButton(
           exporting
               ? 'Exporting…'
@@ -90,7 +91,7 @@ class _ExportDialogState extends State<ExportDialog> {
                   ? 'Export Original'
                   : batch
                       ? 'Export $count Photos'
-                      : 'Export',
+                      : T('Export'),
           variant: ButtonVariant.accent,
           onPressed: exporting || (!original && unavailable.contains(sizeId))
               ? null
@@ -105,7 +106,7 @@ class _ExportDialogState extends State<ExportDialog> {
             opacity: exporting ? .45 : 1,
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               if (count > 1)
-                _SelectRow('Export', PickerField<String>(
+                _SelectRow(T('Export'), PickerField<String>(
                   value: _scope,
                   options: [
                     const PickerOption('photo', 'This Photo'),
@@ -121,7 +122,7 @@ class _ExportDialogState extends State<ExportDialog> {
                     PillButton('Use Last Export Settings', onPressed: x.applyLast),
                   ]),
                 ),
-              _SelectRow('Format', PickerField<String>(
+              _SelectRow(T('Format'), PickerField<String>(
                 value: x.type,
                 options: [
                   for (final (id, label) in x.types) PickerOption(id, label),
@@ -133,7 +134,7 @@ class _ExportDialogState extends State<ExportDialog> {
                 const _Detail('Copies the original camera RAW file. Fotufilm edits and the '
                     'resolution setting are not included.')
               else ...[
-                _SelectRow('Size', PickerField<String>(
+                _SelectRow(T('Size'), PickerField<String>(
                   value: sizeId,
                   options: [
                     for (final s in sizes)
@@ -151,14 +152,14 @@ class _ExportDialogState extends State<ExportDialog> {
                   Padding(
                     padding: const EdgeInsets.only(top: 10, bottom: 4),
                     child: AdjustmentRow(
-                      label: 'Quality',
+                      label: T('Quality'),
                       value: x.quality.toDouble(),
                       range: const SliderRange(min: 1, max: 100, step: 1, def: 95),
                       onChanged: (v) => setState(() => x.quality = v.round()),
                     ),
                   ),
                 if (metadata != null)
-                  _SelectRow('Metadata', PickerField<String>(
+                  _SelectRow(T('Metadata'), PickerField<String>(
                     value: x.metadata,
                     options: [
                       for (final id in metadata) PickerOption(id, metadataLabels[id] ?? id),
@@ -210,9 +211,9 @@ class _ExportDialogState extends State<ExportDialog> {
       title: label('export'),
       width: 480,
       actions: [
-        PillButton('Cancel', onPressed: exporting ? x.cancel : widget.onClose),
+        PillButton(T('Cancel'), onPressed: exporting ? x.cancel : widget.onClose),
         PillButton(
-          exporting ? 'Exporting…' : 'Export',
+          exporting ? 'Exporting…' : T('Export'),
           variant: ButtonVariant.accent,
           onPressed: exporting || type == null ? null : () => _export(false),
         ),
@@ -230,7 +231,7 @@ class _ExportDialogState extends State<ExportDialog> {
                     PillButton('Use Last Export Settings', onPressed: x.applyLast),
                   ]),
                 ),
-              _SelectRow('Format', PickerField<String>(
+              _SelectRow(T('Format'), PickerField<String>(
                 value: type?['id'] as String? ?? x.videoFormat,
                 options: [
                   for (final t in x.videoTypes)
@@ -238,7 +239,7 @@ class _ExportDialogState extends State<ExportDialog> {
                 ],
                 onChanged: (v) => setState(() => x.videoFormat = v),
               )),
-              _SelectRow('Size', PickerField<String>(
+              _SelectRow(T('Size'), PickerField<String>(
                 value: sizeId,
                 options: [
                   for (final s in sizes) PickerOption(s.id, [s.label, ?s.detail].join(' · ')),
@@ -261,7 +262,7 @@ class _ExportDialogState extends State<ExportDialog> {
                   onChanged: (v) => x.videoFrameRate = v,
                 )),
               if (x.videoProcessingOffered)
-                _SelectRow('Processing', PickerField<String>(
+                _SelectRow(T('Processing'), PickerField<String>(
                   value: x.videoProcessing,
                   options: const [PickerOption('full', 'Full'), PickerOption('fast', 'Fast')],
                   onChanged: (v) => x.videoProcessing = v,

@@ -2,6 +2,7 @@
 // film's long exposure, the filters on the lens, the lens, and an HDR photograph's highlights. A
 // scanned negative printed on its film keeps only what acts on its print.
 import 'dart:math' as math;
+import '../kit/strings.dart';
 
 import 'package:flutter/widgets.dart';
 
@@ -50,8 +51,8 @@ List<Widget> exposePanel(InspectorControls c) {
       ),
       if (c.edit['sceneLight'] == 'custom') ...c.sliders('Source Illuminant'),
     ]),
-    Section(title: 'White Balance', children: c.sliders('White Balance')),
-    Section(title: 'Color', children: c.sliders('Color')),
+    Section(title: T('White Balance'), children: c.sliders(T('White Balance'))),
+    Section(title: T('Color'), children: c.sliders(T('Color'))),
     Section(title: 'Grade', children: [
       GradeDeck(editor: editor),
       c.editSwitch('gradeSpace', 'Encoded Grade'),

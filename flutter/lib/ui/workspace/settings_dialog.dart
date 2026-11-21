@@ -3,6 +3,7 @@
 // settings wait for video in this editor.
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../model/editor.dart';
 import '../../model/film_packs.dart';
@@ -36,14 +37,14 @@ class _SettingsDialogState extends State<SettingsDialog> {
       listenable: Listenable.merge(
           [editor, editor.settings, editor.filmPacks, editor.filmSuggestion]),
       builder: (context, _) => AppDialogCard(
-        title: 'Settings',
+        title: T('Settings'),
         onDismiss: widget.onClose,
         children: [
           SegmentedControl<SettingsPane>(
             items: const [
               (SettingsPane.general, 'General'),
-              (SettingsPane.output, 'Output'),
-              (SettingsPane.filmModel, 'Film Model'),
+              (SettingsPane.output, T('Output')),
+              (SettingsPane.filmModel, T('Film Model')),
             ],
             selected: _pane,
             onChanged: (p) => setState(() => _pane = SettingsDialog.pane = p),
@@ -75,7 +76,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
     return [
       const PaneHeading('New Photos'),
       _SettingPicker(
-        label: 'Starting Film',
+        label: T('Starting Film'),
         setting: 'startingFilm',
         settings: _settings,
         options: [
@@ -85,7 +86,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
         ],
       ),
       _SettingPicker(
-        label: 'Film Format',
+        label: T('Film Format'),
         setting: 'startingFormat',
         settings: _settings,
         options: [
@@ -132,9 +133,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
         title: 'Reset All Settings?',
         message: 'This restores Fotufilm’s original settings. Your photos and edits will not '
             'change.',
-        primary: 'Reset',
+        primary: T('Reset'),
         variant: ButtonVariant.negative,
-        cancel: 'Cancel',
+        cancel: T('Cancel'),
         onCancel: close,
         onPrimary: () {
           _settings.resetAll();

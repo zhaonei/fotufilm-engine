@@ -3,6 +3,7 @@
 // the inspector on the right. On macOS it is the titlebar: its empty space drags the window.
 import 'package:flutter/widgets.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import '../kit/strings.dart';
 
 import '../../app/commands.dart';
 import '../../app/editor_shortcuts.dart' show shortcutLabel;
@@ -145,7 +146,7 @@ class _ViewGroup extends StatelessWidget {
           onPressed: !photo || fit || cropMode ? null : editor.zoomOut),
       SizedBox(
         width: 40,
-        child: Text(fit ? 'Fit' : '${(editor.scale * 100).round()}%',
+        child: Text(fit ? T('Fit') : '${(editor.scale * 100).round()}%',
             textAlign: TextAlign.center,
             style: editorText(context,
                 color: doc == null ? palette.text.withValues(alpha: .4) : palette.text)),
@@ -169,7 +170,7 @@ class _ViewGroup extends StatelessWidget {
       const SizedBox(width: Metrics.toolbarGap),
       QuietButton(
         icon: 'crop',
-        tooltip: 'Crop',
+        tooltip: T('Crop'),
         selected: editor.panel == Panel.crop && editor.inspectorOpen,
         onPressed: !photo || editor.exporting ? null : () => open(Panel.crop),
       ),
@@ -368,7 +369,7 @@ void showMoreOptions(BuildContext anchor, EditorCommands commands) {
         description: mobilePlatform ? null : shortcutLabel('⌥⌘V'),
         onSelected: noPhoto || presets.copied == null ? null : presets.paste,
       ),
-      MenuItem(label: 'Presets', icon: 'presets', submenu: [
+      MenuItem(label: T('Presets'), icon: 'presets', submenu: [
         for (final preset in presets.list)
           MenuItem(
               label: preset.name,
@@ -398,7 +399,7 @@ void showMoreOptions(BuildContext anchor, EditorCommands commands) {
         onSelected: imageOnlyDisabled ? null : () => open(Panel.selective),
       ),
       MenuItem(
-        label: 'Crop',
+        label: T('Crop'),
         icon: 'crop',
         onSelected: imageOnlyDisabled ? null : () => open(Panel.crop),
       ),

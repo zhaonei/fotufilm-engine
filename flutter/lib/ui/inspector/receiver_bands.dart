@@ -2,6 +2,7 @@
 // three bands Digital Reference reads a colour film through, typed in nm, with the sets saved on
 // this device and the bands new photographs start on.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../model/band_sets.dart';
 import '../../model/editor.dart';
@@ -204,11 +205,11 @@ class _BandSetDialogState extends State<_BandSetDialog> {
       title: 'Save Bands',
       width: 360,
       actions: [
-        PillButton('Cancel', onPressed: widget.onClose),
-        PillButton('Save', variant: ButtonVariant.accent, onPressed: name.isEmpty ? null : _save),
+        PillButton(T('Cancel'), onPressed: widget.onClose),
+        PillButton(T('Save'), variant: ButtonVariant.accent, onPressed: name.isEmpty ? null : _save),
       ],
       children: [
-        FieldLabel('Name'),
+        FieldLabel(T('Name')),
         const SizedBox(height: 3),
         Container(
           height: Metrics.control + 4,

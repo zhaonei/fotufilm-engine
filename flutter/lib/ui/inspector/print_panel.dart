@@ -1,6 +1,7 @@
 // The Print panel: the output medium and its receiver bands, the screen conversion or the print's
 // controls, the enlarger's lamp, the frame, and export.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../model/catalogue.dart';
 import '../../model/video.dart' show MovieDocument;
@@ -29,7 +30,7 @@ List<Widget> printPanel(InspectorControls c) {
   final cmyChanged = _screenCMY.any((f) => (c.profile[f] as num? ?? 0) != 0);
   final fixed = c.fixedSettings;
   return [
-    Section(title: 'Output', children: [
+    Section(title: T('Output'), children: [
       MediumRow(
         editor: editor,
         offersBands: !fixed && printMedium?['receiverBands'] == true,
@@ -99,7 +100,7 @@ List<Widget> printPanel(InspectorControls c) {
         ]),
       ),
     if (!fixed && editor.active != null) PrintFrameSection(editor: editor),
-    Section(title: 'Export', children: [
+    Section(title: T('Export'), children: [
       Builder(
         builder: (context) => Align(
           alignment: Alignment.centerLeft,

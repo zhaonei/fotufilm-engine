@@ -1,6 +1,7 @@
 // The grade deck, compact: a band switch, the band's colour pad (warm across, green up) over a
 // wash, and its level capsule.
 import 'dart:math' as math;
+import '../kit/strings.dart';
 
 import 'package:flutter/widgets.dart';
 
@@ -51,7 +52,7 @@ class _GradeDeckState extends State<GradeDeck> {
     var tint = ((size.height / 2 - p.dy) / spanY).clamp(-1.0, 1.0);
     // The centre holds, so neutral is easy to find.
     if (warmth.abs() < .06 && tint.abs() < .06) warmth = tint = 0;
-    _set({'Warmth': warmth, 'Tint': tint});
+    _set({'Warmth': warmth, T('Tint'): tint});
   }
 
   void _level(Offset p, Size size) {
@@ -82,7 +83,7 @@ class _GradeDeckState extends State<GradeDeck> {
   }
 
   String get _reading {
-    final warmth = _get('Warmth'), tint = _get('Tint'), level = _get('Level');
+    final warmth = _get('Warmth'), tint = _get(T('Tint')), level = _get('Level');
     final rounded = (level * 100).round();
     return [
       if (warmth != 0 || tint != 0) _cast(warmth, tint),
@@ -118,14 +119,14 @@ class _GradeDeckState extends State<GradeDeck> {
     final size = Size(width, Metrics.gradePadHeight);
     final (ground, wash) = _ground[_band]!;
     final knob = Offset(size.width / 2 + _get('Warmth') * (size.width / 2 - _padInset),
-        size.height / 2 - _get('Tint') * (size.height / 2 - _padInset));
-    final warmth = _get('Warmth'), tint = _get('Tint');
+        size.height / 2 - _get(T('Tint')) * (size.height / 2 - _padInset));
+    final warmth = _get('Warmth'), tint = _get(T('Tint'));
     return KeyTarget(
       label: 'Color balance pad',
       value: warmth == 0 && tint == 0 ? 'Neutral' : _cast(warmth, tint),
       onNudge: (direction, shift) {
         final step = shift ? _step / 10 : _step;
-        _nudge({'Warmth': direction.dx * step, 'Tint': -direction.dy * step});
+        _nudge({'Warmth': direction.dx * step, T('Tint'): -direction.dy * step});
       },
       radius: Metrics.gradePadRadius,
       child: GestureDetector(

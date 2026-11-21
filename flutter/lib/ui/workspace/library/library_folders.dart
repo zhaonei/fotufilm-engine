@@ -2,6 +2,7 @@
 // under a disclosure. A folder's menu rescans it, opens it as negatives or photos, or removes it
 // from the library.
 import 'package:flutter/widgets.dart';
+import '../../kit/strings.dart';
 
 import '../../../model/editor.dart';
 import '../../../model/library_model.dart';
@@ -109,7 +110,7 @@ class _LibraryFoldersState extends State<LibraryFolders> {
           padding: const EdgeInsets.fromLTRB(16, 0, 8, 0),
           child: Row(children: [
             Expanded(
-              child: Text('Library',
+              child: Text(T('Library'),
                   style: editorText(context, size: TextSizes.body, weight: FontWeight.w700)),
             ),
             // A folder of scanned negatives is added as one.

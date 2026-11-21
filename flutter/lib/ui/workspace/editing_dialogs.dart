@@ -3,6 +3,7 @@
 // files. Each follows the editor while it is open.
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../model/editor.dart';
 import '../../model/presets.dart';
@@ -88,7 +89,7 @@ class _SectionsDialogState extends State<_SectionsDialog> {
           PillButton('Check None', onPressed: () => setState(() => _sections = [])),
           const Spacer(),
           PillButton('Cancel', onPressed: widget.onClose),
-          PillButton(widget.preset ? 'Save' : 'Copy',
+          PillButton(widget.preset ? T('Save') : T('Copy'),
               variant: ButtonVariant.accent, onPressed: _ready ? _confirm : null),
         ],
         children: [
@@ -219,8 +220,8 @@ class _PresetsDialogState extends State<_PresetsDialog> {
         title: 'Delete “${preset.name}”?',
         width: 360,
         actions: [
-          PillButton('Cancel', onPressed: () => setState(() => _doomed = null)),
-          PillButton('Delete', variant: ButtonVariant.negative, onPressed: () {
+          PillButton(T('Cancel'), onPressed: () => setState(() => _doomed = null)),
+          PillButton(T('Delete'), variant: ButtonVariant.negative, onPressed: () {
             editor.presets.delete(preset.id);
             setState(() => _doomed = null);
           }),
@@ -232,7 +233,7 @@ class _PresetsDialogState extends State<_PresetsDialog> {
     final presets = editor.presets;
     final usable = editor.active != null && !editor.exporting;
     return DialogCard(
-      title: 'Presets',
+      title: T('Presets'),
       actions: [
         PillButton('Import Looks…', onPressed: () => importLooks(context, editor)),
         PillButton('Export All…',
@@ -260,9 +261,9 @@ class _PresetsDialogState extends State<_PresetsDialog> {
                     ),
                     const SizedBox(width: 8),
                     if (_renaming == preset.id)
-                      PillButton('Rename', variant: ButtonVariant.accent, onPressed: _renamed)
+                      PillButton(T('Rename'), variant: ButtonVariant.accent, onPressed: _renamed)
                     else
-                      PillButton('Apply',
+                      PillButton(T('Apply'),
                           onPressed: usable
                               ? () {
                                   presets.applyPreset(preset.id);
@@ -271,14 +272,14 @@ class _PresetsDialogState extends State<_PresetsDialog> {
                               : null),
                     const SizedBox(width: 4),
                     QuietButton(
-                        icon: 'edited', tooltip: 'Rename', onPressed: () => _rename(preset)),
+                        icon: 'edited', tooltip: T('Rename'), onPressed: () => _rename(preset)),
                     QuietButton(
                         icon: 'export',
                         tooltip: 'Export as a Look File…',
                         onPressed: () => presets.export([preset.id])),
                     QuietButton(
                         icon: 'delete',
-                        tooltip: 'Delete',
+                        tooltip: T('Delete'),
                         onPressed: () => setState(() => _doomed = preset)),
                   ]),
                 ),

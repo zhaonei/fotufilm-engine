@@ -2,6 +2,7 @@
 // negatives from the frame's folder; its colour balance is measured on all of them and kept with
 // each, every frame still timed on its own highlights.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../kit/kit.dart';
 import 'controls.dart';
@@ -28,7 +29,7 @@ List<Widget> rollPanel(InspectorControls c) {
               '${measuring.total}',
           value: measuring.done / measuring.total,
         ),
-        ScanButton('Cancel', onPressed: scans.cancelMeasure),
+        ScanButton(T('Cancel'), onPressed: scans.cancelMeasure),
       ] else
         ScanButton(roll != null ? 'Measure Roll Again' : 'Measure Roll',
             onPressed: disabled || !enough ? null : scans.measureRoll),

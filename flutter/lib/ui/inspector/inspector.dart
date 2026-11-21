@@ -2,6 +2,7 @@
 // chosen panel's sections; in the phone's dock, the sections alone. Collapsed, it is a rail of the
 // panels' buttons.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../model/editor.dart';
 import '../../model/panel_layout.dart';
@@ -59,7 +60,7 @@ class _EditorInspectorState extends State<EditorInspector> {
             child: Row(children: [
               Text(
                   switch (editor.panel) {
-                    Panel.crop => 'Crop',
+                    Panel.crop => T('Crop'),
                     Panel.selective => 'Selective',
                     _ => 'Darkroom',
                   },

@@ -3,6 +3,7 @@
 // its dyes' crosstalk is undone, the light it was scanned under and the light frame that evens it
 // out. The print is the Print panel's.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../model/negatives.dart';
 import '../kit/kit.dart';
@@ -33,7 +34,7 @@ List<Widget> negativePanel(InspectorControls c) {
   final frames = scans.lightFrames;
   return [
     Section(title: 'Negative', children: [
-      InfoRow('Film', c.stock?['name'] as String? ?? 'Normal'),
+      InfoRow('Film', c.stock?['name'] as String? ?? T('Normal')),
       if (suggestions.isNotEmpty) const InfoRow('Base looks like', ''),
       for (final s in suggestions)
         ScanButton(

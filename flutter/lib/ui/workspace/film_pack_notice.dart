@@ -2,6 +2,7 @@
 // "Pack not added" and why, or that the pack needs a newer Fotufilm, which offers the update.
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../model/editor.dart';
 import '../../model/film_packs.dart';
@@ -30,7 +31,7 @@ class FilmPackNotice extends StatelessWidget {
       title: notice.title,
       message: notice.message,
       warning: !notice.added,
-      primary: offerUpdate ? 'Check for Updates…' : 'OK',
+      primary: offerUpdate ? 'Check for Updates…' : T('OK'),
       onPrimary: () {
         onClose();
         if (offerUpdate) editor.updates.check();

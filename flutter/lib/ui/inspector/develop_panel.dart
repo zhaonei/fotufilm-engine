@@ -1,5 +1,6 @@
 // The Develop panel: push and bleach, grain, and the film's colour separation.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../kit/kit.dart';
 import 'controls.dart';
@@ -20,7 +21,7 @@ List<Widget> developPanel(InspectorControls c) {
     'chromaticFringeRadius',
   ];
   return [
-    Section(title: 'Development', children: c.profileControls(const ['push', 'bleach'])),
+    Section(title: T('Development'), children: c.profileControls(const ['push', 'bleach'])),
     Section(title: 'Grain', children: [
       ...c.sliders('Character'),
       ...c.profileControls(const [

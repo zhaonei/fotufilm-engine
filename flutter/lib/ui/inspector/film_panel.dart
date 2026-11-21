@@ -1,6 +1,7 @@
 // The Film panel: the loaded film, its format chosen by eye, its condition and its halation. A film
 // with a fixed profile has none of its settings.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../model/editor.dart';
 import '../kit/kit.dart';
@@ -14,7 +15,7 @@ List<Widget> _following(EditorModel editor) {
     return [
       Align(
         alignment: Alignment.centerLeft,
-        child: PillButton(camera ? 'Match the Camera' : 'Match the Film',
+        child: PillButton(camera ? 'Match the Camera' : T('Match the Film'),
             onPressed: () => editor.change({'format': null})),
       ),
     ];
@@ -39,9 +40,9 @@ List<Widget> filmPanel(InspectorControls c) {
   return [
     Section(title: 'Loaded Film', children: [
       if (fixed) const Note('Fixed profile: film settings are off.'),
-      InfoRow('Stock', c.stock?['name'] as String? ?? ''),
+      InfoRow(T('Stock'), c.stock?['name'] as String? ?? ''),
     ]),
-    if (!fixed) Section(title: 'Film Format', children: [
+    if (!fixed) Section(title: T('Film Format'), children: [
       FormatPicker(editor: editor),
       SwitchRow(
         label: 'Magnified Detail',

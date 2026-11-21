@@ -1,6 +1,7 @@
 // The Crop tool's panel: orientation, the crop's shape, aspect and straightening with its size,
 // perspective, and Reset and Done.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../kit/kit.dart';
 import '../theme/theme.dart';
@@ -18,7 +19,7 @@ List<Widget> cropPanel(InspectorControls c) {
         Expanded(child: _ActionButton(icon: 'flip', label: 'Flip', onPressed: crop.flip)),
       ]),
     ]),
-    Section(title: 'Crop', children: [
+    Section(title: T('Crop'), children: [
       _ToggleButton(
         label: 'Four-Corner Crop',
         selected: crop.shape == 'corners',
@@ -42,7 +43,7 @@ List<Widget> cropPanel(InspectorControls c) {
     ]),
     Section(title: 'Finish', children: [
       PillButton('Reset Crop', expand: true, onPressed: crop.reset),
-      PillButton('Done', expand: true, variant: ButtonVariant.accent, onPressed: crop.done),
+      PillButton(T('Done'), expand: true, variant: ButtonVariant.accent, onPressed: crop.done),
     ]),
   ];
 }

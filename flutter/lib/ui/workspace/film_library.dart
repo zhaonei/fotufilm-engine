@@ -2,6 +2,7 @@
 // each film with the photograph developed on it. Collapsed, it is a column of pictures; on a
 // phone, a strip of them to swipe through.
 import 'dart:ui' as ui;
+import '../kit/strings.dart';
 
 import 'package:flutter/widgets.dart';
 
@@ -150,7 +151,7 @@ class _FilmLibraryState extends State<FilmLibrary> {
               editor: editor,
               id: id ?? '',
               child: StockRow(
-              name: stock?['name'] as String? ?? 'Normal',
+              name: stock?['name'] as String? ?? T('Normal'),
               kind: stock == null ? 'No film' : 'Film',
               thumbnail: doc?.filmThumbnails[id ?? ''] ?? doc?.importPicture,
               selected: id == selected,
@@ -196,7 +197,7 @@ class _FilmLibraryState extends State<FilmLibrary> {
             editor: editor,
             id: id ?? '',
             child: StripTile(
-              name: stock?['name'] as String? ?? 'Normal',
+              name: stock?['name'] as String? ?? T('Normal'),
               thumbnail: doc?.filmThumbnails[id ?? ''] ?? doc?.importPicture,
               selected: id == selected,
               onPressed: doc == null ? null : () => editor.chooseStock(id),

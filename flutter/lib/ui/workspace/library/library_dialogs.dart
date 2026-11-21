@@ -2,6 +2,7 @@
 // confirmations to move photos to the Trash and to remove a folder.
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import '../../kit/strings.dart';
 
 import '../../../model/library_model.dart';
 import '../../kit/kit.dart';
@@ -97,12 +98,12 @@ class _RenameDialogState extends State<_RenameDialog> {
         title: 'Rename Photo',
         width: 360,
         actions: [
-          PillButton('Cancel', onPressed: widget.onClose),
-          PillButton('Rename',
+          PillButton(T('Cancel'), onPressed: widget.onClose),
+          PillButton(T('Rename'),
               variant: ButtonVariant.accent, onPressed: problem == null ? _submit : null),
         ],
         children: [
-          Text('Name', style: editorText(context, size: TextSizes.label, color: palette.muted)),
+          Text(T('Name'), style: editorText(context, size: TextSizes.label, color: palette.muted)),
           const SizedBox(height: 4),
           Container(
             height: 28,
@@ -146,7 +147,7 @@ void showConfirmDialog(BuildContext context,
             title: title,
             width: 400,
             actions: [
-              PillButton('Cancel', onPressed: close),
+              PillButton(T('Cancel'), onPressed: close),
               PillButton(action, variant: ButtonVariant.negative, onPressed: () {
                 close();
                 onConfirm();

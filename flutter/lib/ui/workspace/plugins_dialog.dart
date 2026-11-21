@@ -2,6 +2,7 @@
 // Mac app's Plugins menu actions for each. Opened from the More menu, the Plugins menu, or at
 // launch when this build's plug-ins are not in place.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../model/editor.dart';
 import '../../model/plugins.dart';
@@ -66,7 +67,7 @@ class _PluginsDialogState extends State<PluginsDialog> {
   Widget _list() {
     final catalogue = model.catalogue;
     return AppDialogCard(
-      title: 'Plug-ins',
+      title: T('Plug-ins'),
       onDismiss: widget.onClose,
       children: [
         PaneNote('Fotufilm can develop film inside '

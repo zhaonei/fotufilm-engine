@@ -1,6 +1,7 @@
 // The bar over the grid: what is shown and how many, then the search, the order, the least rating,
 // Edited only, the tile size and Open.
 import 'package:flutter/widgets.dart';
+import '../../kit/strings.dart';
 
 import '../../../model/library_model.dart';
 import '../../kit/kit.dart';
@@ -164,7 +165,7 @@ class _SearchField extends StatelessWidget {
           child: EditableField(
             controller: controller,
             style: editorText(context),
-            placeholder: 'Search',
+            placeholder: T('Search'),
             onChanged: onChanged,
           ),
         ),

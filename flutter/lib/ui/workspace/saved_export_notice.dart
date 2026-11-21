@@ -2,6 +2,7 @@
 // it), Show in Finder and Dismiss. Export All saved many files, so only Show in Finder is offered
 // for it. In a browser the export is a download, so only Dismiss is.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../app/host_window.dart';
 import '../../model/editor.dart';
@@ -41,7 +42,7 @@ class SavedExportNotice extends StatelessWidget {
             const SizedBox(width: 16),
             if (HostWindow.showsFiles) ...[
               if (saved.count == null) ...[
-                _NoticeButton('Open', () => HostWindow.openFile(saved.path)),
+                _NoticeButton(T('Open'), () => HostWindow.openFile(saved.path)),
                 const SizedBox(width: 16),
               ],
               _NoticeButton(HostWindow.revealLabel, () => HostWindow.reveal([saved.path])),

@@ -1,5 +1,6 @@
 // The "?" beside a control's name: the catalogue's description of the control in a popover.
 import 'package:flutter/widgets.dart';
+import './strings.dart';
 
 import '../theme/theme.dart';
 import 'buttons.dart';
@@ -29,7 +30,7 @@ class HelpButton extends StatelessWidget {
           );
       return KeyTarget(
         onActivate: open,
-        label: 'Help',
+        label: T('Help'),
         radius: size,
         child: MouseRegion(
         cursor: SystemMouseCursors.click,

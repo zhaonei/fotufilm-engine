@@ -1,6 +1,7 @@
 // Check for Updates' answers, as the Mac app's alerts give them: a notice, a release on offer, or
 // its download with progress.
 import 'package:flutter/widgets.dart';
+import '../kit/strings.dart';
 
 import '../../model/editor.dart';
 import '../../model/updates.dart';
@@ -22,7 +23,7 @@ class UpdateDialog extends StatelessWidget {
               title: notice.title,
               message: notice.message,
               warning: notice.warning,
-              primary: 'OK',
+              primary: T('OK'),
               onPrimary: onClose,
             ),
           final UpdateDownloading download => _downloading(context, download),
@@ -35,7 +36,7 @@ class UpdateDialog extends StatelessWidget {
     return AppDialogCard(
       title: 'Downloading Fotufilm ${download.version}…',
       width: 400,
-      actions: [PillButton('Cancel', onPressed: editor.updates.cancel)],
+      actions: [PillButton(T('Cancel'), onPressed: editor.updates.cancel)],
       children: [
         const Text('The installer opens once the download matches the checksum its release '
             'published.'),
